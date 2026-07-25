@@ -832,6 +832,7 @@ scan_code \
   "$module_dir/model_catalog.mli"
 
 for private_module in \
+  exact_output_count_tokens \
   exact_output_plan \
   exact_output_execution \
   exact_output_flow \
@@ -845,6 +846,11 @@ do
     exit 1
   fi
 done
+
+scan_code \
+  "public CountTokens surface exposed exact-output measurement primitives" \
+  'exact_completion_(artifact|measurement_request)|freeze_exact_completion_artifact|count_exact_completion_request_with_evidence|exact_generation_artifact_serialization_count' \
+  "$module_dir/count_tokens_sync.mli"
 
 # The generic outer executor is private, affine, and policy-free. The facade is
 # the only place allowed to interpret exact receipt/cause types.
@@ -962,12 +968,12 @@ require_type_block_pattern \
 require_named_function_pattern \
   "exact CountTokens path rebuilt the generation request instead of freezing one artifact" \
   'Backend_anthropic[.]build_request_artifact_with_thinking_control' \
-  "$(dirname "$exact_output_source")/count_tokens_sync.ml" \
+  "$(dirname "$exact_output_source")/exact_output_count_tokens.ml" \
   'freeze_exact_completion_artifact'
 scan_named_functions \
   "exact CountTokens artifact returned to legacy generation or count-token reconstruction" \
   'build_request_artifact([^_]|$)|build_count_tokens_request|nonexact_anthropic_thinking_control|serialized_request_body' \
-  "$(dirname "$exact_output_source")/count_tokens_sync.ml" \
+  "$(dirname "$exact_output_source")/exact_output_count_tokens.ml" \
   "freeze_exact_completion_artifact count_tokens_body_of_generation_artifact"
 require_opaque_type \
   "target-selection errors stopped being opaque" \

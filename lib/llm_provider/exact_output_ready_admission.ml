@@ -67,6 +67,8 @@ type token_capacity_rejection =
       ; rejected_from_tokens : int
       }
 
+type context_fit = Prepared_completion_request.context_fit
+
 type wire_admission_error =
   | Capability_snapshot_missing
   | Inconsistent_output_contract
@@ -84,7 +86,7 @@ type wire_admission_error =
   | Context_limit_unavailable
   | Invalid_context_limit
   | Output_reservation_unavailable
-  | Measured_context_window_exceeded of Complete.context_fit
+  | Measured_context_window_exceeded of context_fit
   | Measured_serving_constraint_rejected of token_capacity_rejection
   | Token_measurement_failed
   | Unsupported_target_model of { model_id : string }
@@ -405,8 +407,7 @@ let admit_flow_request
         (match error with
          | Prepared_completion_request.Context_limit_unknown _ ->
            Context_limit_unavailable
-         | Prepared_completion_request.Invalid_context_limit _ ->
-           Invalid_context_limit
+         | Prepared_completion_request.Invalid_context_limit _ -> Invalid_context_limit
          | Prepared_completion_request.Output_reservation_unknown _ ->
            Output_reservation_unavailable
          | Prepared_completion_request.Context_window_exceeded fit ->

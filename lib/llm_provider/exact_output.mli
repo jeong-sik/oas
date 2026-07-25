@@ -183,14 +183,7 @@ type candidate_rejection_disposition =
   | Input_capacity of input_capacity_disposition
   | Request_preparation_failed
 
-type plan_provenance = Exact_output_ready_admission.plan_provenance = private
-  { source_schema_fingerprint : schema_fingerprint
-  ; effective_schema_fingerprint : schema_fingerprint option
-  ; actual_assurance : actual_assurance
-  ; catalog_generation : catalog_generation
-  ; catalog_evidence : catalog_evidence
-  ; target_identity : target_identity
-  }
+type plan_provenance
 
 type effect_phase =
   | Not_started
@@ -433,8 +426,22 @@ val admit
   -> (ready_plan, admission_error) result
 
 val plan_provenance : ready_plan -> plan_provenance
+val plan_provenance_source_schema_fingerprint : plan_provenance -> schema_fingerprint
+
+val plan_provenance_effective_schema_fingerprint
+  :  plan_provenance
+  -> schema_fingerprint option
+
+val plan_provenance_actual_assurance : plan_provenance -> actual_assurance
+val plan_provenance_catalog_generation : plan_provenance -> catalog_generation
+val plan_provenance_catalog_evidence : plan_provenance -> catalog_evidence
+val plan_provenance_target_identity : plan_provenance -> target_identity
 val plan_fingerprint : ready_plan -> string
 val schema_fingerprint_to_string : schema_fingerprint -> string
+
+module For_testing : sig
+  val exact_generation_artifact_serialization_count : unit -> int
+end
 
 type start_attempt_error = Call_id_generation_failed of string
 
@@ -473,6 +480,44 @@ val receipt_catalog_generation : receipt -> catalog_generation
 val receipt_catalog_evidence : receipt -> catalog_evidence
 val receipt_target_identity : receipt -> target_identity
 
+(** Immutable generation-receipt fact captured from one atomic state read. *)
+type generation_receipt_snapshot
+
+val generation_receipt_snapshot_phase : generation_receipt_snapshot -> effect_phase
+val generation_receipt_snapshot_dispatch_count
+  :  generation_receipt_snapshot
+  -> int
+
+val generation_receipt_snapshot_http_status
+  :  generation_receipt_snapshot
+  -> int option
+
+val generation_receipt_snapshot_provider_trace
+  :  generation_receipt_snapshot
+  -> provider_trace option
+
+val generation_receipt_snapshot_call_id : generation_receipt_snapshot -> call_id
+
+val generation_receipt_snapshot_plan_fingerprint
+  :  generation_receipt_snapshot
+  -> string
+
+val generation_receipt_snapshot_request_body_sha256
+  :  generation_receipt_snapshot
+  -> string
+
+val generation_receipt_snapshot_catalog_generation
+  :  generation_receipt_snapshot
+  -> catalog_generation
+
+val generation_receipt_snapshot_catalog_evidence
+  :  generation_receipt_snapshot
+  -> catalog_evidence
+
+val generation_receipt_snapshot_target_identity
+  :  generation_receipt_snapshot
+  -> target_identity
+
 (** One immutable outer-flow binding. [scope], opaque candidate identity, and
     the one-shot execution receipt travel together; consumers do not rebuild
     that join from coordinator or target strings. *)
@@ -480,6 +525,13 @@ type flow_attempt_receipt = private
   { scope : flow_scope
   ; visit : flow_candidate_visit
   ; receipt : receipt
+  }
+
+(** Immutable evidence copy of one generation attempt. *)
+type flow_attempt_snapshot = private
+  { scope : flow_scope
+  ; visit : flow_candidate_visit
+  ; receipt : generation_receipt_snapshot
   }
 
 val candidate_visit_count_to_int : candidate_visit_count -> int
@@ -519,7 +571,7 @@ type flow_evidence = private
   ; candidate_visit_count : candidate_visit_count
   ; measurements : measurement_receipt_snapshot list
   ; admissions : candidate_admission list
-  ; attempts : flow_attempt_receipt list
+  ; attempts : flow_attempt_snapshot list
   }
 
 val flow_success_candidate : flow_success -> flow_attempt_receipt

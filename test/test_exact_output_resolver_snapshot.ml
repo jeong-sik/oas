@@ -200,9 +200,12 @@ let frozen_observation snapshot target =
       EO.selected_target_catalog_evidence target |> EO.catalog_evidence_sha256
   ; selected_identity = identity target
   ; provenance_generation =
-      EO.catalog_generation_fingerprint provenance.catalog_generation
-  ; provenance_evidence = EO.catalog_evidence_sha256 provenance.catalog_evidence
-  ; provenance_identity = EO.target_identity_fingerprint provenance.target_identity
+      EO.plan_provenance_catalog_generation provenance
+      |> EO.catalog_generation_fingerprint
+  ; provenance_evidence =
+      EO.plan_provenance_catalog_evidence provenance |> EO.catalog_evidence_sha256
+  ; provenance_identity =
+      EO.plan_provenance_target_identity provenance |> EO.target_identity_fingerprint
   ; receipt_generation =
       EO.receipt_catalog_generation receipt |> EO.catalog_generation_fingerprint
   ; receipt_evidence = EO.receipt_catalog_evidence receipt |> EO.catalog_evidence_sha256

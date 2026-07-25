@@ -66,6 +66,8 @@ type token_capacity_rejection =
       ; rejected_from_tokens : int
       }
 
+type context_fit = Prepared_completion_request.context_fit
+
 type wire_admission_error =
   | Capability_snapshot_missing
   | Inconsistent_output_contract
@@ -83,7 +85,7 @@ type wire_admission_error =
   | Context_limit_unavailable
   | Invalid_context_limit
   | Output_reservation_unavailable
-  | Measured_context_window_exceeded of Complete.context_fit
+  | Measured_context_window_exceeded of context_fit
   | Measured_serving_constraint_rejected of token_capacity_rejection
   | Token_measurement_failed
   | Unsupported_target_model of { model_id : string }

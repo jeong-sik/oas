@@ -10,6 +10,7 @@
   tool_call_input
   output_token_wire_internal
   request_artifact_internal
+  exact_output_count_tokens
   prepared_completion_request
   http_client_phase_observer
   exact_output_catalog_binding

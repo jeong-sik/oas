@@ -69,8 +69,8 @@ val prepared_request : preflight -> Prepared_completion_request.t
 
 val measurement_request
   :  preflight
-  -> ( Count_tokens_sync.exact_completion_measurement_request
-       , Count_tokens_sync.completion_request_error )
+  -> ( Exact_output_count_tokens.exact_completion_measurement_request
+       , Exact_output_count_tokens.completion_request_error )
        result
 
 val serving_constraint : preflight -> Serving_constraint.t option

@@ -57,8 +57,7 @@ let count_anthropic_with_before_dispatch
       match request_body with
       | Error error ->
         Error
-          (Count_failed
-             (Input_token_count.Transport error, Measurement_before_dispatch))
+          (Count_failed (Input_token_count.Transport error, Measurement_before_dispatch))
       | Ok body ->
         let callback_failure = ref None in
         let before_http_dispatch () =
@@ -109,8 +108,7 @@ let count_anthropic_with_before_dispatch
              ~model_id:config.model_id
              response_body
            |> Result.map_error (fun error ->
-             Count_failed
-               (error, Measurement_response_received response.status)))
+             Count_failed (error, Measurement_response_received response.status)))
     in
     result
   | Provider_config.OpenAI_compat
@@ -150,7 +148,7 @@ let count_anthropic
   with
   | Ok count -> Ok count
   | Error (Count_failed (error, _)) -> Error error
-  | Error (Count_before_dispatch_failed impossible) -> (match impossible with _ -> .)
+  | Error (Count_before_dispatch_failed _) -> .
 ;;
 
 type completion_request_measurement =
@@ -164,27 +162,8 @@ type completion_request_error =
   | Invalid_completion_request of string
 
 type 'callback_error completion_request_dispatch_error =
-  | Completion_request_failed of
-      completion_request_error * measurement_transport_stage
+  | Completion_request_failed of completion_request_error * measurement_transport_stage
   | Before_dispatch_failed of 'callback_error
-
-type exact_completion_measurement_request =
-  { protocol : Input_token_count.protocol
-  ; model_id : string
-  ; url : string
-  ; headers : (string * string) list
-  ; body : string
-  ; connect_timeout_s : float option
-  ; body_timeout_s : float option
-  ; output_token_receipt : Types.output_token_receipt
-  }
-
-type exact_completion_artifact =
-  { generation_artifact : Backend_anthropic.request_artifact
-  ; measurement_request : exact_completion_measurement_request
-  }
-
-let exact_generation_artifact_serializations = Atomic.make 0
 
 let supports_completion_request_measurement (config : Provider_config.t) =
   match config.kind with
@@ -194,144 +173,6 @@ let supports_completion_request_measurement (config : Provider_config.t) =
   | Provider_config.Gemini
   | Provider_config.Glm
   | Provider_config.DashScope -> false
-;;
-
-let count_tokens_body_of_generation_artifact generation_artifact =
-  let generation_only_field = function
-    | "max_tokens" | "stream" | "temperature" | "top_p" | "top_k" -> true
-    | _ -> false
-  in
-  try
-    match
-      Backend_anthropic.request_payload generation_artifact
-      |> Yojson.Safe.from_string
-    with
-    | `Assoc fields ->
-      fields
-      |> List.filter (fun (name, _) -> not (generation_only_field name))
-      |> fun fields -> Ok (Yojson.Safe.to_string (`Assoc fields))
-    | _ ->
-      Error
-        (Invalid_completion_request
-           "frozen Anthropic generation artifact is not a JSON object")
-  with
-  | Yojson.Json_error detail -> Error (Invalid_completion_request detail)
-;;
-
-let freeze_exact_completion_artifact
-      ~anthropic_thinking_control
-      (request : Llm_transport.completion_request)
-  =
-  let config = request.config in
-  let protocol = Input_token_count.Anthropic_messages_count_tokens in
-  if supports_completion_request_measurement config
-  then (
-    Atomic.incr exact_generation_artifact_serializations;
-    try
-      match
-        Backend_anthropic.build_request_artifact_with_thinking_control
-          ~stream:false
-          ~anthropic_thinking_control
-          ~config
-          ~messages:request.messages
-          ~tools:request.tools
-          ()
-      with
-      | Error error -> Error (Output_token_resolution_failed error)
-      | Ok generation_artifact ->
-        (match count_tokens_body_of_generation_artifact generation_artifact with
-         | Error _ as error -> error
-         | Ok body ->
-           let measurement_request =
-             { protocol
-             ; model_id = config.model_id
-             ; url = count_tokens_url config
-             ; headers =
-                 config.headers
-                 @ Provider_config.auth_headers_for_config config
-                 @ [ "Content-Type", "application/json"
-                   ; "Content-Length", string_of_int (String.length body)
-                   ]
-             ; body
-             ; connect_timeout_s = config.connect_timeout_s
-             ; body_timeout_s = request.body_timeout_s
-             ; output_token_receipt =
-                 Backend_anthropic.request_output_token_receipt generation_artifact
-             }
-           in
-           Ok { generation_artifact; measurement_request })
-    with
-    | Invalid_argument detail -> Error (Invalid_completion_request detail))
-  else
-    Error
-      (Input_count_failed
-         (Input_token_count.Unsupported { protocol; model_id = config.model_id }))
-;;
-
-let exact_completion_generation_body artifact =
-  Backend_anthropic.request_payload artifact.generation_artifact
-;;
-
-let exact_completion_measurement_request artifact = artifact.measurement_request
-
-let measure_exact_completion_request_with_before_dispatch
-      ?connection_cache
-      ?clock
-      ~net
-      ~before_dispatch
-      (request : exact_completion_measurement_request)
-  =
-  let callback_failure = ref None in
-  let before_http_dispatch () =
-    match before_dispatch () with
-    | Ok () -> Ok ()
-    | Error cause ->
-      callback_failure := Some cause;
-      Error
-        (Http_client.AcceptRejected
-           { reason = "exact measurement durable dispatch fence rejected" })
-  in
-  let transport =
-    Http_client.post_sync_once_with_evidence
-      ?cache:connection_cache
-      ?clock
-      ?connect_timeout_s:request.connect_timeout_s
-      ?body_timeout_s:request.body_timeout_s
-      ~before_dispatch:before_http_dispatch
-      ~net
-      ~url:request.url
-      ~headers:request.headers
-      ~body:request.body
-      ()
-  in
-  match !callback_failure, transport with
-  | Some cause, _ -> Error (Before_dispatch_failed cause)
-  | None, Error transport_error ->
-    let stage, error = transport_error_stage transport_error in
-    Error
-      (Completion_request_failed
-         (Input_count_failed (Input_token_count.Transport error), stage))
-  | None, Ok (response, _) ->
-    let response_body =
-      if response.status >= 200 && response.status < 300
-      then Ok response.body
-      else
-        Error
-          (Http_client.HttpError
-             { code = response.status
-             ; body = response.body
-             ; retry_after_header = response.retry_after_header
-             })
-    in
-    Input_token_count.decode_transport_result
-      ~protocol:request.protocol
-      ~model_id:request.model_id
-      response_body
-    |> Result.map_error (fun error ->
-      Completion_request_failed
-        (Input_count_failed error, Measurement_response_received response.status))
-    |> Result.map (fun input_count ->
-      { input_count; output_token_receipt = request.output_token_receipt })
 ;;
 
 let measure_completion_request_with_before_dispatch
@@ -397,11 +238,5 @@ let measure_completion_request ?connection_cache ?clock ?timeout_s ~sw ~net requ
   with
   | Ok measurement -> Ok measurement
   | Error (Completion_request_failed (error, _)) -> Error error
-  | Error (Before_dispatch_failed impossible) -> (match impossible with _ -> .)
+  | Error (Before_dispatch_failed _) -> .
 ;;
-
-module For_testing = struct
-  let exact_generation_artifact_serialization_count () =
-    Atomic.get exact_generation_artifact_serializations
-  ;;
-end

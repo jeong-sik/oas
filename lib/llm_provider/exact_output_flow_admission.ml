@@ -1,5 +1,6 @@
 module Plan = Exact_output_plan
 module Prepared = Prepared_completion_request
+module Count_tokens = Exact_output_count_tokens
 
 type measurement_dispatch_fact =
   | No_measurement_dispatch
@@ -131,7 +132,10 @@ let snapshot_of_state receipt = function
     }
 ;;
 
-let receipt_snapshot receipt = snapshot_of_state receipt (Atomic.get receipt.state)
+let receipt_snapshot (receipt : measurement_receipt) =
+  snapshot_of_state receipt (Atomic.get receipt.state)
+;;
+
 let receipt_phase receipt = (receipt_snapshot receipt).phase
 let receipt_dispatch_fact receipt = (receipt_snapshot receipt).dispatch
 let receipt_outcome receipt = (receipt_snapshot receipt).outcome
@@ -158,11 +162,7 @@ let rec finish_receipt receipt outcome_of_dispatch =
   match current with
   | Terminal evidence -> evidence
   | Fence_committed ->
-    finish_receipt_from
-      receipt
-      current
-      Measurement_dispatch_unknown
-      outcome_of_dispatch
+    finish_receipt_from receipt current Measurement_dispatch_unknown outcome_of_dispatch
   | No_dispatch_confirmed ->
     finish_receipt_from receipt current No_measurement_dispatch outcome_of_dispatch
   | Wire_started ->
@@ -181,21 +181,22 @@ let reject ?(dispatch = No_measurement_dispatch) cause =
 ;;
 
 let measurement_failure = function
-  | Count_tokens_sync.Input_count_failed (Input_token_count.Unsupported _ as error) ->
+  | Count_tokens.Input_count_failed (Input_token_count.Unsupported _ as error) ->
     Unsupported_failure error
-  | Count_tokens_sync.Input_count_failed (Input_token_count.Transport error) ->
+  | Count_tokens.Input_count_failed (Input_token_count.Transport error) ->
     Transport_failure error
-  | Count_tokens_sync.Input_count_failed (Input_token_count.Invalid_response _ as error)
+  | Count_tokens.Input_count_failed (Input_token_count.Invalid_response _ as error)
     -> Invalid_response_failure error
-  | Count_tokens_sync.Output_token_resolution_failed error ->
+  | Count_tokens.Output_token_resolution_failed error ->
     Output_token_resolution_failure error
-  | Count_tokens_sync.Invalid_completion_request detail -> Invalid_request_failure detail
+  | Count_tokens.Invalid_completion_request detail -> Invalid_request_failure detail
 ;;
 
 let record_transport_stage receipt = function
-  | Count_tokens_sync.Measurement_before_dispatch -> confirm_no_dispatch receipt
-  | Count_tokens_sync.Measurement_dispatch_started
-  | Count_tokens_sync.Measurement_response_received _ -> advance_receipt receipt Wire_started
+  | Count_tokens.Measurement_before_dispatch -> confirm_no_dispatch receipt
+  | Count_tokens.Measurement_dispatch_started
+  | Count_tokens.Measurement_response_received _ ->
+    advance_receipt receipt Wire_started
 ;;
 
 let admit
@@ -234,116 +235,89 @@ let admit
              if measurement_requires_clock && Option.is_none clock
              then Measurement_clock_required_for_timeout
              else (
-               let measurement_receipt = ref None in
-               let observe = function
-                 | Http_client_phase_observer.Dispatch_started ->
-                   Option.iter
-                     (fun receipt -> advance_receipt receipt Wire_started)
-                     !measurement_receipt
-                 | Http_client_phase_observer.Response_received _ -> ()
-               in
-               let terminal_callback receipt outcome_of_dispatch =
-                 let measurement = finish_receipt receipt outcome_of_dispatch in
-                 match on_measurement_terminal receipt with
-                 | Ok () -> Ok measurement
-                 | Error cause -> Error cause
-               in
-               let before_dispatch () =
-                 match Exact_output_call_id.create () with
-                 | Error detail -> Error (`Operation_start_failed detail)
-                 | Ok raw_operation_id ->
-                   let receipt =
-                     { operation_id = Measurement_operation_id raw_operation_id
-                     ; request_body_sha256 = Plan.preflight_request_body_sha256 preflight
-                     ; state = Atomic.make Fence_committed
-                     }
-                   in
-                   measurement_receipt := Some receipt;
-                   on_measurement_receipt receipt;
-                   (match before_measurement_dispatch receipt with
-                    | Ok () -> Ok ()
-                    | Error cause ->
-                      confirm_no_dispatch receipt;
-                      (match
-                         terminal_callback receipt (fun _ -> Measurement_fence_rejected)
-                       with
-                       | Ok _ -> Error (`Before_dispatch_failed (receipt, cause))
-                       | Error terminal_cause ->
-                         Error (`Terminal_callback_failed (receipt, terminal_cause))))
-               in
-               let measured =
-                 Http_client_phase_observer.with_observer observe (fun () ->
-                   Count_tokens_sync.measure_exact_completion_request_with_before_dispatch
-                     ~net
-                     ?clock
-                     ~before_dispatch
-                     measurement_request)
-               in
-               let terminalize receipt outcome_of_dispatch make_outcome =
-                 match terminal_callback receipt outcome_of_dispatch with
-                 | Ok measurement -> make_outcome measurement
-                 | Error cause -> Measurement_terminal_callback_failed { receipt; cause }
-               in
-               let reject_measured receipt cause =
-                 terminalize
-                   receipt
-                   (fun dispatch -> rejection_outcome dispatch cause)
-                   (fun measurement -> Rejected { cause; measurement })
-               in
-               match measured with
-               | Error
-                   (Count_tokens_sync.Before_dispatch_failed
-                      (`Operation_start_failed detail)) ->
-                 Measurement_operation_start_failed detail
-               | Error
-                   (Count_tokens_sync.Before_dispatch_failed
-                      (`Before_dispatch_failed (receipt, cause))) ->
-                 Before_measurement_dispatch_failed { receipt; cause }
-               | Error
-                   (Count_tokens_sync.Before_dispatch_failed
-                      (`Terminal_callback_failed (receipt, cause))) ->
-                 Measurement_terminal_callback_failed { receipt; cause }
-               | Error (Count_tokens_sync.Completion_request_failed (error, stage)) ->
-                 (match !measurement_receipt with
-                  | None -> reject (Measurement_rejected (measurement_failure error))
-                  | Some receipt ->
-                    record_transport_stage receipt stage;
-                    reject_measured
-                      receipt
-                      (Measurement_rejected (measurement_failure error)))
-               | Ok measurement ->
-                 Option.iter
-                   (fun receipt -> advance_receipt receipt Wire_started)
-                   !measurement_receipt;
-                 let measured =
-                   Prepared.attach_measurement
-                     (Plan.prepared_request preflight)
-                     measurement
+               match Exact_output_call_id.create () with
+               | Error detail -> Measurement_operation_start_failed detail
+               | Ok raw_operation_id ->
+                 let receipt =
+                   { operation_id = Measurement_operation_id raw_operation_id
+                   ; request_body_sha256 = Plan.preflight_request_body_sha256 preflight
+                   ; state = Atomic.make Fence_committed
+                   }
                  in
-                 (match
-                    Prepared.admit
-                      ~now_unix_s:(now_unix_s ())
-                      ~max_context_tokens
-                      measured
-                  with
-                  | Error error ->
-                    (match !measurement_receipt with
-                     | None -> assert false
-                     | Some receipt ->
-                       reject_measured receipt (Context_admission_rejected error))
-                  | Ok admitted ->
-                    (match Plan.finalize_measured preflight admitted with
-                     | Error error ->
-                       (match !measurement_receipt with
-                        | None -> assert false
-                        | Some receipt ->
-                          reject_measured receipt (Plan_finalization_rejected error))
-                     | Ok plan ->
-                       (match !measurement_receipt with
-                        | None -> assert false
-                        | Some receipt ->
-                          terminalize
-                            receipt
-                            (fun _ -> Measurement_succeeded)
-                            (fun measurement -> Admitted { plan; measurement }))))))))
+                 on_measurement_receipt receipt;
+                 let observe = function
+                   | Http_client_phase_observer.Dispatch_started ->
+                     advance_receipt receipt Wire_started
+                   | Http_client_phase_observer.Response_received _ -> ()
+                 in
+                 let terminal_callback outcome_of_dispatch =
+                   let measurement = finish_receipt receipt outcome_of_dispatch in
+                   match on_measurement_terminal receipt with
+                   | Ok () -> Ok measurement
+                   | Error cause -> Error cause
+                 in
+                 let before_dispatch () =
+                   match before_measurement_dispatch receipt with
+                   | Ok () -> Ok ()
+                   | Error cause ->
+                     confirm_no_dispatch receipt;
+                     (match terminal_callback (fun _ -> Measurement_fence_rejected) with
+                      | Ok _ -> Error (`Before_dispatch_failed cause)
+                      | Error terminal_cause ->
+                        Error (`Terminal_callback_failed terminal_cause))
+                 in
+                 let measured =
+                   Http_client_phase_observer.with_observer observe (fun () ->
+                     Count_tokens.measure_exact_completion_request_with_before_dispatch
+                       ~net
+                       ?clock
+                       ~before_dispatch
+                       measurement_request)
+                 in
+                 let terminalize outcome_of_dispatch make_outcome =
+                   match terminal_callback outcome_of_dispatch with
+                   | Ok measurement -> make_outcome measurement
+                   | Error cause ->
+                     Measurement_terminal_callback_failed { receipt; cause }
+                 in
+                 let reject_measured cause =
+                   terminalize
+                     (fun dispatch -> rejection_outcome dispatch cause)
+                     (fun measurement -> Rejected { cause; measurement })
+                 in
+                 match measured with
+                 | Error
+                     (Count_tokens.Before_dispatch_failed
+                        (`Before_dispatch_failed cause)) ->
+                   Before_measurement_dispatch_failed { receipt; cause }
+                 | Error
+                     (Count_tokens.Before_dispatch_failed
+                        (`Terminal_callback_failed cause)) ->
+                   Measurement_terminal_callback_failed { receipt; cause }
+                 | Error (Count_tokens.Completion_request_failed (error, stage)) ->
+                   record_transport_stage receipt stage;
+                   reject_measured (Measurement_rejected (measurement_failure error))
+                 | Ok measurement ->
+                   advance_receipt receipt Wire_started;
+                   let measured =
+                     Prepared.attach_measurement
+                       (Plan.prepared_request preflight)
+                       measurement
+                   in
+                   (match
+                      Prepared.admit
+                        ~now_unix_s:(now_unix_s ())
+                        ~max_context_tokens
+                        measured
+                    with
+                    | Error error ->
+                      reject_measured (Context_admission_rejected error)
+                    | Ok admitted ->
+                      (match Plan.finalize_measured preflight admitted with
+                       | Error error ->
+                         reject_measured (Plan_finalization_rejected error)
+                       | Ok plan ->
+                         terminalize
+                           (fun _ -> Measurement_succeeded)
+                           (fun measurement -> Admitted { plan; measurement }))))))))
 ;;

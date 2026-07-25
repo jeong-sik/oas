@@ -361,7 +361,7 @@ let flow_execution_failure = function
 let attempt_for evidence id =
   match
     List.find_opt
-      (fun (attempt : EO.flow_attempt_receipt) ->
+      (fun (attempt : EO.flow_attempt_snapshot) ->
          String.equal attempt.visit.identity.candidate_id id)
       evidence.EO.attempts
   with
@@ -2390,7 +2390,7 @@ let test_exact_anthropic_generation_artifact_serializes_once_per_request () =
     {|{"id":"msg-flow","type":"message","role":"assistant","model":"thinking-parity-model","content":[{"type":"text","text":"{\"name\":\"accepted\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
   in
   let serializations_before =
-    Count_tokens_sync.For_testing.exact_generation_artifact_serialization_count ()
+    EO.For_testing.exact_generation_artifact_serialization_count ()
   in
   let (), posts =
     with_counted_server ~measurement_reply:(Measurement_tokens 1) ~response
@@ -2431,7 +2431,7 @@ let test_exact_anthropic_generation_artifact_serializes_once_per_request () =
     execute "thinking-measured"
   in
   let serializations_after =
-    Count_tokens_sync.For_testing.exact_generation_artifact_serialization_count ()
+    EO.For_testing.exact_generation_artifact_serialization_count ()
   in
   check int "exact artifact measures only constrained request" 1 posts.measurement_posts;
   check int "exact artifact generates both requests" 2 posts.generation_posts;
@@ -2723,12 +2723,12 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
       bool
       "failed receipt remains before dispatch"
       true
-      (EO.receipt_phase failed.receipt = EO.Before_dispatch);
+      (EO.generation_receipt_snapshot_phase failed.receipt = EO.Before_dispatch);
     check
       int
       "failed receipt remains zero dispatch"
       0
-      (EO.receipt_dispatch_count failed.receipt)
+      (EO.generation_receipt_snapshot_dispatch_count failed.receipt)
   | Error _ -> fail "eligible pre-dispatch failure did not advance"
 ;;
 
@@ -2848,12 +2848,12 @@ let test_exception_after_durable_advance_stops_before_successor () =
          bool
          "failed attempt evidence remains before dispatch"
          true
-         (EO.receipt_phase failed.receipt = EO.Before_dispatch);
+         (EO.generation_receipt_snapshot_phase failed.receipt = EO.Before_dispatch);
        check
          int
          "failed attempt evidence remains zero dispatch"
          0
-         (EO.receipt_dispatch_count failed.receipt);
+         (EO.generation_receipt_snapshot_dispatch_count failed.receipt);
        check int "successor has no speculative attempt" 1 (List.length evidence.attempts);
        check
          int
@@ -3224,7 +3224,11 @@ let test_cancellation_terminalizes_outer_attempt () =
    | Error (EO.Flow_attempt_already_started _) -> ()
    | Ok _ | Error _ -> fail "cancelled flow was not terminal");
   let receipt = (attempt_for evidence "cancel-flow").receipt in
-  check int "cancelled receipt records dispatch" 1 (EO.receipt_dispatch_count receipt)
+  check
+    int
+    "cancelled receipt records dispatch"
+    1
+    (EO.generation_receipt_snapshot_dispatch_count receipt)
 ;;
 
 let () =

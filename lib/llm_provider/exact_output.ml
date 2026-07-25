@@ -35,19 +35,53 @@ include Exact_output_resolver
 include Flow_contract
 include Exact_output_ready_admission
 
+let plan_provenance_source_schema_fingerprint (provenance : plan_provenance) =
+  provenance.source_schema_fingerprint
+;;
+
+let plan_provenance_effective_schema_fingerprint (provenance : plan_provenance) =
+  provenance.effective_schema_fingerprint
+;;
+
+let plan_provenance_actual_assurance (provenance : plan_provenance) =
+  provenance.actual_assurance
+;;
+
+let plan_provenance_catalog_generation (provenance : plan_provenance) =
+  provenance.catalog_generation
+;;
+
+let plan_provenance_catalog_evidence (provenance : plan_provenance) =
+  provenance.catalog_evidence
+;;
+
+let plan_provenance_target_identity (provenance : plan_provenance) =
+  provenance.target_identity
+;;
+
+module For_testing = struct
+  let exact_generation_artifact_serialization_count () =
+    Exact_output_count_tokens.For_testing.generation_serializer_invocation_count ()
+  ;;
+end
+
+type call_id = Call_id of string
+type provider_trace = Trace.t
+
+type terminal_state =
+  { status : int
+  ; provider_trace : provider_trace option
+  }
+
 type attempt_state =
   | Not_started_state
   | Before_dispatch_state
   | Dispatch_started_state
   | Response_received_state of int option
-  | Terminal_state of int
-
-type call_id = Call_id of string
-type provider_trace = Trace.t
+  | Terminal_state of terminal_state
 
 type receipt =
   { state : attempt_state Atomic.t
-  ; provider_trace_state : provider_trace option Atomic.t
   ; call_id : call_id
   ; plan_fingerprint : string
   ; request_body_sha256 : string
@@ -91,6 +125,19 @@ type effect_phase =
   | Dispatch_started
   | Response_received
   | Terminal
+
+type generation_receipt_snapshot =
+  { phase : effect_phase
+  ; dispatch_count : int
+  ; http_status : int option
+  ; provider_trace : provider_trace option
+  ; call_id : call_id
+  ; plan_fingerprint : string
+  ; request_body_sha256 : string
+  ; catalog_generation : catalog_generation
+  ; catalog_evidence : catalog_evidence
+  ; target_identity : target_identity
+  }
 
 type raw_response = Trace.raw_response =
   { body : string
@@ -198,6 +245,12 @@ type flow_attempt_receipt =
   ; receipt : receipt
   }
 
+type flow_attempt_snapshot =
+  { scope : flow_scope
+  ; visit : flow_candidate_visit
+  ; receipt : generation_receipt_snapshot
+  }
+
 type flow_attempt =
   { execution : Flow_state.t
   ; flow_id : flow_id
@@ -241,7 +294,7 @@ type flow_evidence =
   ; candidate_visit_count : candidate_visit_count
   ; measurements : measurement_receipt_snapshot list
   ; admissions : candidate_admission list
-  ; attempts : flow_attempt_receipt list
+  ; attempts : flow_attempt_snapshot list
   }
 
 type flow_success =
@@ -385,7 +438,6 @@ let start_attempt (ready : ready_plan) =
   | Ok id ->
     let receipt =
       { state = Atomic.make Not_started_state
-      ; provider_trace_state = Atomic.make None
       ; call_id = Call_id id
       ; plan_fingerprint = ready.plan_fingerprint
       ; request_body_sha256 = ready.request_body_sha256
@@ -505,11 +557,19 @@ let flow_execution_error_generation_dispatch = function
 let receipt_http_status receipt =
   match Atomic.get receipt.state with
   | Response_received_state status -> status
-  | Terminal_state status -> Some status
+  | Terminal_state terminal -> Some terminal.status
   | Not_started_state | Before_dispatch_state | Dispatch_started_state -> None
 ;;
 
-let receipt_provider_trace receipt = Atomic.get receipt.provider_trace_state
+let receipt_provider_trace receipt =
+  match Atomic.get receipt.state with
+  | Terminal_state terminal -> terminal.provider_trace
+  | Not_started_state
+  | Before_dispatch_state
+  | Dispatch_started_state
+  | Response_received_state _ -> None
+;;
+
 let provider_trace_fingerprint = Trace.fingerprint
 let receipt_plan_fingerprint (receipt : receipt) = receipt.plan_fingerprint
 let receipt_request_body_sha256 (receipt : receipt) = receipt.request_body_sha256
@@ -517,6 +577,44 @@ let receipt_catalog_generation (receipt : receipt) = receipt.catalog_generation
 let receipt_catalog_evidence (receipt : receipt) = receipt.catalog_evidence
 let receipt_target_identity (receipt : receipt) = receipt.target_identity
 let candidate_visit_count_to_int (Candidate_visit_count count) = count
+
+let generation_receipt_snapshot (receipt : receipt) =
+  let state = Atomic.get receipt.state in
+  let phase, dispatch_count, http_status, provider_trace =
+    match state with
+    | Not_started_state -> Not_started, 0, None, None
+    | Before_dispatch_state -> Before_dispatch, 0, None, None
+    | Dispatch_started_state -> Dispatch_started, 1, None, None
+    | Response_received_state status -> Response_received, 1, status, None
+    | Terminal_state terminal ->
+      Terminal, 1, Some terminal.status, terminal.provider_trace
+  in
+  { phase
+  ; dispatch_count
+  ; http_status
+  ; provider_trace
+  ; call_id = receipt.call_id
+  ; plan_fingerprint = receipt.plan_fingerprint
+  ; request_body_sha256 = receipt.request_body_sha256
+  ; catalog_generation = receipt.catalog_generation
+  ; catalog_evidence = receipt.catalog_evidence
+  ; target_identity = receipt.target_identity
+  }
+;;
+
+let generation_receipt_snapshot_phase snapshot = snapshot.phase
+let generation_receipt_snapshot_dispatch_count snapshot = snapshot.dispatch_count
+let generation_receipt_snapshot_http_status snapshot = snapshot.http_status
+let generation_receipt_snapshot_provider_trace snapshot = snapshot.provider_trace
+let generation_receipt_snapshot_call_id snapshot = snapshot.call_id
+let generation_receipt_snapshot_plan_fingerprint snapshot = snapshot.plan_fingerprint
+
+let generation_receipt_snapshot_request_body_sha256 snapshot =
+  snapshot.request_body_sha256
+
+let generation_receipt_snapshot_catalog_generation snapshot = snapshot.catalog_generation
+let generation_receipt_snapshot_catalog_evidence snapshot = snapshot.catalog_evidence
+let generation_receipt_snapshot_target_identity snapshot = snapshot.target_identity
 
 let candidate_rejection_identity (receipt : candidate_rejection_receipt) =
   receipt.visit.identity
@@ -603,7 +701,14 @@ let flow_attempt_evidence (flow : flow_attempt) =
       List.rev (Atomic.get flow.measurements)
       |> List.map flow_measurement_receipt_snapshot
   ; admissions = progress.admissions
-  ; attempts = progress.attempts
+  ; attempts =
+      List.map
+        (fun (attempt : flow_attempt_receipt) ->
+           { scope = attempt.scope
+           ; visit = attempt.visit
+           ; receipt = generation_receipt_snapshot attempt.receipt
+           })
+        progress.attempts
   }
 ;;
 
@@ -646,12 +751,32 @@ let synchronize_receipt receipt complete_receipt =
     advance receipt (Response_received_state (Exec.receipt_http_status complete_receipt))
   | Exec.Terminal ->
     (match Exec.receipt_http_status complete_receipt with
-     | Some status -> advance receipt (Terminal_state status)
+     | Some status -> advance receipt (Terminal_state { status; provider_trace = None })
      | None -> invalid_arg "Exact_output: terminal receipt without HTTP status")
 ;;
 
 let raw_response = Trace.raw_response
-let record_provider_trace receipt = Trace.record_once receipt.provider_trace_state
+
+let rec record_provider_trace receipt provider_trace =
+  let current = Atomic.get receipt.state in
+  match current with
+  | Terminal_state ({ provider_trace = None; _ } as terminal) ->
+    let desired = Terminal_state { terminal with provider_trace = Some provider_trace } in
+    if not (Atomic.compare_and_set receipt.state current desired)
+    then record_provider_trace receipt provider_trace
+  | Terminal_state { provider_trace = Some recorded; _ } ->
+    if
+      not
+        (String.equal
+           (Trace.fingerprint recorded)
+           (Trace.fingerprint provider_trace))
+    then invalid_arg "Exact_output: conflicting provider trace"
+  | Not_started_state
+  | Before_dispatch_state
+  | Dispatch_started_state
+  | Response_received_state _ ->
+    invalid_arg "Exact_output: provider trace before terminal receipt"
+;;
 
 let execution_error_cause = function
   | Exec.Clock_required_for_timeout -> Clock_required_for_timeout

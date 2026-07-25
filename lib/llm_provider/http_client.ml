@@ -877,8 +877,7 @@ let classify_network_exn (e : exn) =
   | Eio.Io (err, _) as exn -> Some (network_error_of_eio err exn)
   | (Tls_eio.Tls_alert _ | Tls_eio.Tls_failure _) as exn ->
     Some (NetworkError { message = Printexc.to_string exn; kind = Tls_error })
-  | Sys_error msg -> Some (NetworkError { message = msg; kind = Unknown })
-  | Failure msg -> Some (NetworkError { message = msg; kind = Unknown })
+  | Sys_error _ | Failure _ -> None
   | _ -> None
 ;;
 
@@ -1780,17 +1779,13 @@ let post_sync_once_after_validation
     try Eio.Cancel.protect (fun () -> Eio.Resource.close conn) with
     | Eio.Cancel.Cancelled _ as exn -> raise exn
     | exn ->
-      Diag.warn
-        "http_client"
-        "post_sync_once cleanup failed: %s"
-        (Printexc.to_string exn)
+      Diag.warn "http_client" "post_sync_once cleanup failed: %s" (Printexc.to_string exn)
   in
   let fail error =
     match !phase, !status with
     | Before_dispatch, None -> Error (Before_dispatch_error error)
     | Dispatch_started, None -> Error (Dispatch_started_error error)
-    | Response_received, Some status ->
-      Error (Response_received_error { status; error })
+    | Response_received, Some status -> Error (Response_received_error { status; error })
     | Before_dispatch, Some _ | Dispatch_started, Some _ | Response_received, None ->
       invalid_arg "Http_client.post_sync_once: inconsistent receipt state"
   in
@@ -1805,13 +1800,9 @@ let post_sync_once_after_validation
     match classify_network_exn exn with
     | Some error -> Error error
     | None ->
-      (try
-         Reserved_exn.reraise_if_reserved exn;
-         Error (NetworkError { message = Printexc.to_string exn; kind = Unknown })
-       with
-       | reserved_exn ->
-         release_connection ();
-         raise reserved_exn)
+      release_connection ();
+      Reserved_exn.reraise_if_reserved exn;
+      raise exn
   in
   let total_started_at =
     match body_deadline with
@@ -1832,8 +1823,7 @@ let post_sync_once_after_validation
     | Unbounded, Unbounded -> None
     | Bounded (clock, timeout_s), Unbounded -> Some (clock, timeout_s, `Connect)
     | Unbounded, Bounded (clock, timeout_s) -> Some (clock, timeout_s, `Total)
-    | Bounded (connect_clock, connect_timeout_s), Bounded (body_clock, body_timeout_s)
-      ->
+    | Bounded (connect_clock, connect_timeout_s), Bounded (body_clock, body_timeout_s) ->
       if connect_timeout_s <= body_timeout_s
       then Some (connect_clock, connect_timeout_s, `Connect)
       else Some (body_clock, body_timeout_s, `Total)
@@ -1842,7 +1832,7 @@ let post_sync_once_after_validation
     match headers_deadline with
     | None -> f ()
     | Some (clock, timeout_s, owner) ->
-      (match Eio.Time.with_timeout clock timeout_s f with
+      (match Eio.Time.with_timeout clock timeout_s (fun () -> Ok (f ())) with
        | Ok result -> result
        | Error `Timeout ->
          Error
@@ -1873,8 +1863,7 @@ let post_sync_once_after_validation
         in
         connection := Some conn;
         let client =
-          Cohttp_eio.Client.make_generic (fun ~sw:_ _uri ->
-            (conn :> _ Eio.Flow.two_way))
+          Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> (conn :> _ Eio.Flow.two_way))
         in
         phase := Dispatch_started;
         Http_client_phase_observer.observe Http_client_phase_observer.Dispatch_started;
@@ -1896,12 +1885,7 @@ let post_sync_once_after_validation
         status := Some response_status;
         Http_client_phase_observer.observe
           (Http_client_phase_observer.Response_received response_status);
-        Ok
-          ( conn
-          , response
-          , response_body
-          , response_header_evidence
-          , retry_after_header ))
+        Ok (conn, response, response_body, response_header_evidence, retry_after_header))
     with
     | Eio.Time.Timeout as exn ->
       release_connection ();
@@ -1912,8 +1896,7 @@ let post_sync_once_after_validation
   | Error error ->
     release_connection ();
     fail error
-  | Ok (conn, response, response_body, response_header_evidence, retry_after_header)
-    ->
+  | Ok (conn, response, response_body, response_header_evidence, retry_after_header) ->
     let body_result =
       try
         match body_deadline, total_started_at with
@@ -1964,10 +1947,7 @@ let post_sync_once_after_validation
           fail error
         | Ok () ->
           Ok
-            ( { status = Option.get !status
-              ; body = response_body
-              ; retry_after_header
-              }
+            ( { status = Option.get !status; body = response_body; retry_after_header }
             , response_header_evidence )))
 ;;
 
@@ -2615,9 +2595,9 @@ let%test "catch_network maps End_of_file to NetworkError with kind" =
       | ProviderFailure _ ) -> false
 ;;
 
-let%test "catch_network maps text-only Sys_error to unknown NetworkError" =
+let%test "catch_network re-raises text-only Sys_error" =
   match catch_network (fun () -> raise (Sys_error "broken pipe")) with
-  | Error (NetworkError { message = "broken pipe"; kind = Unknown }) -> true
+  | exception Sys_error "broken pipe" -> true
   | Ok _
   | Error
       ( HttpError _
@@ -2628,9 +2608,9 @@ let%test "catch_network maps text-only Sys_error to unknown NetworkError" =
       | ProviderFailure _ ) -> false
 ;;
 
-let%test "catch_network keeps text-only Sys_error resource exhaustion unknown" =
+let%test "catch_network re-raises text-only resource exhaustion" =
   match catch_network (fun () -> raise (Sys_error "Too many open files")) with
-  | Error (NetworkError { kind = Unknown; _ }) -> true
+  | exception Sys_error "Too many open files" -> true
   | Ok _
   | Error
       ( HttpError _
@@ -2830,18 +2810,12 @@ let%test "classify_network_exn: typed Eio Unix backend resource exhaustion" =
   | None -> false
 ;;
 
-let%test "classify_network_exn: text-only Sys_error is Unknown" =
-  match classify_network_exn (Sys_error "Connection refused") with
-  | Some (NetworkError { kind = Unknown; _ }) -> true
-  | _ -> false
+let%test "classify_network_exn: text-only Sys_error is not transport evidence" =
+  classify_network_exn (Sys_error "Connection refused") = None
 ;;
 
-let%test "classify_network_exn: message-only Failure stays Unknown" =
-  match classify_network_exn (Failure "Connection refused") with
-  | Some (NetworkError { kind = Unknown; _ }) -> true
-  | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
-  | Some (ProviderTerminal _ | ProviderFailure _)
-  | None -> false
+let%test "classify_network_exn: message-only Failure is not transport evidence" =
+  classify_network_exn (Failure "Connection refused") = None
 ;;
 
 let%test "https_init_error_network_kind: empty trust anchors are TLS" =
@@ -2885,8 +2859,7 @@ let%test "classify_network_exn: unknown backend printer text does not classify" 
   end
   in
   match
-    classify_network_exn
-      (eio_exn (Eio.Exn.X Test_backend.Tls_socket_closed_test))
+    classify_network_exn (eio_exn (Eio.Exn.X Test_backend.Tls_socket_closed_test))
   with
   | Some (NetworkError { kind = Unknown; _ }) -> true
   | Some (HttpError _ | NetworkError _ | TimeoutError _ | AcceptRejected _)
