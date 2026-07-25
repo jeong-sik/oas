@@ -83,10 +83,9 @@ let catalog_fixture_toml entry =
     (match entry.body_timeout_s with
      | None -> ""
      | Some seconds -> Printf.sprintf "body_timeout_s = %.17g\n" seconds)
-    ^
-    (match entry.max_request_body_bytes with
-     | None -> ""
-     | Some bytes -> Printf.sprintf "max_request_body_bytes = %d\n" bytes)
+    ^ (match entry.max_request_body_bytes with
+       | None -> ""
+       | Some bytes -> Printf.sprintf "max_request_body_bytes = %d\n" bytes)
     ^
     match entry.enable_thinking with
     | None -> ""

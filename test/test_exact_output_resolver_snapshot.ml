@@ -298,8 +298,8 @@ let test_target_enable_thinking_is_typed_frozen_functional_identity () =
     ]
   in
   List.iter
-    (fun ((left_label, left_snapshot, left_target), (right_label, right_snapshot, right_target))
-       ->
+    (fun ( (left_label, left_snapshot, left_target)
+         , (right_label, right_snapshot, right_target) ) ->
        let label = left_label ^ "/" ^ right_label in
        check
          bool
