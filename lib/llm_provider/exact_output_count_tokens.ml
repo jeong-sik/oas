@@ -18,32 +18,12 @@ type 'callback_error completion_request_dispatch_error =
   | Before_dispatch_failed of 'callback_error
 
 type 'callback_error measurement_dispatch_intent =
-  { committed : bool Atomic.t
-  ; dispatch_started : bool Atomic.t
-  ; commit_fence : unit -> (unit, 'callback_error) result
-  ; mark_dispatch_started : unit -> unit
-  }
+  'callback_error Exact_output_measurement_transport.dispatch_intent
 
 let create_measurement_dispatch_intent ~commit_fence ~mark_dispatch_started =
-  { committed = Atomic.make false
-  ; dispatch_started = Atomic.make false
-  ; commit_fence
-  ; mark_dispatch_started
-  }
-;;
-
-let commit_measurement_dispatch_intent intent =
-  if not (Atomic.compare_and_set intent.committed false true)
-  then invalid_arg "exact-output measurement dispatch intent was already consumed";
-  intent.commit_fence ()
-;;
-
-let mark_measurement_dispatch_started intent =
-  if not (Atomic.get intent.committed)
-  then invalid_arg "exact-output measurement dispatch intent was not committed";
-  if not (Atomic.compare_and_set intent.dispatch_started false true)
-  then invalid_arg "exact-output measurement dispatch intent was already started";
-  intent.mark_dispatch_started ()
+  Exact_output_measurement_transport.create_dispatch_intent
+    ~commit_fence
+    ~mark_dispatch_started
 ;;
 
 type exact_completion_measurement_request =
@@ -161,37 +141,31 @@ let exact_completion_generation_body artifact =
 let exact_completion_measurement_request artifact = artifact.measurement_request
 
 let measure_exact_completion_request
-      ?connection_cache
       ?clock
       ~net
-  ~dispatch_intent
+      ~dispatch_intent
       (request : exact_completion_measurement_request)
   =
-  match commit_measurement_dispatch_intent dispatch_intent with
-  | Error cause -> Error (Before_dispatch_failed cause)
-  | Ok () ->
-    let transport =
-      Http_client.post_sync_once_with_evidence
-        ?cache:connection_cache
-        ?clock
-        ?connect_timeout_s:request.connect_timeout_s
-        ?body_timeout_s:request.body_timeout_s
-        ~before_dispatch:(fun () ->
-          mark_measurement_dispatch_started dispatch_intent;
-          Ok ())
-        ~net
-        ~url:request.url
-        ~headers:request.headers
-        ~body:request.body
-        ()
-    in
-    (match transport with
-     | Error transport_error ->
+  match
+    Exact_output_measurement_transport.post_sync_once
+      ?clock
+      ?connect_timeout_s:request.connect_timeout_s
+      ?body_timeout_s:request.body_timeout_s
+      ~net
+      ~url:request.url
+      ~headers:request.headers
+      ~body:request.body
+      ~dispatch_intent
+      ()
+  with
+  | Error (Exact_output_measurement_transport.Commit_failed cause) ->
+    Error (Before_dispatch_failed cause)
+  | Error (Exact_output_measurement_transport.Transport_failed transport_error) ->
        let stage, error = transport_error_stage transport_error in
        Error
          (Completion_request_failed
             (Input_count_failed (Input_token_count.Transport error), stage))
-     | Ok (response, _) ->
+  | Ok response ->
        let response_body =
          if response.status >= 200 && response.status < 300
          then Ok response.body

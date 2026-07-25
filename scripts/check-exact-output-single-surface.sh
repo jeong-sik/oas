@@ -3,10 +3,11 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 public_count_tokens="$root/lib/llm_provider/count_tokens_sync.mli"
+public_http_client="$root/lib/llm_provider/http_client.mli"
 private_count_tokens="$root/lib/llm_provider/exact_output_count_tokens.mli"
+private_measurement_transport="$root/lib/llm_provider/exact_output_measurement_transport.ml"
 flow_admission="$root/lib/llm_provider/exact_output_flow_admission.ml"
 provider_dune="$root/lib/llm_provider/dune"
-negative_callback_fixture="$root/test/fixtures/exact_output_single_surface/public_count_tokens_callback.mli.fixture"
 
 if rg -n \
   'measure_completion_request_with_before_dispatch|completion_request_dispatch_error|measurement_transport_stage|before_dispatch:' \
@@ -16,20 +17,9 @@ then
   exit 1
 fi
 
-callback_surface_pattern='->[[:space:]]+\??[a-z][a-z0-9_]*:[[:space:]]*\([^)]*->[[:space:]]*[^)]*\)'
-has_callback_surface() {
-  tr '\n' ' ' < "$1" | grep -Eq -- "$callback_surface_pattern"
-}
-
-if has_callback_surface "$public_count_tokens"
+if rg -n 'before_dispatch:' "$public_http_client"
 then
-  echo "public Count_tokens_sync must not expose a callback-bearing function shape" >&2
-  exit 1
-fi
-
-if ! has_callback_surface "$negative_callback_fixture"
-then
-  echo "exact-output callback-surface negative fixture no longer exercises the ratchet" >&2
+  echo "public Http_client must not expose a pre-dispatch callback" >&2
   exit 1
 fi
 
@@ -57,21 +47,41 @@ fi
 
 for private_module in \
   exact_output_count_tokens \
+  exact_output_measurement_transport \
   exact_output_flow_admission \
   exact_output_ready_admission
 do
   rg -q "^[[:space:]]*${private_module}$" "$provider_dune"
 done
 
-if rg -n 'Http_client_phase_observer' "$flow_admission"
+if rg -n 'Http_client_phase_observer' "$flow_admission" "$private_measurement_transport"
 then
-  echo "exact-output admission must not infer dispatch from a scoped observer" >&2
+  echo "exact-output measurement must not infer dispatch from a scoped observer" >&2
   exit 1
 fi
 
 rg -q "type 'callback_error measurement_dispatch_intent" "$private_count_tokens"
 rg -q "dispatch_intent:'callback_error measurement_dispatch_intent" "$private_count_tokens"
 rg -q 'create_measurement_dispatch_intent' "$flow_admission"
-rg -q 'mark_measurement_dispatch_started' "$root/lib/llm_provider/exact_output_count_tokens.ml"
+
+if [[ "$(rg -c 'Cohttp_eio\\.Client\\.post' "$private_measurement_transport")" != 1 ]]
+then
+  echo "private measurement transport must own exactly one POST site" >&2
+  exit 1
+fi
+
+if ! perl -0ne '
+  $ok = 1 if
+    /Atomic\.compare_and_set\s+dispatch_intent\.dispatch_started\s+false\s+true\)\n
+     \s*then invalid_arg [^;]+;\n
+     \s*dispatch_intent\.mark_dispatch_started \(\);\n
+     \s*let response, response_body =\n
+     \s*Cohttp_eio\.Client\.post/xs;
+  END { exit($ok ? 0 : 1) }
+' "$private_measurement_transport"
+then
+  echo "private dispatch mark must lead directly to the sole POST" >&2
+  exit 1
+fi
 
 echo "exact-output single-surface boundary: ok"

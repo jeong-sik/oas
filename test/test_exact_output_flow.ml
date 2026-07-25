@@ -2607,7 +2607,12 @@ let test_exact_anthropic_frozen_artifact_parity () =
     bool
     "count body is the exact frozen generation projection"
     true
-    (measurement_json = count_projection)
+    (measurement_json = count_projection);
+  check
+    string
+    "count body bytes are the exact frozen generation projection bytes"
+    (Yojson.Safe.to_string count_projection)
+    measurement_body
 ;;
 
 let test_all_candidate_rejections_return_typed_zero_dispatch_terminal () =

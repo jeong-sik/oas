@@ -1757,7 +1757,6 @@ let post_sync ?cache ?clock ?timeout_s ~sw ~net ~url ~headers ~body () =
 
 let post_sync_once_after_validation
       ?cache
-      ?before_dispatch
       ~connect_deadline
       ~body_deadline
       ~net
@@ -1866,11 +1865,6 @@ let post_sync_once_after_validation
         let client =
           Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> (conn :> _ Eio.Flow.two_way))
         in
-        let* () =
-          match before_dispatch with
-          | None -> Ok ()
-          | Some callback -> callback ()
-        in
         phase := Dispatch_started;
         Http_client_phase_observer.observe Http_client_phase_observer.Dispatch_started;
         let response, response_body =
@@ -1962,7 +1956,6 @@ let post_sync_once_with_evidence
       ?clock
       ?connect_timeout_s
       ?body_timeout_s
-      ?before_dispatch:before_dispatch_callback
       ~net
       ~url
       ~headers
@@ -2000,7 +1993,6 @@ let post_sync_once_with_evidence
            | Ok header ->
              post_sync_once_after_validation
                ?cache
-               ?before_dispatch:before_dispatch_callback
                ~connect_deadline
                ~body_deadline
                ~net
@@ -2588,40 +2580,30 @@ let%test "catch_network maps End_of_file to NetworkError with kind" =
 ;;
 
 let%test "catch_network re-raises text-only Sys_error" =
-  match catch_network (fun () -> raise (Sys_error "broken pipe")) with
-  | Ok _
-  | Error
-      ( HttpError _
-      | NetworkError _
-      | TimeoutError _
-      | AcceptRejected _
-      | ProviderTerminal _
-      | ProviderFailure _ ) -> false
+  let expected = Sys_error "broken pipe" in
+  try
+    ignore (catch_network (fun () -> raise expected));
+    false
+  with
+  | caught -> caught == expected
 ;;
 
 let%test "catch_network re-raises text-only resource exhaustion" =
-  match catch_network (fun () -> raise (Sys_error "Too many open files")) with
-  | Ok _
-  | Error
-      ( HttpError _
-      | NetworkError _
-      | TimeoutError _
-      | AcceptRejected _
-      | ProviderTerminal _
-      | ProviderFailure _ ) -> false
+  let expected = Sys_error "Too many open files" in
+  try
+    ignore (catch_network (fun () -> raise expected));
+    false
+  with
+  | caught -> caught == expected
 ;;
 
-let%test "catch_network keeps text-only Failure resource exhaustion unknown" =
-  match catch_network (fun () -> raise (Failure "EMFILE")) with
-  | Error (NetworkError { kind = Unknown; _ }) -> true
-  | Ok _
-  | Error
-      ( HttpError _
-      | NetworkError _
-      | TimeoutError _
-      | AcceptRejected _
-      | ProviderTerminal _
-      | ProviderFailure _ ) -> false
+let%test "catch_network re-raises text-only Failure resource exhaustion" =
+  let expected = Failure "EMFILE" in
+  try
+    ignore (catch_network (fun () -> raise expected));
+    false
+  with
+  | caught -> caught == expected
 ;;
 
 let%test "catch_network classifies Unix ECONNREFUSED" =

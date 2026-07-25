@@ -46,8 +46,7 @@ val exact_completion_measurement_request
   -> exact_completion_measurement_request
 
 val measure_exact_completion_request
-  :  ?connection_cache:Http_client.cache
-  -> ?clock:_ Eio.Time.clock
+  :  ?clock:_ Eio.Time.clock
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> dispatch_intent:'callback_error measurement_dispatch_intent
   -> exact_completion_measurement_request

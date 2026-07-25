@@ -295,42 +295,6 @@ let test_http_deadlines_without_clock_are_rejected () =
        ())
 ;;
 
-let unused_loopback_port () =
-  let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Fun.protect
-    ~finally:(fun () -> Unix.close socket)
-    (fun () ->
-       Unix.bind socket (Unix.ADDR_INET (Unix.inet_addr_loopback, 0));
-       match Unix.getsockname socket with
-       | Unix.ADDR_INET (_, port) -> port
-       | Unix.ADDR_UNIX _ -> Alcotest.fail "loopback socket returned a Unix address")
-;;
-
-let test_once_predispatch_hook_requires_connection () =
-  Eio_main.run
-  @@ fun env ->
-  let callbacks = ref 0 in
-  let port = unused_loopback_port () in
-  let result =
-    Http_client.post_sync_once_with_evidence
-      ~before_dispatch:(fun () ->
-        incr callbacks;
-        Ok ())
-      ~net:env#net
-      ~url:(Printf.sprintf "http://127.0.0.1:%d/never" port)
-      ~headers:[ "content-type", "application/json" ]
-      ~body:"{}"
-      ()
-  in
-  Alcotest.(check int)
-    "connection failure cannot run the pre-submit hook"
-    0
-    !callbacks;
-  match result with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "unused loopback endpoint unexpectedly accepted a POST"
-;;
-
 let test_explicit_deadline_requires_finite_positive_timeout () =
   let invalid_cases =
     [ "zero", 0.0, "test: body_timeout_s must be finite and greater than zero, got 0"
@@ -696,10 +660,6 @@ let () =
             "explicit deadlines require finite positive values"
             `Quick
             test_explicit_deadline_requires_finite_positive_timeout
-        ; Alcotest.test_case
-            "one-shot hook runs only after connection"
-            `Quick
-            test_once_predispatch_hook_requires_connection
         ] )
     ; ( "provider_failure"
       , [ Alcotest.test_case "string helpers" `Quick test_provider_failure_string_helpers
