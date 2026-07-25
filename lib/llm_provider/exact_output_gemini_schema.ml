@@ -20,8 +20,13 @@ let schema_keywords =
   ; "prefixItems"
   ; "minItems"
   ; "maxItems"
+  ; "anyOf"
   ]
 ;;
+
+(* Gemini interprets [oneOf] as [anyOf], so admitting it would erase the
+   caller's exclusivity contract. Keep [oneOf] unsupported. *)
+let any_of_keywords = [ "anyOf"; "title"; "description" ]
 
 let keywords_for_type = function
   | "object" ->
@@ -68,22 +73,63 @@ let schema_base_type = function
 
 let rec validate ~path = function
   | `Assoc fields when assoc_keys_are_unique fields ->
-    (match
-       List.find_opt (fun (keyword, _) -> not (List.mem keyword schema_keywords)) fields
-     with
-     | Some (keyword, _) -> Error (Unsupported_keyword (path ^ "." ^ keyword))
+    (match List.assoc_opt "anyOf" fields with
+     | Some branches -> validate_any_of ~path ~fields branches
      | None ->
-       (match schema_base_type (List.assoc_opt "type" fields) with
-        | Ok type_name ->
-          let supported = keywords_for_type type_name in
-          (match
-             List.find_opt (fun (keyword, _) -> not (List.mem keyword supported)) fields
-           with
-           | Some (keyword, _) -> Error (Unsupported_keyword (path ^ "." ^ keyword))
-           | None -> validate_fields ~path ~type_name fields)
-        | Error _ as error -> error))
+       (match
+          List.find_opt
+            (fun (keyword, _) -> not (List.mem keyword schema_keywords))
+            fields
+        with
+        | Some (keyword, _) -> Error (Unsupported_keyword (path ^ "." ^ keyword))
+        | None ->
+          (match schema_base_type (List.assoc_opt "type" fields) with
+           | Ok type_name ->
+             let supported = keywords_for_type type_name in
+             (match
+                List.find_opt
+                  (fun (keyword, _) -> not (List.mem keyword supported))
+                  fields
+              with
+              | Some (keyword, _) -> Error (Unsupported_keyword (path ^ "." ^ keyword))
+              | None -> validate_fields ~path ~type_name fields)
+           | Error _ as error -> error)))
   | `Assoc _ | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
     Error Invalid_schema
+
+and validate_any_of ~path ~fields branches =
+  match
+    List.find_opt
+      (fun (keyword, _) -> not (List.mem keyword any_of_keywords))
+      fields
+  with
+  | Some (keyword, _) -> Error (Unsupported_keyword (path ^ "." ^ keyword))
+  | None ->
+    let* () =
+      match
+        List.find_opt
+          (function
+            | "anyOf", _ -> false
+            | ("title" | "description"), `String _ -> false
+            | _ -> true)
+          fields
+      with
+      | None -> Ok ()
+      | Some _ -> Error Invalid_schema
+    in
+    (match branches with
+     | `List (_ :: _ as schemas) ->
+       let rec validate_branches index = function
+         | [] -> Ok ()
+         | schema :: rest ->
+           let* () =
+             validate ~path:(Printf.sprintf "%s.anyOf[%d]" path index) schema
+           in
+           validate_branches (index + 1) rest
+       in
+       validate_branches 0 schemas
+     | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _
+     | `List [] -> Error Invalid_schema)
 
 and validate_fields ~path ~type_name fields =
   let rec validate_all = function
