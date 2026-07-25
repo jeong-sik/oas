@@ -21,6 +21,7 @@ type ('admission, 'attempt, 'measurement) progress_state =
 
 type ('admission, 'attempt, 'measurement) progress =
   ('admission, 'attempt, 'measurement) progress_state Atomic.t
+
 type preference_reservation = unit ref
 type success_ordinal = Success_ordinal of int64
 
@@ -427,9 +428,7 @@ let publish_attempt progress ~same attempt =
   let current = Atomic.get progress in
   Atomic.set
     progress
-    { current with
-      attempts_rev = replace_or_prepend ~same attempt current.attempts_rev
-    }
+    { current with attempts_rev = replace_or_prepend ~same attempt current.attempts_rev }
 ;;
 
 let publish_measurement progress ~same measurement =
@@ -437,8 +436,7 @@ let publish_measurement progress ~same measurement =
   Atomic.set
     progress
     { current with
-      measurements_rev =
-        replace_or_prepend ~same measurement current.measurements_rev
+      measurements_rev = replace_or_prepend ~same measurement current.measurements_rev
     }
 ;;
 

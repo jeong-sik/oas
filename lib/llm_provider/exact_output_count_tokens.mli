@@ -26,7 +26,7 @@ type 'callback_error measurement_dispatch_intent
 
 val create_measurement_dispatch_intent
   :  commit_fence:(unit -> (unit, 'callback_error) result)
-  -> on_dispatch_started:(unit -> unit)
+  -> mark_dispatch_started:(unit -> unit)
   -> 'callback_error measurement_dispatch_intent
 
 type exact_completion_measurement_request

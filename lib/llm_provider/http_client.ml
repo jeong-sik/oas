@@ -1912,11 +1912,11 @@ let post_sync_once_after_validation
           let remaining = timeout_s -. elapsed in
           if remaining <= 0.0
           then Error (total_deadline_error timeout_s)
-          else (
-            match
-          Eio.Time.with_timeout clock remaining (fun () ->
-            Ok (read_response_body response_body))
-            with
+           else (
+             match
+               Eio.Time.with_timeout clock remaining (fun () ->
+                 Ok (read_response_body response_body))
+             with
             | Ok result -> result
             | Error `Timeout -> Error (total_deadline_error timeout_s))
         | Unbounded, Some _ | Bounded _, None ->
@@ -2589,7 +2589,6 @@ let%test "catch_network maps End_of_file to NetworkError with kind" =
 
 let%test "catch_network re-raises text-only Sys_error" =
   match catch_network (fun () -> raise (Sys_error "broken pipe")) with
-  | exception Sys_error "broken pipe" -> true
   | Ok _
   | Error
       ( HttpError _
@@ -2602,7 +2601,6 @@ let%test "catch_network re-raises text-only Sys_error" =
 
 let%test "catch_network re-raises text-only resource exhaustion" =
   match catch_network (fun () -> raise (Sys_error "Too many open files")) with
-  | exception Sys_error "Too many open files" -> true
   | Ok _
   | Error
       ( HttpError _

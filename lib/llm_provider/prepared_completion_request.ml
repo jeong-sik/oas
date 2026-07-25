@@ -77,8 +77,7 @@ let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
   | Error (Http_client.AcceptRejected { reason }) ->
     Error (Count_tokens_sync.Invalid_completion_request reason)
   | Error error ->
-    Error
-      (Count_tokens_sync.Input_count_failed (Input_token_count.Transport error))
+    Error (Count_tokens_sync.Input_count_failed (Input_token_count.Transport error))
   | Ok () -> Provider_admission.with_admission ~config measured
 ;;
 

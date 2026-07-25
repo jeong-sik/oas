@@ -101,7 +101,7 @@ let operation_id_to_string (Measurement_operation_id value) = value
 let receipt_operation_id receipt = receipt.operation_id
 let receipt_request_body_sha256 receipt = receipt.request_body_sha256
 
-let snapshot_of_state receipt = function
+let snapshot_of_state (receipt : measurement_receipt) = function
   | Fence_committed ->
     { operation_id = receipt.operation_id
     ; request_body_sha256 = receipt.request_body_sha256
@@ -185,8 +185,8 @@ let measurement_failure = function
     Unsupported_failure error
   | Count_tokens.Input_count_failed (Input_token_count.Transport error) ->
     Transport_failure error
-  | Count_tokens.Input_count_failed (Input_token_count.Invalid_response _ as error)
-    -> Invalid_response_failure error
+  | Count_tokens.Input_count_failed (Input_token_count.Invalid_response _ as error) ->
+    Invalid_response_failure error
   | Count_tokens.Output_token_resolution_failed error ->
     Output_token_resolution_failure error
   | Count_tokens.Invalid_completion_request detail -> Invalid_request_failure detail
@@ -267,7 +267,7 @@ let admit
                  let dispatch_intent =
                    Count_tokens.create_measurement_dispatch_intent
                      ~commit_fence
-                     ~on_dispatch_started:(fun () ->
+                     ~mark_dispatch_started:(fun () ->
                        advance_receipt receipt Wire_started;
                        on_measurement_receipt receipt)
                  in
@@ -289,38 +289,36 @@ let admit
                      (fun dispatch -> rejection_outcome dispatch cause)
                      (fun measurement -> Rejected { cause; measurement })
                  in
-                 match measured with
-                 | Error
-                     (Count_tokens.Before_dispatch_failed
-                        (`Before_dispatch_failed cause)) ->
-                   Before_measurement_dispatch_failed { receipt; cause }
-                 | Error
-                     (Count_tokens.Before_dispatch_failed
-                        (`Terminal_callback_failed cause)) ->
-                   Measurement_terminal_callback_failed { receipt; cause }
-                 | Error (Count_tokens.Completion_request_failed (error, stage)) ->
-                   record_transport_stage receipt on_measurement_receipt stage;
-                   reject_measured (Measurement_rejected (measurement_failure error))
-                 | Ok measurement ->
-                   let measured =
-                     Prepared.attach_measurement
-                       (Plan.prepared_request preflight)
-                       measurement
-                   in
-                   (match
-                      Prepared.admit
-                        ~now_unix_s:(now_unix_s ())
-                        ~max_context_tokens
-                        measured
-                    with
-                    | Error error ->
-                      reject_measured (Context_admission_rejected error)
-                    | Ok admitted ->
-                      (match Plan.finalize_measured preflight admitted with
-                       | Error error ->
-                         reject_measured (Plan_finalization_rejected error)
-                       | Ok plan ->
-                         terminalize
-                           (fun _ -> Measurement_succeeded)
-                           (fun measurement -> Admitted { plan; measurement })))))))
+                 (match measured with
+                  | Error
+                      (Count_tokens.Before_dispatch_failed (`Before_dispatch_failed cause))
+                    -> Before_measurement_dispatch_failed { receipt; cause }
+                  | Error
+                      (Count_tokens.Before_dispatch_failed
+                         (`Terminal_callback_failed cause)) ->
+                    Measurement_terminal_callback_failed { receipt; cause }
+                  | Error (Count_tokens.Completion_request_failed (error, stage)) ->
+                    record_transport_stage receipt on_measurement_receipt stage;
+                    reject_measured (Measurement_rejected (measurement_failure error))
+                  | Ok measurement ->
+                    let measured =
+                      Prepared.attach_measurement
+                        (Plan.prepared_request preflight)
+                        measurement
+                    in
+                    (match
+                       Prepared.admit
+                         ~now_unix_s:(now_unix_s ())
+                         ~max_context_tokens
+                         measured
+                     with
+                     | Error error -> reject_measured (Context_admission_rejected error)
+                     | Ok admitted ->
+                       (match Plan.finalize_measured preflight admitted with
+                        | Error error ->
+                          reject_measured (Plan_finalization_rejected error)
+                        | Ok plan ->
+                          terminalize
+                            (fun _ -> Measurement_succeeded)
+                            (fun measurement -> Admitted { plan; measurement }))))))))
 ;;

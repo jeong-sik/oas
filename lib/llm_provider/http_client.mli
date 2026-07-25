@@ -433,10 +433,12 @@ val post_sync_once
 
 (** Exact-output transport variant. It performs the same sole POST as
     {!post_sync_once}, while also returning opaque canonical response-header
-    evidence. [before_dispatch], when supplied, runs after deadline, URI, and
-    request-header validation but before connection establishment or any POST.
-    Returning [Error] aborts with [Before_dispatch_error]. The public wrapper
-    calls this function once and discards that evidence; neither path retries. *)
+    evidence. [before_dispatch], when supplied, runs after deadline, URI,
+    request-header validation, and successful connection establishment,
+    immediately before the dispatch phase advances and the sole POST is
+    submitted. Returning [Error] aborts with [Before_dispatch_error]. The
+    public wrapper calls this function once and discards that evidence; neither
+    path retries. *)
 val post_sync_once_with_evidence
   :  ?cache:cache
   -> ?clock:_ Eio.Time.clock

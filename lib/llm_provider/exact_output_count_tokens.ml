@@ -18,23 +18,32 @@ type 'callback_error completion_request_dispatch_error =
   | Before_dispatch_failed of 'callback_error
 
 type 'callback_error measurement_dispatch_intent =
-  { consumed : bool Atomic.t
+  { committed : bool Atomic.t
+  ; dispatch_started : bool Atomic.t
   ; commit_fence : unit -> (unit, 'callback_error) result
-  ; on_dispatch_started : unit -> unit
+  ; mark_dispatch_started : unit -> unit
   }
 
-let create_measurement_dispatch_intent ~commit_fence ~on_dispatch_started =
-  { consumed = Atomic.make false; commit_fence; on_dispatch_started }
+let create_measurement_dispatch_intent ~commit_fence ~mark_dispatch_started =
+  { committed = Atomic.make false
+  ; dispatch_started = Atomic.make false
+  ; commit_fence
+  ; mark_dispatch_started
+  }
 ;;
 
 let commit_measurement_dispatch_intent intent =
-  if not (Atomic.compare_and_set intent.consumed false true)
+  if not (Atomic.compare_and_set intent.committed false true)
   then invalid_arg "exact-output measurement dispatch intent was already consumed";
-  match intent.commit_fence () with
-  | Error _ as error -> error
-  | Ok () ->
-    intent.on_dispatch_started ();
-    Ok ()
+  intent.commit_fence ()
+;;
+
+let mark_measurement_dispatch_started intent =
+  if not (Atomic.get intent.committed)
+  then invalid_arg "exact-output measurement dispatch intent was not committed";
+  if not (Atomic.compare_and_set intent.dispatch_started false true)
+  then invalid_arg "exact-output measurement dispatch intent was already started";
+  intent.mark_dispatch_started ()
 ;;
 
 type exact_completion_measurement_request =
@@ -155,60 +164,54 @@ let measure_exact_completion_request
       ?connection_cache
       ?clock
       ~net
-      ~dispatch_intent
+  ~dispatch_intent
       (request : exact_completion_measurement_request)
   =
-  let callback_failure = ref None in
-  let before_http_dispatch () =
-    match commit_measurement_dispatch_intent dispatch_intent with
-    | Ok () -> Ok ()
-    | Error cause ->
-      callback_failure := Some cause;
-      Error
-        (Http_client.AcceptRejected
-           { reason = "exact measurement durable dispatch fence rejected" })
-  in
-  let transport =
-    Http_client.post_sync_once_with_evidence
-      ?cache:connection_cache
-      ?clock
-      ?connect_timeout_s:request.connect_timeout_s
-      ?body_timeout_s:request.body_timeout_s
-      ~before_dispatch:before_http_dispatch
-      ~net
-      ~url:request.url
-      ~headers:request.headers
-      ~body:request.body
-      ()
-  in
-  match !callback_failure, transport with
-  | Some cause, _ -> Error (Before_dispatch_failed cause)
-  | None, Error transport_error ->
-    let stage, error = transport_error_stage transport_error in
-    Error
-      (Completion_request_failed
-         (Input_count_failed (Input_token_count.Transport error), stage))
-  | None, Ok (response, _) ->
-    let response_body =
-      if response.status >= 200 && response.status < 300
-      then Ok response.body
-      else
-        Error
-          (Http_client.HttpError
-             { code = response.status
-             ; body = response.body
-             ; retry_after_header = response.retry_after_header
-             })
+  match commit_measurement_dispatch_intent dispatch_intent with
+  | Error cause -> Error (Before_dispatch_failed cause)
+  | Ok () ->
+    let transport =
+      Http_client.post_sync_once_with_evidence
+        ?cache:connection_cache
+        ?clock
+        ?connect_timeout_s:request.connect_timeout_s
+        ?body_timeout_s:request.body_timeout_s
+        ~before_dispatch:(fun () ->
+          mark_measurement_dispatch_started dispatch_intent;
+          Ok ())
+        ~net
+        ~url:request.url
+        ~headers:request.headers
+        ~body:request.body
+        ()
     in
-    Input_token_count.decode_transport_result
-      ~protocol:request.protocol
-      ~model_id:request.model_id
-      response_body
-    |> Result.map_error (fun error ->
-      Completion_request_failed
-        (Input_count_failed error, Measurement_response_received response.status))
-    |> Result.map (fun input_count ->
-      { input_count; output_token_receipt = request.output_token_receipt })
+    (match transport with
+     | Error transport_error ->
+       let stage, error = transport_error_stage transport_error in
+       Error
+         (Completion_request_failed
+            (Input_count_failed (Input_token_count.Transport error), stage))
+     | Ok (response, _) ->
+       let response_body =
+         if response.status >= 200 && response.status < 300
+         then Ok response.body
+         else
+           Error
+             (Http_client.HttpError
+                { code = response.status
+                ; body = response.body
+                ; retry_after_header = response.retry_after_header
+                })
+       in
+       Input_token_count.decode_transport_result
+         ~protocol:request.protocol
+         ~model_id:request.model_id
+         response_body
+       |> Result.map_error (fun error ->
+         Completion_request_failed
+           (Input_count_failed error, Measurement_response_received response.status))
+       |> Result.map (fun input_count ->
+         { input_count; output_token_receipt = request.output_token_receipt }))
 ;;
 
 module For_testing = struct

@@ -485,7 +485,6 @@ type generation_receipt_snapshot
 
 val generation_receipt_snapshot_phase : generation_receipt_snapshot -> effect_phase
 val generation_receipt_snapshot_dispatch_count : generation_receipt_snapshot -> int
-
 val generation_receipt_snapshot_http_status : generation_receipt_snapshot -> int option
 
 val generation_receipt_snapshot_provider_trace
@@ -493,7 +492,6 @@ val generation_receipt_snapshot_provider_trace
   -> provider_trace option
 
 val generation_receipt_snapshot_call_id : generation_receipt_snapshot -> call_id
-
 val generation_receipt_snapshot_plan_fingerprint : generation_receipt_snapshot -> string
 
 val generation_receipt_snapshot_request_body_sha256
@@ -718,11 +716,14 @@ val execute_once
     The callback receives a committed receipt whose dispatch fact is already
     [Measurement_dispatch_unknown], never [No_measurement_dispatch]. A committed
     receipt without a terminal outcome is dispatch-ambiguous and reports
-    [Measurement_dispatch_unknown]; a wire observer advances it to
-    [Measurement_dispatch_started]. Token measurement is a read-only operation
-    and may be replayed only after the caller reconciles and records the prior
-    unclosed intent. OAS neither retries it automatically nor claims that an
-    unclosed committed receipt did not dispatch.
+    [Measurement_dispatch_unknown]. OAS then establishes the connection and a
+    private one-shot capability atomically advances the receipt to
+    [Measurement_dispatch_started] immediately before the sole count-token POST;
+    no user callback runs between that transition and submission. Token
+    measurement is a read-only operation and may be replayed only after the
+    caller reconciles and records the prior unclosed intent. OAS neither retries
+    it automatically nor claims that an unclosed committed receipt did not
+    dispatch.
 
     [on_measurement_terminal] receives the same opaque receipt after its terminal
     measurement outcome is installed. OAS allocates no generation attempt,

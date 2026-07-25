@@ -8,10 +8,10 @@ required_basenames=(
   exact_output_flow.ml
   exact_output_flow_contract.ml
   exact_output_resolver.ml
-    exact_output_catalog_binding.ml
-    exact_output_flow_admission.ml
-    exact_output_ready_admission.ml
-    exact_output_plan.ml
+  exact_output_catalog_binding.ml
+  exact_output_flow_admission.ml
+  exact_output_ready_admission.ml
+  exact_output_plan.ml
   complete_common.ml
   backend_anthropic.ml
   backend_ollama.ml

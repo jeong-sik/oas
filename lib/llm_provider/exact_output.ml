@@ -221,7 +221,7 @@ type flow_attempt_snapshot =
   }
 
 type flow_attempt_publication =
-  { live : flow_attempt_receipt
+  { call_id : call_id
   ; snapshot : flow_attempt_snapshot
   }
 
@@ -239,8 +239,8 @@ type flow_attempt =
   ; requirement : output_requirement
   ; progress :
       ( candidate_admission
-      , flow_attempt_publication
-      , measurement_receipt_snapshot )
+        , flow_attempt_publication
+        , measurement_receipt_snapshot )
         Flow_state.progress
   }
 
@@ -502,10 +502,7 @@ let same_measurement
     (measurement_operation_id_to_string right.operation_id)
 ;;
 
-let publish_measurement
-      (flow : flow_attempt)
-      (measurement : flow_measurement_receipt)
-  =
+let publish_measurement (flow : flow_attempt) (measurement : flow_measurement_receipt) =
   Flow_state.publish_measurement
     flow.progress
     ~same:same_measurement
@@ -513,14 +510,12 @@ let publish_measurement
 ;;
 
 let same_attempt (left : flow_attempt_publication) (right : flow_attempt_publication) =
-  String.equal
-    (call_id_to_string (receipt_call_id left.live.receipt))
-    (call_id_to_string (receipt_call_id right.live.receipt))
+  String.equal (call_id_to_string left.call_id) (call_id_to_string right.call_id)
 ;;
 
 let publish_attempt_snapshot (flow : flow_attempt) (live : flow_attempt_receipt) =
-  let publication =
-    { live
+  let publication : flow_attempt_publication =
+    { call_id = receipt_call_id live.receipt
     ; snapshot =
         { scope = live.scope
         ; visit = live.visit
@@ -563,7 +558,6 @@ let receipt_catalog_generation = Generation_receipt.catalog_generation
 let receipt_catalog_evidence = Generation_receipt.catalog_evidence
 let receipt_target_identity = Generation_receipt.target_identity
 let candidate_visit_count_to_int (Candidate_visit_count count) = count
-
 let generation_receipt_snapshot = Generation_receipt.snapshot
 let generation_receipt_snapshot_phase = Generation_receipt.snapshot_phase
 
@@ -571,9 +565,7 @@ let generation_receipt_snapshot_dispatch_count =
   Generation_receipt.snapshot_dispatch_count
 ;;
 
-let generation_receipt_snapshot_http_status =
-  Generation_receipt.snapshot_http_status
-;;
+let generation_receipt_snapshot_http_status = Generation_receipt.snapshot_http_status
 
 let generation_receipt_snapshot_provider_trace =
   Generation_receipt.snapshot_provider_trace
@@ -867,7 +859,7 @@ let execute_flow_candidate
        (match start_attempt plan with
         | Error cause -> Error (Flow_step_attempt_start_failed (candidate.visit, cause))
         | Ok attempt ->
-          let candidate_receipt =
+          let candidate_receipt : flow_attempt_receipt =
             { scope = flow.scope
             ; visit = candidate.visit
             ; receipt = attempt_receipt attempt

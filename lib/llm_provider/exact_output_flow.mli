@@ -105,15 +105,8 @@ val settle_domain_valid_once
   -> ordinal:success_ordinal
   -> ('candidate preference_installation, domain_settlement_error) result
 
-val record_admission
-  :  ('admission, 'attempt, 'measurement) progress
-  -> 'admission
-  -> unit
-
-val record_attempt
-  :  ('admission, 'attempt, 'measurement) progress
-  -> 'attempt
-  -> unit
+val record_admission : ('admission, 'attempt, 'measurement) progress -> 'admission -> unit
+val record_attempt : ('admission, 'attempt, 'measurement) progress -> 'attempt -> unit
 
 val publish_attempt
   :  ('admission, 'attempt, 'measurement) progress

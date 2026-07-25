@@ -37,6 +37,7 @@ type catalog_fixture =
   ; max_request_body_bytes : int option
   ; model_id : string
   ; anthropic_thinking_control : string option
+  ; enable_thinking : bool option
   }
 
 let catalog_entry
@@ -50,6 +51,7 @@ let catalog_entry
       ?(api_key_env = "")
       ?model_id
       ?anthropic_thinking_control
+      ?enable_thinking
       ~id
       ~base_url
       ~native
@@ -70,6 +72,7 @@ let catalog_entry
   ; max_request_body_bytes
   ; model_id = Option.value model_id ~default:(id ^ "-model")
   ; anthropic_thinking_control
+  ; enable_thinking
   }
 ;;
 
@@ -81,6 +84,9 @@ let catalog_fixture_toml entry =
     ^ (match entry.max_request_body_bytes with
        | None -> ""
        | Some bytes -> Printf.sprintf "max_request_body_bytes = %d\n" bytes)
+    ^ (match entry.enable_thinking with
+       | None -> ""
+       | Some enabled -> Printf.sprintf "enable_thinking = %b\n" enabled)
     ^
     match entry.anthropic_thinking_control with
     | None -> ""
@@ -287,11 +293,23 @@ type measurement_reply =
 type post_counts =
   { measurement_posts : int
   ; generation_posts : int
+  ; journal_posts : int
+  ; measurement_bodies : string list
+  ; generation_bodies : string list
   }
+
+let rec atomic_prepend target value =
+  let current = Atomic.get target in
+  if not (Atomic.compare_and_set target current (value :: current))
+  then atomic_prepend target value
+;;
 
 let with_counted_server ?measurement_delay_s ~measurement_reply ~response f =
   let measurement_posts = Atomic.make 0 in
   let generation_posts = Atomic.make 0 in
+  let journal_posts = Atomic.make 0 in
+  let measurement_bodies = Atomic.make [] in
+  let generation_bodies = Atomic.make [] in
   let result =
     Eio_main.run
     @@ fun env ->
@@ -301,10 +319,11 @@ let with_counted_server ?measurement_delay_s ~measurement_reply ~response f =
     let clock = Eio.Stdenv.clock env in
     let port = fresh_port () in
     let handler _conn request body =
-      ignore (Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) : string);
+      let request_body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
       match Uri.path (Cohttp.Request.uri request) with
       | "/v1/messages/count_tokens" ->
         Atomic.incr measurement_posts;
+        atomic_prepend measurement_bodies request_body;
         Option.iter (Eio.Time.sleep clock) measurement_delay_s;
         (match measurement_reply with
          | Measurement_tokens input_tokens ->
@@ -319,8 +338,12 @@ let with_counted_server ?measurement_delay_s ~measurement_reply ~response f =
              ~status:`Internal_server_error
              ~body:{|{"error":"measurement failed"}|}
              ())
+      | "/journal" ->
+        Atomic.incr journal_posts;
+        Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"stored":true}|} ()
       | _ ->
         Atomic.incr generation_posts;
+        atomic_prepend generation_bodies request_body;
         Cohttp_eio.Server.respond_string ~status:`OK ~body:response ()
     in
     let socket =
@@ -339,6 +362,9 @@ let with_counted_server ?measurement_delay_s ~measurement_reply ~response f =
   ( result
   , { measurement_posts = Atomic.get measurement_posts
     ; generation_posts = Atomic.get generation_posts
+    ; journal_posts = Atomic.get journal_posts
+    ; measurement_bodies = List.rev (Atomic.get measurement_bodies)
+    ; generation_bodies = List.rev (Atomic.get generation_bodies)
     } )
 ;;
 
@@ -575,7 +601,8 @@ let test_concurrent_flow_scopes_isolate_attempts_and_future_preferences () =
       in
       Eio.Fiber.both (fun () -> settle success_a) (fun () -> settle success_b);
       let call_id candidate =
-        EO.receipt_call_id candidate.EO.receipt |> EO.call_id_to_string
+        EO.generation_receipt_snapshot_call_id candidate.EO.receipt
+        |> EO.call_id_to_string
       in
       ( not (String.equal (call_id candidate_a) (call_id candidate_b))
       , frozen_flow ~preferences ~scope:scope_a snapshot [ "scope-b"; "scope-a" ]
@@ -1978,6 +2005,84 @@ let test_measurement_fence_rejection_is_terminal_without_wire () =
   | Ok _ | Error _ -> fail "fence rejection lost its typed terminal error"
 ;;
 
+let test_measurement_fence_nested_http_does_not_mark_outer_dispatch () =
+  let response =
+    {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"accepted\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
+  in
+  let (result, evidence), posts =
+    with_counted_server ~measurement_reply:(Measurement_tokens 1) ~response
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~serving_constraint:true
+          ~id:"measurement-nested-journal"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ]
+    @@ fun snapshot ->
+    let flow = start_flow (frozen_flow snapshot [ "measurement-nested-journal" ]) in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_measurement_dispatch:(fun measurement ->
+          let before = EO.flow_measurement_receipt_snapshot measurement in
+          check
+            bool
+            "durable callback starts from committed ambiguity"
+            true
+            (before.phase = EO.Measurement_fence_committed
+             && before.dispatch = EO.Measurement_dispatch_unknown);
+          (match
+             Http_client.post_sync_once
+               ~net
+               ~url:(base_url ^ "/journal")
+               ~headers:[ "content-type", "application/json" ]
+               ~body:{|{"operation":"measurement-intent"}|}
+               ()
+           with
+           | Error _ -> fail "nested journal HTTP failed"
+           | Ok _ -> ());
+          let during =
+            match (EO.flow_attempt_evidence flow).measurements with
+            | [ receipt ] -> receipt
+            | _ -> fail "nested journal lost the outer measurement receipt"
+          in
+          check
+            bool
+            "nested journal HTTP cannot mark outer measurement dispatch"
+            true
+            (during.phase = EO.Measurement_fence_committed
+             && during.dispatch = EO.Measurement_dispatch_unknown);
+          Ok ())
+        ~on_measurement_terminal:(fun _ -> Ok ())
+        ~before_dispatch:(fun _ -> Ok ())
+        ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
+        flow
+    in
+    result, EO.flow_attempt_evidence flow
+  in
+  check int "nested journal dispatches once" 1 posts.journal_posts;
+  check int "outer measurement dispatches once" 1 posts.measurement_posts;
+  check int "generation dispatches once" 1 posts.generation_posts;
+  (match result with
+   | Ok _ -> ()
+   | Error _ -> fail "nested journal fixture did not complete");
+  match evidence.measurements with
+  | [ receipt ] ->
+    check
+      bool
+      "outer measurement terminal records its own dispatch"
+      true
+      (receipt.phase = EO.Measurement_terminal
+       && receipt.dispatch = EO.Measurement_dispatch_started
+       && receipt.outcome = Some EO.Measurement_succeeded)
+  | _ -> fail "nested journal fixture lost terminal measurement evidence"
+;;
+
 let test_measurement_terminal_callback_failure_blocks_generation () =
   let response =
     {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"unused\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
@@ -2385,14 +2490,14 @@ let test_typed_measurement_failures_advance_without_generation_attempt () =
     cases
 ;;
 
-let test_exact_anthropic_generation_artifact_serializes_once_per_request () =
+let test_exact_anthropic_frozen_artifact_parity () =
   let response =
     {|{"id":"msg-flow","type":"message","role":"assistant","model":"thinking-parity-model","content":[{"type":"text","text":"{\"name\":\"accepted\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
   in
   let serializations_before =
     EO.For_testing.exact_generation_artifact_serialization_count ()
   in
-  let (), posts =
+  let successes, posts =
     with_counted_server ~measurement_reply:(Measurement_tokens 1) ~response
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     with_catalog
@@ -2401,6 +2506,7 @@ let test_exact_anthropic_generation_artifact_serializes_once_per_request () =
           ~request_path:"/v1/messages"
           ~model_id:"thinking-parity-model"
           ~anthropic_thinking_control:"adaptive_preferred"
+          ~enable_thinking:true
           ~id:"thinking-unmeasured"
           ~base_url
           ~native:true
@@ -2411,6 +2517,7 @@ let test_exact_anthropic_generation_artifact_serializes_once_per_request () =
           ~request_path:"/v1/messages"
           ~model_id:"thinking-parity-model"
           ~anthropic_thinking_control:"adaptive_preferred"
+          ~enable_thinking:true
           ~serving_constraint:true
           ~serving_accepted_through_tokens:10
           ~serving_rejected_from_tokens:11
@@ -2425,10 +2532,9 @@ let test_exact_anthropic_generation_artifact_serializes_once_per_request () =
       let flow = start_flow (frozen_flow snapshot [ id ]) in
       match execute_ok ~net flow with
       | Error _ -> failf "%s did not execute" id
-      | Ok _ -> ()
+      | Ok success -> EO.flow_success_output success
     in
-    execute "thinking-unmeasured";
-    execute "thinking-measured"
+    [ execute "thinking-unmeasured"; execute "thinking-measured" ]
   in
   let serializations_after =
     EO.For_testing.exact_generation_artifact_serialization_count ()
@@ -2439,7 +2545,69 @@ let test_exact_anthropic_generation_artifact_serializes_once_per_request () =
     int
     "each exact Anthropic request freezes one generation artifact"
     2
-    (serializations_after - serializations_before)
+    (serializations_after - serializations_before);
+  let unmeasured_body, measured_body =
+    match posts.generation_bodies with
+    | [ unmeasured; measured ] -> unmeasured, measured
+    | _ -> fail "frozen artifact fixture lost generation request bodies"
+  in
+  let measurement_body =
+    match posts.measurement_bodies with
+    | [ body ] -> body
+    | _ -> fail "frozen artifact fixture lost measurement request body"
+  in
+  let measured_success : EO.success =
+    match successes with
+    | [ _; measured ] -> measured
+    | _ -> fail "frozen artifact fixture lost measured success"
+  in
+  check
+    string
+    "measured generation receipt binds the actual wire bytes"
+    Digestif.SHA256.(to_hex (digest_string measured_body))
+    (EO.receipt_request_body_sha256 measured_success.receipt);
+  let unmeasured_json = Yojson.Safe.from_string unmeasured_body in
+  let measured_json = Yojson.Safe.from_string measured_body in
+  let measurement_json = Yojson.Safe.from_string measurement_body in
+  let thinking json = Yojson.Safe.Util.member "thinking" json in
+  check
+    bool
+    "catalog thinking control reaches actual generation bytes"
+    true
+    (thinking measured_json = `Assoc [ "type", `String "adaptive" ]);
+  check
+    bool
+    "measured and unmeasured generation use the same frozen thinking control"
+    true
+    (thinking unmeasured_json = thinking measured_json);
+  check
+    bool
+    "count request derives thinking from the frozen generation artifact"
+    true
+    (thinking measurement_json = thinking measured_json);
+  check
+    int
+    "frozen output-token receipt reaches actual generation bytes"
+    1024
+    Yojson.Safe.Util.(measured_json |> member "max_tokens" |> to_int);
+  let count_projection =
+    match measured_json with
+    | `Assoc fields ->
+      `Assoc
+        (List.filter
+           (fun (name, _) ->
+              not
+                (List.mem
+                   name
+                   [ "max_tokens"; "stream"; "temperature"; "top_p"; "top_k" ]))
+           fields)
+    | _ -> fail "Anthropic generation request must be a JSON object"
+  in
+  check
+    bool
+    "count body is the exact frozen generation projection"
+    true
+    (measurement_json = count_projection)
 ;;
 
 let test_all_candidate_rejections_return_typed_zero_dispatch_terminal () =
@@ -3308,6 +3476,10 @@ let () =
             `Quick
             test_measurement_fence_rejection_is_terminal_without_wire
         ; test_case
+            "nested journal HTTP cannot mark measurement dispatch"
+            `Quick
+            test_measurement_fence_nested_http_does_not_mark_outer_dispatch
+        ; test_case
             "measurement terminal callback blocks generation"
             `Quick
             test_measurement_terminal_callback_failure_blocks_generation
@@ -3324,9 +3496,9 @@ let () =
             `Quick
             test_typed_measurement_failures_advance_without_generation_attempt
         ; test_case
-            "one frozen Anthropic artifact per exact request"
+            "frozen Anthropic artifact parity"
             `Quick
-            test_exact_anthropic_generation_artifact_serializes_once_per_request
+            test_exact_anthropic_frozen_artifact_parity
         ; test_case
             "all candidate rejections return zero-dispatch terminal"
             `Quick
