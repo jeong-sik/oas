@@ -144,22 +144,18 @@ let execute_once_with_evidence ~net ?clock ?on_phase plan =
           ~body:(Exact_output_plan.request_body plan)
           ()
       in
-      (* This function returns a result, so a transport exception must not leave it.
-         classify_network_exn deliberately answers [None] for an exception carrying
-         only prose — cohttp-eio raises [Failure "connection closed by peer"] at
-         client.ml:60 for a peer close — and post_sync_once's [fail_exn] then
-         re-raises it. Refusing to infer a network kind from a message is right; the
-         missing half was a boundary that turns the unclassified exception into a
-         typed failure. Reserved exceptions (cancellation) are re-raised first, the
-         same idiom as complete_common.ml:172 and five other edges.
+      (* Transport exceptions are handled upstream: post_sync_once's [fail_exn]
+         returns a typed [Unknown_provider_failure] instead of re-raising, which is
+         where that belongs because two unrelated call paths hit it. What remains here
+         is the observer: [with_observer] runs a caller-supplied [on_phase] callback,
+         and a raise from that callback is not a transport error and never reaches
+         [fail_exn]. This function returns a result, so that raise must not leave it
+         either. Reserved exceptions (cancellation) are re-raised first, the same
+         idiom as complete_common.ml:172 and five other edges.
 
-         [Unknown_provider_failure] is the honest kind: it states that the failure was
-         not classified rather than guessing one, and the message travels as
-         diagnostics only — http_client.mli:206-207 says consumers branch on the kind
-         and never parse the string. Dispatch_started is a floor, not a claim: the
-         public receipt is advanced separately by the phase observer and
-         Generation_receipt.advance only moves forward, so an already-observed
-         Response_received is not lowered by it. *)
+         Dispatch_started is a floor, not a claim: the public receipt is advanced
+         separately by the phase observer and Generation_receipt.advance only moves
+         forward, so an already-observed Response_received is not lowered by it. *)
       let post_result =
         try
           match on_phase with

@@ -1796,13 +1796,32 @@ let post_sync_once_after_validation
       connection := None;
       close_connection conn
   in
+  (* An unclassified exception is still a transport failure, and this function
+     returns a result. Re-raising it made the return type a half-truth: cohttp-eio
+     signals a peer close with [failwith "connection closed by peer"]
+     (cohttp-eio/client.ml:60), classify_network_exn rightly answers [None] for prose
+     rather than inventing a network kind, and the exception then escaped every
+     caller. Two suites caught it — exact-output single-surface's receipt phase
+     matrix and one-dispatch framing's stale-cache case — through different call
+     paths, which is the signal that the fix belongs at this single choke point
+     rather than at each boundary.
+
+     Reserved exceptions (cancellation) are re-raised first, unchanged.
+     [Unknown_provider_failure] states that the failure was not classified instead
+     of guessing a kind; the message is diagnostics only, per the note on
+     [provider_failure_to_string] telling consumers to branch on the kind and never
+     parse the string. *)
   let fail_exn exn =
     match classify_network_exn exn with
     | Some error -> Error error
     | None ->
       release_connection ();
       Reserved_exn.reraise_if_reserved exn;
-      raise exn
+      Error
+        (ProviderFailure
+           { kind = Unknown_provider_failure { reason = Some (Printexc.to_string exn) }
+           ; message = "unclassified transport exception"
+           })
   in
   let total_started_at =
     match body_deadline with
