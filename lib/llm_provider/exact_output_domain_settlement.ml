@@ -89,6 +89,24 @@ let intent_to_string intent =
 ;;
 
 let intent_id intent = intent.settlement_id
+let intent_disposition intent = intent.disposition
+
+type recovery_evidence =
+  { scope : Flow_contract.flow_scope
+  ; reservation : Flow_contract.flow_preference_reservation
+  ; candidate : Flow_contract.flow_preference_identity
+  ; success_ordinal : Flow_contract.flow_success_ordinal
+  ; disposition : Flow_contract.domain_disposition
+  }
+
+let recovery_evidence intent =
+  { scope = intent.scope
+  ; reservation = intent.reservation
+  ; candidate = intent.candidate
+  ; success_ordinal = intent.success_ordinal
+  ; disposition = intent.disposition
+  }
+;;
 
 let effect_phase_to_string = function
   | Generation_receipt.Not_started -> "not_started"
@@ -360,7 +378,7 @@ let commit_and_settle
               Ok receipt))
 ;;
 
-let resume recovery intent =
+let resume recovery ~restore_preference intent =
   let receipt =
     Flow_contract.make_domain_settlement_receipt
       ~settlement_id:intent.settlement_id
@@ -369,6 +387,7 @@ let resume recovery intent =
   match
     Flow_contract.resume_committed_domain
       recovery
+      ~restore_preference
       intent.scope
       ~reservation:intent.reservation
       ~candidate:intent.candidate

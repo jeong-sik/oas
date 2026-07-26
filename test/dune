@@ -463,6 +463,10 @@
   ../lib/llm_provider/exact_output_flow_contract.mli
   ../lib/llm_provider/exact_output_domain_settlement.ml
   ../lib/llm_provider/exact_output_domain_settlement.mli
+  ../lib/llm_provider/exact_output_scope_retirement.ml
+  ../lib/llm_provider/exact_output_scope_retirement.mli
+  ../lib/llm_provider/exact_output_preference_recovery.ml
+  ../lib/llm_provider/exact_output_preference_recovery.mli
   ../lib/llm_provider/exact_output_resolver.ml
   ../lib/llm_provider/exact_output_resolver.mli
   ../lib/llm_provider/exact_output_catalog_binding.ml

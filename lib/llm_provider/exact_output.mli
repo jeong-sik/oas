@@ -51,7 +51,6 @@ type call_id
 type schema_fingerprint
 type flow_candidate
 type flow_preference_store
-type flow_preference_recovery
 type flow_scope
 type flow_success_ordinal
 type flow_snapshot
@@ -298,12 +297,6 @@ type candidate_admission =
 
 type flow_candidate_error = Blank_flow_candidate_id
 type flow_scope_error = Blank_flow_scope_id
-type flow_preference_store_error = Invalid_flow_preference_capacity of int
-type flow_preference_recovery_error = Flow_preference_recovery_already_finished
-
-type flow_preference_scope_removal =
-  | Flow_preference_scope_removed
-  | Flow_preference_scope_not_reserved
 
 type flow_snapshot_error =
   | Duplicate_flow_candidate_id of
@@ -328,34 +321,12 @@ val make_flow_candidate
 
 val flow_candidate_identity : flow_candidate -> flow_candidate_identity
 
-(** Begin one caller-owned preference-store recovery with an explicit hard
-    scope capacity. The returned handle cannot create snapshots. Replay every
-    authenticated current-schema committed intent, then finish recovery to
-    obtain the active process-local store. *)
-val begin_flow_preference_recovery
-  :  capacity:int
-  -> (flow_preference_recovery, flow_preference_store_error) result
-
-val finish_flow_preference_recovery
-  :  flow_preference_recovery
-  -> (flow_preference_store, flow_preference_recovery_error) result
-
 (** Brand one opaque caller scope. OAS compares the trimmed nonempty identity
     exactly; it does not parse coordinator, tenant, provider, or model fields. *)
 val make_flow_scope : id:string -> (flow_scope, flow_scope_error) result
 
 val flow_scope_equal : flow_scope -> flow_scope -> bool
 val flow_success_ordinal_to_int64 : flow_success_ordinal -> int64
-
-(** Remove one explicitly reserved scope and free its capacity. Existing frozen
-    snapshots remain immutable, but a later domain-valid settlement from an
-    already-running flow for this reservation fails with
-    [Domain_preference_scope_released], even if the same textual scope has since
-    been reserved again, and is still consumed exactly once. *)
-val remove_flow_preference_scope
-  :  flow_preference_store
-  -> flow_scope
-  -> flow_preference_scope_removal
 
 (** Freeze one nonempty ordered candidate snapshot and its immutable domain
     input. This validates only flow topology. Credential selection and exact
@@ -587,6 +558,8 @@ type domain_disposition =
 
 type domain_settlement_id
 type domain_settlement_intent
+type flow_preference_retirement_id
+type flow_preference_retirement_intent
 
 type domain_settlement_receipt = private
   { settlement_id : domain_settlement_id
@@ -606,13 +579,36 @@ type 'commit_error domain_commit_error =
   | Domain_settlement_in_progress
   | Domain_settlement_conflict
 
-type domain_settlement_resume_error =
-  | Domain_preference_recovery_finished
-  | Preference_recovery_capacity_exhausted of { capacity : int }
-  | Domain_settlement_recovery_conflict
+type flow_preference_retirement_receipt = private
+  { retirement_id : flow_preference_retirement_id
+  }
+
+type flow_preference_retirement_intent_decode_error =
+  | Flow_preference_retirement_intent_malformed_json of string
+  | Flow_preference_retirement_intent_invalid_fields
+  | Flow_preference_retirement_intent_unknown_format of string
+  | Flow_preference_retirement_intent_unsupported_version of int
+  | Flow_preference_retirement_intent_invalid_field of string
+  | Flow_preference_retirement_intent_integrity_mismatch
+
+type 'commit_error flow_preference_retirement_commit_error =
+  | Flow_preference_retirement_commit_failed of 'commit_error
+  | Flow_preference_retirement_in_progress
+  | Flow_preference_retirement_conflict
+  | Flow_preference_scope_not_reserved
+
+type flow_preference_recovery_evidence =
+  | Domain_settlement_evidence of domain_settlement_intent
+  | Scope_retirement_evidence of flow_preference_retirement_intent
+
+type flow_preference_recovery_error =
+  | Invalid_concurrent_scope_budget of int
+  | Conflicting_domain_settlement_evidence of domain_settlement_id
+  | Conflicting_scope_retirement_evidence of flow_preference_retirement_id
 
 val domain_settlement_id_to_string : domain_settlement_id -> string
 val domain_settlement_intent_id : domain_settlement_intent -> domain_settlement_id
+val domain_settlement_intent_disposition : domain_settlement_intent -> domain_disposition
 val domain_settlement_intent_to_string : domain_settlement_intent -> string
 
 val domain_settlement_intent_of_string
@@ -647,10 +643,46 @@ val commit_and_settle_flow_domain
     dispatch capability. It restores reservation and success high-water marks
     and returns the same deterministic receipt for a same-ID replay. A valid
     new scope fails before any recovery mutation when capacity is full. *)
-val resume_committed_flow_domain
-  :  flow_preference_recovery
-  -> domain_settlement_intent
-  -> (domain_settlement_receipt, domain_settlement_resume_error) result
+val flow_preference_retirement_id_to_string
+  :  flow_preference_retirement_id
+  -> string
+
+val flow_preference_retirement_intent_id
+  :  flow_preference_retirement_intent
+  -> flow_preference_retirement_id
+
+val flow_preference_retirement_intent_to_string
+  :  flow_preference_retirement_intent
+  -> string
+
+val flow_preference_retirement_intent_of_string
+  :  string
+  -> ( flow_preference_retirement_intent
+       , flow_preference_retirement_intent_decode_error )
+       result
+
+val flow_preference_retirement_receipt_id
+  :  flow_preference_retirement_receipt
+  -> flow_preference_retirement_id
+
+(** Commit the current-schema retirement intent before freeing one reserved
+    opaque scope. Commit failure or cancellation leaves the active store
+    unchanged; same-intent replay is idempotent. *)
+val commit_and_retire_flow_preference_scope
+  :  commit:(flow_preference_retirement_intent -> (unit, 'commit_error) result)
+  -> flow_preference_store
+  -> flow_scope
+  -> ( flow_preference_retirement_receipt
+       , 'commit_error flow_preference_retirement_commit_error )
+       result
+
+(** Validate the complete caller-authenticated evidence set before constructing
+    an active store. Capacity is the larger of [concurrent_scope_budget] and
+    the distinct active valid scopes. No partial store escapes on error. *)
+val recover_flow_preferences
+  :  concurrent_scope_budget:int
+  -> evidence:flow_preference_recovery_evidence list
+  -> (flow_preference_store, flow_preference_recovery_error) result
 
 type flow_candidate_failure =
   | Flow_candidate_rejected of candidate_rejection_receipt

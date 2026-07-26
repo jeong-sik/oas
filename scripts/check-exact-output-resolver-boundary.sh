@@ -843,6 +843,8 @@ for private_module in \
   exact_output_execution \
   exact_output_flow \
   exact_output_domain_settlement \
+  exact_output_scope_retirement \
+  exact_output_preference_recovery \
   exact_output_generation_receipt \
   exact_output_provider_trace \
   exact_output_resolver \
@@ -1065,16 +1067,20 @@ require_code_sequence \
   'type[[:space:]]+flow_preference_store.*type[[:space:]]+flow_scope' \
   "$exact_output_interface"
 require_code_sequence \
-  "outer exact-flow preference recovery lost its mandatory hard capacity" \
-  'val[[:space:]]+begin_flow_preference_recovery[[:space:]]*:[[:space:]]*capacity:int[[:space:]]*->[[:space:]]*\(flow_preference_recovery,[[:space:]]*flow_preference_store_error\)[[:space:]]*result.*val[[:space:]]+finish_flow_preference_recovery' \
+  "outer exact-flow preference recovery lost evidence-owned admission" \
+  'val[[:space:]]+recover_flow_preferences[[:space:]]*:[[:space:]]*concurrent_scope_budget:int[[:space:]]*->[[:space:]]*evidence:flow_preference_recovery_evidence[[:space:]]+list[[:space:]]*->[[:space:]]*\(flow_preference_store,[[:space:]]*flow_preference_recovery_error\)[[:space:]]*result' \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact-flow snapshot lost typed capacity exhaustion" \
   'type[[:space:]]+flow_snapshot_error.*Flow_preference_capacity_exhausted[[:space:]]+of[[:space:]]*\{[[:space:]]*capacity[[:space:]]*:[[:space:]]*int' \
   "$exact_output_interface"
 require_code_sequence \
-  "outer exact-flow preference lost explicit scope removal" \
-  'val[[:space:]]+remove_flow_preference_scope[[:space:]]*:[[:space:]]*flow_preference_store[[:space:]]*->[[:space:]]*flow_scope[[:space:]]*->[[:space:]]*flow_preference_scope_removal' \
+  "outer exact-flow preference lost durable scope retirement" \
+  'type[[:space:]]+flow_preference_retirement_id.*type[[:space:]]+flow_preference_retirement_intent.*val[[:space:]]+commit_and_retire_flow_preference_scope' \
+  "$exact_output_interface"
+scan_code \
+  "legacy process-local preference recovery or removal returned" \
+  'val[[:space:]]+(begin_flow_preference_recovery|finish_flow_preference_recovery|resume_committed_flow_domain|remove_flow_preference_scope)' \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact-flow attempt receipt lost its opaque scope binding" \
@@ -1099,7 +1105,7 @@ require_code_sequence \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact flow lost durable domain settlement" \
-  'type[[:space:]]+domain_disposition.*type[[:space:]]+domain_settlement_id.*type[[:space:]]+domain_settlement_intent.*type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private.*val[[:space:]]+commit_and_settle_flow_domain.*val[[:space:]]+resume_committed_flow_domain' \
+  'type[[:space:]]+domain_disposition.*type[[:space:]]+domain_settlement_id.*type[[:space:]]+domain_settlement_intent.*type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private.*val[[:space:]]+commit_and_settle_flow_domain.*val[[:space:]]+recover_flow_preferences' \
   "$exact_output_interface"
 require_code_sequence \
   "private exact-flow contract exposed forgeable domain settlement receipts" \

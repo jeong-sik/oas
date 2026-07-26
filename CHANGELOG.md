@@ -8,6 +8,18 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.225.0](https://github.com/jeong-sik/oas/compare/v0.224.0...v0.225.0) (2026-07-26)
+
+### Breaking Changes
+
+* **exact-output preference lifecycle:** replace caller-sized raw recovery and
+  process-local scope removal with provider-neutral evidence recovery and a
+  current-schema durable scope-retirement intent. OAS validates the complete
+  evidence set, derives capacity from distinct active scopes, restores
+  reservation and success high-water marks, and prevents retired or stale
+  settlements from resurrecting a scope. No legacy aliases, historical
+  decoder, migration path, or provider/model/pricing policy is included.
+
 ## [0.224.0](https://github.com/jeong-sik/oas/compare/v0.223.2...v0.224.0) (2026-07-26)
 
 ### Breaking Changes

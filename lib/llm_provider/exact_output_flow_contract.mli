@@ -21,17 +21,10 @@ type flow_preference_recovery
 type flow_scope
 type flow_preference_reservation
 type flow_success_ordinal
-type flow_preference_store_error = Invalid_flow_preference_capacity of int
 
 type flow_preference_reservation_error =
   | Preference_capacity_exhausted of { capacity : int }
   | Preference_reservation_space_exhausted
-
-type flow_preference_recovery_error = Flow_preference_recovery_already_finished
-
-type flow_preference_scope_removal =
-  | Flow_preference_scope_removed
-  | Flow_preference_scope_not_reserved
 
 type flow_success_ordinal_error = Success_ordinal_space_exhausted
 
@@ -77,13 +70,33 @@ type domain_settlement_recovery_error =
   | Preference_recovery_capacity_exhausted of { capacity : int }
   | Domain_settlement_recovery_conflict
 
-val begin_flow_preference_recovery
-  :  capacity:int
-  -> (flow_preference_recovery, flow_preference_store_error) result
+type flow_preference_retirement_receipt =
+  { retirement_id : string
+  ; reservation : flow_preference_reservation
+  ; success_high_water : int64
+  }
 
-val finish_flow_preference_recovery
+type flow_preference_retirement_begin =
+  | Flow_preference_retirement_claimed of flow_preference_retirement_receipt
+  | Flow_preference_retirement_replayed of flow_preference_retirement_receipt
+  | Flow_preference_retirement_in_progress
+  | Flow_preference_scope_not_reserved
+  | Flow_preference_retirement_conflict
+
+type flow_preference_retirement_apply_error =
+  | Flow_preference_retirement_apply_conflict
+
+type flow_preference_retirement_recovery_error =
+  | Flow_preference_retirement_recovery_finished
+  | Flow_preference_retirement_recovery_conflict
+
+val create_validated_flow_preference_recovery
+  :  capacity:int
+  -> flow_preference_recovery
+
+val activate_validated_flow_preference_recovery
   :  flow_preference_recovery
-  -> (flow_preference_store, flow_preference_recovery_error) result
+  -> flow_preference_store
 
 val make_flow_scope : id:string -> (flow_scope, flow_scope_error) result
 val flow_scope_equal : flow_scope -> flow_scope -> bool
@@ -101,11 +114,6 @@ val make_flow_preference_identity
   :  candidate_id:string
   -> binding_sha256:string
   -> flow_preference_identity
-
-val remove_flow_preference_scope
-  :  flow_preference_store
-  -> flow_scope
-  -> flow_preference_scope_removal
 
 val allocate_flow_success_ordinal
   :  flow_preference_store
@@ -158,9 +166,41 @@ val finish_domain_settlement
 
 val resume_committed_domain
   :  flow_preference_recovery
+  -> restore_preference:bool
   -> flow_scope
   -> reservation:flow_preference_reservation
   -> candidate:flow_preference_identity
   -> success_ordinal:flow_success_ordinal
   -> domain_settlement_receipt
   -> (domain_settlement_receipt, domain_settlement_recovery_error) result
+
+val begin_flow_preference_retirement
+  :  flow_preference_store
+  -> flow_scope
+  -> make_receipt:
+       (reservation:flow_preference_reservation
+        -> success_high_water:int64
+        -> flow_preference_retirement_receipt)
+  -> flow_preference_retirement_begin
+
+val abort_flow_preference_retirement
+  :  flow_preference_store
+  -> flow_scope
+  -> flow_preference_retirement_receipt
+  -> unit
+
+val finish_flow_preference_retirement
+  :  flow_preference_store
+  -> flow_scope
+  -> flow_preference_retirement_receipt
+  -> ( flow_preference_retirement_receipt
+       , flow_preference_retirement_apply_error )
+       result
+
+val resume_committed_flow_preference_retirement
+  :  flow_preference_recovery
+  -> flow_scope
+  -> flow_preference_retirement_receipt
+  -> ( flow_preference_retirement_receipt
+       , flow_preference_retirement_recovery_error )
+       result

@@ -11,17 +11,10 @@ type ('scope, 'candidate) preference_recovery
 type preference_reservation
 type success_ordinal
 type domain_settlement
-type preference_store_error = Invalid_preference_capacity of int
 
 type preference_reservation_error =
   | Preference_capacity_exhausted of { capacity : int }
   | Preference_reservation_exhausted
-
-type preference_recovery_error = Preference_recovery_already_finished
-
-type preference_scope_removal =
-  | Preference_scope_removed
-  | Preference_scope_not_reserved
 
 type success_ordinal_error = Success_ordinal_exhausted
 
@@ -46,6 +39,25 @@ type recovery_domain_error =
   | Preference_recovery_finished
   | Preference_recovery_capacity_exhausted of { capacity : int }
   | Recovered_domain_conflict
+
+type preference_retirement_receipt =
+  { retirement_id : string
+  ; reservation : preference_reservation
+  ; success_high_water : int64
+  }
+
+type preference_retirement_begin =
+  | Preference_retirement_claimed of preference_retirement_receipt
+  | Preference_retirement_replayed of preference_retirement_receipt
+  | Preference_retirement_in_progress
+  | Preference_retirement_not_reserved
+  | Preference_retirement_conflict
+
+type preference_retirement_error = Preference_retirement_apply_conflict
+
+type recovery_retirement_error =
+  | Preference_retirement_recovery_finished
+  | Recovered_retirement_conflict
 
 type ('admission, 'attempt, 'measurement) progress_snapshot =
   { candidate_visit_count : int
@@ -78,13 +90,13 @@ val create : unit -> t
     recorded admission and its subsequently allocated attempt. *)
 val create_progress : unit -> ('admission, 'attempt, 'measurement) progress
 
-val start_preference_recovery
+val create_validated_preference_recovery
   :  capacity:int
-  -> (('scope, 'candidate) preference_recovery, preference_store_error) result
+  -> ('scope, 'candidate) preference_recovery
 
-val finish_preference_recovery
+val activate_validated_preference_recovery
   :  ('scope, 'candidate) preference_recovery
-  -> (('scope, 'candidate) preference_store, preference_recovery_error) result
+  -> ('scope, 'candidate) preference_store
 
 val create_domain_settlement : unit -> domain_settlement
 
@@ -94,11 +106,6 @@ val reserve_preference_scope
   -> ( preference_reservation * ('candidate * success_ordinal) option
        , preference_reservation_error )
        result
-
-val remove_preference_scope
-  :  ('scope, 'candidate) preference_store
-  -> scope:'scope
-  -> preference_scope_removal
 
 val allocate_success_ordinal
   :  ('scope, 'candidate) preference_store
@@ -142,12 +149,40 @@ val finish_domain_settlement
     intent for a new scope fails before any mutation if capacity is full. *)
 val resume_committed_domain
   :  ('scope, 'candidate) preference_recovery
+  -> restore_preference:bool
   -> scope:'scope
   -> reservation:preference_reservation
   -> candidate:'candidate
   -> ordinal:success_ordinal
   -> domain_settlement_receipt
   -> (domain_settlement_receipt, recovery_domain_error) result
+
+val begin_preference_retirement
+  :  ('scope, 'candidate) preference_store
+  -> scope:'scope
+  -> make_receipt:
+       (reservation:preference_reservation
+        -> success_high_water:int64
+        -> preference_retirement_receipt)
+  -> preference_retirement_begin
+
+val abort_preference_retirement
+  :  ('scope, 'candidate) preference_store
+  -> scope:'scope
+  -> preference_retirement_receipt
+  -> unit
+
+val finish_preference_retirement
+  :  ('scope, 'candidate) preference_store
+  -> scope:'scope
+  -> preference_retirement_receipt
+  -> (preference_retirement_receipt, preference_retirement_error) result
+
+val resume_committed_retirement
+  :  ('scope, 'candidate) preference_recovery
+  -> scope:'scope
+  -> preference_retirement_receipt
+  -> (preference_retirement_receipt, recovery_retirement_error) result
 
 val record_admission : ('admission, 'attempt, 'measurement) progress -> 'admission -> unit
 val record_attempt : ('admission, 'attempt, 'measurement) progress -> 'attempt -> unit
