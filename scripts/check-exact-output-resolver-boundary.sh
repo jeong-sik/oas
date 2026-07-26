@@ -1127,7 +1127,7 @@ require_code_sequence \
   "$exact_output_flow_source"
 require_code_sequence \
   "scope-local preference lost snapshot reservation generation validation" \
-  'entry[.]reservation[[:space:]]*!=[[:space:]]*reservation' \
+  'entry[.]reservation[[:space:]]*<>[[:space:]]*reservation' \
   "$exact_output_flow_source"
 require_code_sequence \
   "scope-local preference stopped failing closed on ordinal exhaustion" \
