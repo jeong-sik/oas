@@ -11,6 +11,20 @@ type invalid_request_reason =
       { actual_bytes : int
       ; limit_bytes : int
       }
+  (** Refused locally, before dispatch, against a declared byte limit. Both
+          integers are measured: the serialized body and the limit it exceeded. *)
+  | Request_body_refused_by_provider of { status : int }
+  (** The provider refused the request for its size. Distinct from
+          {!Request_body_too_large} because the limit is unknown here — the response
+          carries a status, not a bound — and putting an estimate in those fields
+          would make a measured pair mean something it does not.
+
+          Separate from {!Unknown_invalid_request} because the cause is known: a
+          smaller request may succeed, where a malformed one will not. A consumer
+          that shrinks its input on the first and refuses to on the second needs the
+          two apart. [status] rather than a bare marker so a provider that signals
+          this with a status other than 413 leaves that fact in the type instead of
+          in a comment. *)
   | Unknown_invalid_request
 
 type input_capacity_reason =
