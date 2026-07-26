@@ -82,15 +82,12 @@ let group_retirements (retirements : retirement_item String_map.t) =
        in
        match Int64_map.find_opt reservation by_reservation with
        | None ->
-         Ok
-           (String_map.add
-              scope
-              (Int64_map.add reservation item by_reservation)
-              by_scope)
+         Ok (String_map.add scope (Int64_map.add reservation item by_reservation) by_scope)
        | Some (current : retirement_item)
          when String.equal
                 (Scope_retirement.id_to_string item.evidence.retirement_id)
-                (Scope_retirement.id_to_string current.evidence.retirement_id) -> Ok by_scope
+                (Scope_retirement.id_to_string current.evidence.retirement_id) ->
+         Ok by_scope
        | Some _ ->
          Error (Conflicting_scope_retirement_evidence item.evidence.retirement_id))
     retirements

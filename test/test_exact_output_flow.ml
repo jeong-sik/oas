@@ -1622,12 +1622,11 @@ let test_recovery_rejects_superseded_retirement_conflicts_regardless_order () =
     then fail "retirement conflict fixture reused the first retirement intent";
     if
       not
-        (String.equal
-           (retirement_field "scope" first)
-           (retirement_field "scope" conflicting)
-         && String.equal
-              (retirement_field "scope" first)
-              (retirement_field "scope" newer))
+    (String.equal
+       (retirement_field "scope" first)
+       (retirement_field "scope" conflicting)
+     && String.equal (retirement_field "scope" first) (retirement_field "scope" newer)
+    )
     then fail "retirement conflict fixture did not preserve one scope";
     let first_reservation = retirement_reservation first in
     let conflicting_reservation = retirement_reservation conflicting in
@@ -1659,9 +1658,7 @@ let test_recovery_rejects_superseded_retirement_conflicts_regardless_order () =
              EO.recover_flow_preferences
                ~concurrent_scope_budget:0
                ~evidence:
-                 (List.map
-                    (fun intent -> EO.Scope_retirement_evidence intent)
-                    ordered)
+                 (List.map (fun intent -> EO.Scope_retirement_evidence intent) ordered)
            with
            | Error (EO.Conflicting_scope_retirement_evidence id) ->
              Some (EO.flow_preference_retirement_id_to_string id)
@@ -1671,7 +1668,11 @@ let test_recovery_rejects_superseded_retirement_conflicts_regardless_order () =
         permutations
     in
     let every_order_conflicted =
-      List.for_all (function Some _ -> true | None -> false) conflict_ids
+      List.for_all
+        (function
+          | Some _ -> true
+          | None -> false)
+        conflict_ids
     in
     let deterministic_conflict_payload =
       match conflict_ids with
