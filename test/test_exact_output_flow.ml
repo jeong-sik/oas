@@ -722,12 +722,11 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
   check
     bool
     "conflicting settlement is typed"
-    true
-    (match duplicate_settlement with
-     | Error EO.Domain_settlement_conflict -> true
-     | Error EO.Domain_settlement_in_progress
-     | Error (EO.Domain_commit_failed _)
-     | Ok _ -> false);
+     true
+     (match duplicate_settlement with
+      | Error EO.Domain_settlement_conflict -> true
+     | Error EO.Domain_settlement_in_progress | Error (EO.Domain_commit_failed _) | Ok _
+       -> false);
   check
     (list string)
     "domain rejection records no preference"
@@ -797,9 +796,8 @@ let test_concurrent_domain_settlement_has_one_winner () =
   in
   (match in_progress with
    | Error EO.Domain_settlement_in_progress -> ()
-   | Error (EO.Domain_commit_failed _)
-   | Error EO.Domain_settlement_conflict
-   | Ok _ -> fail "same-domain concurrent settlement did not return in-progress");
+   | Error (EO.Domain_commit_failed _) | Error EO.Domain_settlement_conflict | Ok _ ->
+     fail "same-domain concurrent settlement did not return in-progress");
   let receipt label = function
     | Ok receipt -> receipt
     | Error (EO.Domain_commit_failed _)
@@ -1239,8 +1237,7 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
       let needle_length = String.length needle in
       let rec loop index =
         index + needle_length <= text_length
-        && (String.equal (String.sub text index needle_length) needle
-            || loop (index + 1))
+        && (String.equal (String.sub text index needle_length) needle || loop (index + 1))
       in
       loop 0
     in
@@ -1339,10 +1336,8 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
          EO.Domain_valid
      with
      | Error (EO.Domain_commit_failed ()) -> ()
-     | Ok _
-     | Error EO.Domain_settlement_in_progress
-     | Error EO.Domain_settlement_conflict ->
-       fail "failed durable callback did not remain retryable");
+     | Ok _ | Error EO.Domain_settlement_in_progress | Error EO.Domain_settlement_conflict
+       -> fail "failed durable callback did not remain retryable");
     let next_encoded =
       match !next_encoded with
       | Some encoded -> encoded
