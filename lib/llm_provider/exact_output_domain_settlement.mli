@@ -16,6 +16,7 @@ type 'commit_error commit_error =
 
 type resume_error =
   | Domain_preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
   | Domain_settlement_recovery_conflict
 
 val intent_id : intent -> Exact_output_flow_contract.domain_settlement_id

@@ -85,6 +85,7 @@ type domain_settlement_error = Domain_settlement_apply_conflict
 
 type recovery_domain_error =
   | Preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
   | Recovered_domain_conflict
 
 type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome =
@@ -262,11 +263,11 @@ let finish_domain_settlement
       requested
   =
   with_preference_lock preferences (fun () ->
-    match Atomic.get settlement with
-    | Publishing receipt when same_receipt receipt requested ->
-       (match requested.disposition with
-        | Rejected -> ()
-        | Valid ->
+     match Atomic.get settlement with
+     | Publishing receipt when same_receipt receipt requested ->
+      (match requested.disposition with
+       | Rejected -> ()
+       | Valid ->
          record_preference_locked preferences ~scope ~reservation ~candidate ~ordinal);
       Atomic.set settlement (Settled requested);
       Condition.broadcast preferences.condition;
@@ -280,12 +281,10 @@ let max_int64 left right = if Int64.compare left right >= 0 then left else right
 let install_recovered_preference_locked recovery ~scope ~reservation ~candidate ~ordinal =
   match Hashtbl.find_opt recovery.entries scope with
   | None ->
-    if Hashtbl.length recovery.entries < recovery.capacity
-    then
-      Hashtbl.add
-        recovery.entries
-        scope
-        { reservation; preference = Some (candidate, ordinal) }
+    Hashtbl.add
+      recovery.entries
+      scope
+      { reservation; preference = Some (candidate, ordinal) }
   | Some entry ->
     let current = preference_reservation_to_int64 entry.reservation in
     let incoming = preference_reservation_to_int64 reservation in
@@ -306,6 +305,11 @@ let resume_committed_domain recovery ~scope ~reservation ~candidate ~ordinal rec
        | Some disposition when same_disposition disposition receipt.disposition ->
          Ok receipt
        | Some _ -> Error Recovered_domain_conflict
+       | None
+         when receipt.disposition = Valid
+              && (not (Hashtbl.mem recovery.entries scope))
+              && Hashtbl.length recovery.entries >= recovery.capacity ->
+         Error (Preference_recovery_capacity_exhausted { capacity = recovery.capacity })
        | None ->
          recovery.last_reservation_ordinal
          <- max_int64

@@ -607,6 +607,7 @@ type 'commit_error domain_commit_error =
 
 type domain_settlement_resume_error =
   | Domain_preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
   | Domain_settlement_recovery_conflict
 
 val domain_settlement_id_to_string : domain_settlement_id -> string
@@ -642,7 +643,8 @@ val commit_and_settle_flow_domain
 (** Resume one authenticated committed intent before preference recovery is
     finished. This function has no network, provider, resolver, callback, or
     dispatch capability. It restores reservation and success high-water marks
-    and returns the same deterministic receipt for a same-ID replay. *)
+    and returns the same deterministic receipt for a same-ID replay. A valid
+    new scope fails before any recovery mutation when capacity is full. *)
 val resume_committed_flow_domain
   :  flow_preference_recovery
   -> domain_settlement_intent

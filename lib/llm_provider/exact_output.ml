@@ -283,8 +283,8 @@ type flow_success =
   }
 
 type domain_settlement_intent = Domain_settlement.intent
-type domain_settlement_intent_decode_error =
-  Domain_settlement.decode_error =
+
+type domain_settlement_intent_decode_error = Domain_settlement.decode_error =
   | Domain_settlement_intent_malformed_json of string
   | Domain_settlement_intent_invalid_fields
   | Domain_settlement_intent_unknown_format of string
@@ -292,14 +292,13 @@ type domain_settlement_intent_decode_error =
   | Domain_settlement_intent_invalid_field of string
   | Domain_settlement_intent_integrity_mismatch
 
-type 'commit_error domain_commit_error =
-  'commit_error Domain_settlement.commit_error =
+type 'commit_error domain_commit_error = 'commit_error Domain_settlement.commit_error =
   | Domain_commit_failed of 'commit_error
   | Domain_settlement_conflict
 
-type domain_settlement_resume_error =
-  Domain_settlement.resume_error =
+type domain_settlement_resume_error = Domain_settlement.resume_error =
   | Domain_preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
   | Domain_settlement_recovery_conflict
 
 type flow_candidate_failure =
@@ -481,7 +480,6 @@ let flow_success_candidate success = success.candidate
 let flow_success_output success = success.success
 let flow_success_evidence success = success.evidence
 let flow_success_ordinal success = success.success_ordinal
-
 let call_id_to_string (Call_id id) = id
 let flow_id_to_string (Flow_id id) = id
 let flow_visit_ordinal_to_int (Flow_visit_ordinal ordinal) = ordinal

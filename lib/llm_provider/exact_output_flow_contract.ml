@@ -74,6 +74,7 @@ type domain_settlement_apply_error = Domain_settlement_apply_conflict
 
 type domain_settlement_recovery_error =
   | Domain_preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
   | Domain_settlement_recovery_conflict
 
 let begin_flow_preference_recovery ~capacity =
@@ -102,7 +103,7 @@ let flow_preference_reservation_of_int64 = Flow_state.preference_reservation_of_
 let flow_success_ordinal_to_int64 = Flow_state.success_ordinal_to_int64
 let flow_success_ordinal_of_int64 = Flow_state.success_ordinal_of_int64
 
-let flow_preference_identity_of_candidate candidate =
+let flow_preference_identity_of_candidate (candidate : flow_candidate_identity) =
   { candidate_id = candidate.candidate_id
   ; binding_sha256 = Resolver.target_identity_fingerprint candidate.target_identity
   }
@@ -252,6 +253,8 @@ let resume_committed_domain
   | Ok _ -> Ok receipt
   | Error Flow_state.Preference_recovery_finished ->
     Error Domain_preference_recovery_finished
+  | Error (Flow_state.Preference_recovery_capacity_exhausted { capacity }) ->
+    Error (Preference_recovery_capacity_exhausted { capacity })
   | Error Flow_state.Recovered_domain_conflict ->
     Error Domain_settlement_recovery_conflict
 ;;

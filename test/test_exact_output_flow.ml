@@ -714,9 +714,9 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
     before_settlement;
   check
     bool
-     "domain rejection returns a typed receipt"
-     true
-     (match first_settlement with
+    "domain rejection returns a typed receipt"
+    true
+    (match first_settlement with
      | Ok receipt -> EO.domain_settlement_receipt_disposition receipt = EO.Domain_rejected
      | Error _ -> false);
   check
@@ -735,7 +735,7 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
 ;;
 
 let test_concurrent_domain_settlement_has_one_winner () =
-  let left, right, future_order, posts =
+  let left, right, future_order, commits, posts =
     let result, posts =
       with_server ~response:(openai_response {|{"name":"accepted"}|})
       @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
@@ -882,13 +882,13 @@ let test_older_success_cannot_overwrite_newer_after_reversed_domain_settlement (
     "later structural success survives reversed cross-domain settlement"
     [ "newer-b"; "older-a" ]
     future_order;
-    let require_valid = function
-      | Ok receipt ->
+  let require_valid = function
+    | Ok receipt ->
       check_settlement_disposition
         "settlement remains domain-valid"
         EO.Domain_valid
         receipt;
-        receipt
+      receipt
     | Error _ -> fail "domain-valid settlement failed"
   in
   let newer_receipt = require_valid newer_receipt in
@@ -1107,9 +1107,9 @@ let test_removed_scope_consumes_domain_valid_settlement_as_typed_failure () =
   check int "released-scope proof dispatches once" 1 posts;
   check
     bool
-     "domain-valid settlement remains durable after scope release"
-     true
-     (match settlement with
+    "domain-valid settlement remains durable after scope release"
+    true
+    (match settlement with
      | Ok receipt -> EO.domain_settlement_receipt_disposition receipt = EO.Domain_valid
      | Error _ -> false);
   check
@@ -1232,6 +1232,21 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
     (match EO.domain_settlement_intent_of_string old_version with
      | Error (EO.Domain_settlement_intent_unsupported_version 0) -> ()
      | Ok _ | Error _ -> fail "old durable intent version did not fail closed");
+    List.iter
+      (fun field ->
+         List.iter
+           (fun raw ->
+              let noncanonical = rewrite_json_field field (`String raw) encoded in
+              match EO.domain_settlement_intent_of_string noncanonical with
+              | Error (EO.Domain_settlement_intent_invalid_field rejected)
+                when String.equal rejected field -> ()
+              | Ok _ | Error _ ->
+                failf
+                  "noncanonical %s=%s survived with original settlement hashes"
+                  field
+                  raw)
+           [ "01"; "+1"; "0x1"; "0_1" ])
+      [ "reservation_ordinal"; "success_ordinal" ];
     let corrupt =
       rewrite_json_field "integrity_sha256" (`String (String.make 64 '0')) encoded
     in
@@ -1256,7 +1271,9 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
     in
     (match EO.resume_committed_flow_domain recovery intent with
      | Error EO.Domain_preference_recovery_finished -> ()
-     | Ok _ | Error EO.Domain_settlement_recovery_conflict ->
+     | ( Ok _
+       | Error EO.Domain_settlement_recovery_conflict
+       | Error (EO.Preference_recovery_capacity_exhausted _) ) ->
        fail "finished recovery accepted another replay");
     let future_order =
       frozen_flow
@@ -1373,10 +1390,97 @@ let test_recovery_conflicting_disposition_fails_closed () =
      | Error _ -> fail "first recovered disposition did not settle");
     match EO.resume_committed_flow_domain recovery rejected with
     | Error EO.Domain_settlement_recovery_conflict -> true
-    | Ok _ | Error EO.Domain_preference_recovery_finished -> false
+    | ( Ok _
+      | Error EO.Domain_preference_recovery_finished
+      | Error (EO.Preference_recovery_capacity_exhausted _) ) -> false
   in
   check int "conflicting recovery performs no extra dispatch" 1 posts;
   check bool "conflicting disposition fails closed" true conflicted
+;;
+
+let test_recovery_capacity_failure_is_typed_unmutated_and_retryable () =
+  let (retryable, reservation_unadvanced, ordinal_unadvanced), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"capacity-a" ~base_url ~native:true ~json:true () ]
+    @@ fun snapshot ->
+    let live_preferences = preference_store ~capacity:2 () in
+    let capture preferences scope =
+      let success =
+        frozen_flow
+          ~preferences
+          ~scope
+          snapshot
+          [ "capacity-a" ]
+        |> start_flow
+        |> execute_ok ~net
+      in
+      let success =
+        match success with
+        | Ok success -> success
+        | Error _ -> fail "capacity recovery fixture did not succeed"
+      in
+      let encoded = ref None in
+      (match
+         EO.commit_and_settle_flow_domain
+           ~commit:(fun intent ->
+             encoded := Some (EO.domain_settlement_intent_to_string intent);
+             Error ())
+           success
+           EO.Domain_valid
+       with
+       | Error (EO.Domain_commit_failed ()) -> ()
+       | Ok _ | Error EO.Domain_settlement_conflict ->
+         fail "capacity recovery fixture unexpectedly settled");
+      match !encoded with
+      | Some encoded ->
+        (match EO.domain_settlement_intent_of_string encoded with
+         | Ok intent -> intent, encoded
+         | Error _ -> fail "capacity recovery fixture intent did not decode")
+      | None -> fail "capacity recovery fixture did not expose its intent"
+    in
+    let first_scope = flow_scope "/runtime/recovery-capacity/a" in
+    let second_scope = flow_scope "/runtime/recovery-capacity/b" in
+    let first, _ = capture live_preferences first_scope in
+    let second, second_encoded = capture live_preferences second_scope in
+    let recovery = preference_recovery ~capacity:1 () in
+    (match EO.resume_committed_flow_domain recovery first with
+     | Ok _ -> ()
+     | Error _ -> fail "first recovery capacity fixture did not settle");
+    let capacity_failure () =
+      match EO.resume_committed_flow_domain recovery second with
+      | Error (EO.Preference_recovery_capacity_exhausted { capacity = 1 }) -> true
+      | ( Ok _
+        | Error EO.Domain_preference_recovery_finished
+        | Error EO.Domain_settlement_recovery_conflict
+        | Error (EO.Preference_recovery_capacity_exhausted _) ) -> false
+    in
+    let retryable = capacity_failure () && capacity_failure () in
+    let recovered_preferences =
+      match EO.finish_flow_preference_recovery recovery with
+      | Ok preferences -> preferences
+      | Error _ -> fail "capacity recovery did not finish"
+    in
+    (match EO.remove_flow_preference_scope recovered_preferences first_scope with
+     | EO.Flow_preference_scope_removed -> ()
+     | EO.Flow_preference_scope_not_reserved ->
+       fail "first recovered capacity scope was absent");
+    let _, next_encoded =
+      capture recovered_preferences (flow_scope "/runtime/recovery-capacity/next")
+    in
+    ( retryable
+    , String.equal
+        (json_field_string "reservation_ordinal" second_encoded)
+        (json_field_string "reservation_ordinal" next_encoded)
+    , String.equal
+        (json_field_string "success_ordinal" second_encoded)
+        (json_field_string "success_ordinal" next_encoded) )
+  in
+  check int "capacity recovery proof dispatches only live fixtures" 3 posts;
+  check bool "capacity failure remains retryable" true retryable;
+  check bool "capacity failure does not advance reservation high-water" true reservation_unadvanced;
+  check bool "capacity failure does not advance success high-water" true ordinal_unadvanced
 ;;
 
 let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
@@ -4019,6 +4123,10 @@ let () =
             "recovery rejects conflicting disposition"
             `Quick
             test_recovery_conflicting_disposition_fails_closed
+        ; test_case
+            "recovery capacity fails before mutation and remains retryable"
+            `Quick
+            test_recovery_capacity_failure_is_typed_unmutated_and_retryable
         ; test_case
             "snapshot defers admission and current attempts do not share"
             `Quick

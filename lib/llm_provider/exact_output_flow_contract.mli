@@ -73,6 +73,7 @@ type domain_settlement_apply_error = Domain_settlement_apply_conflict
 
 type domain_settlement_recovery_error =
   | Domain_preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
   | Domain_settlement_recovery_conflict
 
 val begin_flow_preference_recovery
@@ -90,6 +91,7 @@ val flow_preference_reservation_to_int64 : flow_preference_reservation -> int64
 val flow_preference_reservation_of_int64 : int64 -> flow_preference_reservation option
 val flow_success_ordinal_to_int64 : flow_success_ordinal -> int64
 val flow_success_ordinal_of_int64 : int64 -> flow_success_ordinal option
+
 val flow_preference_identity_of_candidate
   :  flow_candidate_identity
   -> flow_preference_identity

@@ -43,6 +43,7 @@ type domain_settlement_error = Domain_settlement_apply_conflict
 
 type recovery_domain_error =
   | Preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
   | Recovered_domain_conflict
 
 type ('admission, 'attempt, 'measurement) progress_snapshot =
@@ -135,7 +136,8 @@ val finish_domain_settlement
 
 (** Replay one caller-authenticated committed intent while the store is still
     recovering. This path has no transport capability. It advances reservation
-    and success high-water marks before the store can become active. *)
+    and success high-water marks before the store can become active. A valid
+    intent for a new scope fails before any mutation if capacity is full. *)
 val resume_committed_domain
   :  ('scope, 'candidate) preference_recovery
   -> scope:'scope

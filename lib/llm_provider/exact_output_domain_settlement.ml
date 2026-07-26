@@ -28,6 +28,7 @@ type 'commit_error commit_error =
 
 type resume_error =
   | Domain_preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
   | Domain_settlement_recovery_conflict
 
 let ( let* ) = Result.bind
@@ -111,11 +112,13 @@ let make_intent
     `Assoc
       [ ( "call_id"
         , `String (Generation_receipt.snapshot_call_id execution |> call_id_to_string) )
-      ; "plan_fingerprint", `String (Generation_receipt.snapshot_plan_fingerprint execution)
+      ; ( "plan_fingerprint"
+        , `String (Generation_receipt.snapshot_plan_fingerprint execution) )
       ; ( "request_body_sha256"
         , `String (Generation_receipt.snapshot_request_body_sha256 execution) )
       ; ( "phase"
-        , `String (Generation_receipt.snapshot_phase execution |> effect_phase_to_string) )
+        , `String (Generation_receipt.snapshot_phase execution |> effect_phase_to_string)
+        )
       ; "dispatch_count", `Int (Generation_receipt.snapshot_dispatch_count execution)
       ; ( "http_status"
         , match Generation_receipt.snapshot_http_status execution with
@@ -124,15 +127,13 @@ let make_intent
       ]
   in
   let provisional =
-    { settlement_id =
-        Flow_contract.domain_settlement_id_of_string (String.make 64 '0')
+    { settlement_id = Flow_contract.domain_settlement_id_of_string (String.make 64 '0')
     ; flow_id
     ; scope
     ; reservation
     ; candidate = Flow_contract.flow_preference_identity_of_candidate candidate
     ; success_ordinal
-    ; execution_evidence_sha256 =
-        sha256_string (Yojson.Safe.to_string execution_evidence)
+    ; execution_evidence_sha256 = sha256_string (Yojson.Safe.to_string execution_evidence)
     ; disposition
     ; integrity_sha256 = String.make 64 '0'
     }
@@ -144,9 +145,7 @@ let make_intent
     |> Flow_contract.domain_settlement_id_of_string
   in
   let with_id = { provisional with settlement_id } in
-  let integrity_sha256 =
-    payload_json with_id |> Yojson.Safe.to_string |> sha256_string
-  in
+  let integrity_sha256 = payload_json with_id |> Yojson.Safe.to_string |> sha256_string in
   { with_id with integrity_sha256 }
 ;;
 
@@ -189,9 +188,11 @@ let intent_of_string encoded =
     | _ -> invalid name
   in
   let int64_field fields name =
-    let* value = string_field fields name in
-    match Int64.of_string_opt value with
-    | Some value when Int64.compare value 0L > 0 -> Ok value
+    let* raw = string_field fields name in
+    match Int64.of_string_opt raw with
+    | Some value
+      when Int64.compare value 0L > 0
+           && String.equal raw (Int64.to_string value) -> Ok value
     | Some _ | None -> invalid name
   in
   try
@@ -201,7 +202,7 @@ let intent_of_string encoded =
       let expected = List.sort String.compare expected_fields in
       if actual <> expected
       then Error Domain_settlement_intent_invalid_fields
-      else (
+      else
         let* format = string_field fields "format" in
         let* () =
           if String.equal format intent_format
@@ -212,8 +213,7 @@ let intent_of_string encoded =
         let* () =
           match version with
           | `Int version when version = intent_version -> Ok ()
-          | `Int version ->
-            Error (Domain_settlement_intent_unsupported_version version)
+          | `Int version -> Error (Domain_settlement_intent_unsupported_version version)
           | _ -> invalid "version"
         in
         let* flow_id = string_field fields "flow_id" in
@@ -234,9 +234,7 @@ let intent_of_string encoded =
           | None -> invalid "reservation_ordinal"
         in
         let* candidate_id = string_field fields "candidate_id" in
-        let* candidate_binding_sha256 =
-          string_field fields "candidate_binding_sha256"
-        in
+        let* candidate_binding_sha256 = string_field fields "candidate_binding_sha256" in
         let* () =
           if
             (not (String.equal (String.trim candidate_id) ""))
@@ -297,11 +295,10 @@ let intent_of_string encoded =
           String.equal expected_settlement_id settlement_id_text
           && String.equal expected_integrity integrity_sha256
         then Ok intent
-        else Error Domain_settlement_intent_integrity_mismatch)
+        else Error Domain_settlement_intent_integrity_mismatch
     | _ -> Error Domain_settlement_intent_invalid_fields
   with
-  | Yojson.Json_error detail ->
-    Error (Domain_settlement_intent_malformed_json detail)
+  | Yojson.Json_error detail -> Error (Domain_settlement_intent_malformed_json detail)
 ;;
 
 let commit_and_settle
@@ -379,6 +376,8 @@ let resume recovery intent =
   | Ok receipt -> Ok receipt
   | Error Flow_contract.Domain_preference_recovery_finished ->
     Error Domain_preference_recovery_finished
+  | Error (Flow_contract.Preference_recovery_capacity_exhausted { capacity }) ->
+    Error (Preference_recovery_capacity_exhausted { capacity })
   | Error Flow_contract.Domain_settlement_recovery_conflict ->
     Error Domain_settlement_recovery_conflict
 ;;
