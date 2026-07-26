@@ -28,7 +28,10 @@ type retirement_item =
 let ( let* ) = Result.bind
 
 let collect evidence =
-  let rec loop domains retirements = function
+  let rec loop
+      (domains : domain_item String_map.t)
+      (retirements : retirement_item String_map.t)
+    = function
     | [] -> Ok (domains, retirements)
     | Domain_settlement_evidence intent :: rest ->
       let id = Domain_settlement.intent_id intent in

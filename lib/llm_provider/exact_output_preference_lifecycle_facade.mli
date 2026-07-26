@@ -2,7 +2,6 @@
 
 type flow_preference_retirement_id = Exact_output_scope_retirement.id
 type flow_preference_retirement_intent = Exact_output_scope_retirement.intent
-
 type flow_preference_retirement_receipt
 
 type flow_preference_retirement_intent_decode_error =
