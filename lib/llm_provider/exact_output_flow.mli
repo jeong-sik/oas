@@ -168,24 +168,32 @@ val begin_preference_retirement
 
 val abort_preference_retirement
   :  ('scope, 'candidate) preference_store
+  -> same_receipt:
+       (preference_retirement_receipt -> preference_retirement_receipt -> bool)
   -> scope:'scope
   -> preference_retirement_receipt
   -> unit
 
 val mark_preference_retirement_indeterminate
   :  ('scope, 'candidate) preference_store
+  -> same_receipt:
+       (preference_retirement_receipt -> preference_retirement_receipt -> bool)
   -> scope:'scope
   -> preference_retirement_receipt
   -> unit
 
 val finish_preference_retirement
   :  ('scope, 'candidate) preference_store
+  -> same_receipt:
+       (preference_retirement_receipt -> preference_retirement_receipt -> bool)
   -> scope:'scope
   -> preference_retirement_receipt
   -> (preference_retirement_receipt, preference_retirement_error) result
 
 val resume_committed_retirement
   :  ('scope, 'candidate) preference_recovery
+  -> same_receipt:
+       (preference_retirement_receipt -> preference_retirement_receipt -> bool)
   -> scope:'scope
   -> preference_retirement_receipt
   -> (preference_retirement_receipt, recovery_retirement_error) result

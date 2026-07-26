@@ -90,6 +90,12 @@ type flow_preference_retirement_recovery_error =
   | Flow_preference_retirement_recovery_finished
   | Flow_preference_retirement_recovery_conflict
 
+let flow_preference_retirement_receipt_equal left right =
+  String.equal left.retirement_id right.retirement_id
+  && left.reservation = right.reservation
+  && Int64.equal left.success_high_water right.success_high_water
+;;
+
 let create_validated_flow_preference_recovery ~capacity =
   Flow_state.create_validated_preference_recovery ~capacity
 ;;
@@ -280,25 +286,95 @@ let begin_flow_preference_retirement preferences (Flow_scope scope) ~make_receip
 ;;
 
 let abort_flow_preference_retirement preferences (Flow_scope scope) receipt =
-  Flow_state.abort_preference_retirement preferences ~scope receipt
+  Flow_state.abort_preference_retirement
+    preferences
+    ~same_receipt:flow_preference_retirement_receipt_equal
+    ~scope
+    receipt
 ;;
 
 let mark_flow_preference_retirement_indeterminate preferences (Flow_scope scope) receipt =
-  Flow_state.mark_preference_retirement_indeterminate preferences ~scope receipt
+  Flow_state.mark_preference_retirement_indeterminate
+    preferences
+    ~same_receipt:flow_preference_retirement_receipt_equal
+    ~scope
+    receipt
 ;;
 
 let finish_flow_preference_retirement preferences (Flow_scope scope) receipt =
-  match Flow_state.finish_preference_retirement preferences ~scope receipt with
+  match
+    Flow_state.finish_preference_retirement
+      preferences
+      ~same_receipt:flow_preference_retirement_receipt_equal
+      ~scope
+      receipt
+  with
   | Ok receipt -> Ok receipt
   | Error Flow_state.Preference_retirement_apply_conflict ->
     Error Flow_preference_retirement_apply_conflict
 ;;
 
 let resume_committed_flow_preference_retirement recovery (Flow_scope scope) receipt =
-  match Flow_state.resume_committed_retirement recovery ~scope receipt with
+  match
+    Flow_state.resume_committed_retirement
+      recovery
+      ~same_receipt:flow_preference_retirement_receipt_equal
+      ~scope
+      receipt
+  with
   | Ok receipt -> Ok receipt
   | Error Flow_state.Preference_retirement_recovery_finished ->
     Error Flow_preference_retirement_recovery_finished
   | Error Flow_state.Recovered_retirement_conflict ->
     Error Flow_preference_retirement_recovery_conflict
+;;
+
+let make_flow_preference_retirement_receipt_for_testing
+      ~identity_seed
+      ~(reservation : flow_preference_reservation)
+      ~success_high_water
+  =
+  { retirement_id = String.make 64 identity_seed; reservation; success_high_water }
+;;
+
+let%test_unit "retirement recovery conflict does not mutate high-water" =
+  let recovery : flow_preference_recovery =
+    create_validated_flow_preference_recovery ~capacity:1
+  in
+  let reservation =
+    match flow_preference_reservation_of_int64 1L with
+    | Some reservation -> reservation
+    | None -> assert false
+  in
+  let first =
+    make_flow_preference_retirement_receipt_for_testing
+      ~identity_seed:'a'
+      ~reservation
+      ~success_high_water:1L
+  in
+  let conflicting =
+    make_flow_preference_retirement_receipt_for_testing
+      ~identity_seed:'b'
+      ~reservation
+      ~success_high_water:99L
+  in
+  assert (
+    Result.is_ok
+      (resume_committed_flow_preference_retirement recovery (Flow_scope "old") first));
+  assert (
+    match
+      resume_committed_flow_preference_retirement recovery (Flow_scope "old") conflicting
+    with
+    | Error Flow_preference_retirement_recovery_conflict -> true
+    | Ok _ | Error Flow_preference_retirement_recovery_finished -> false);
+  let store = activate_validated_flow_preference_recovery recovery in
+  assert (
+    match allocate_flow_success_ordinal store with
+    | Ok ordinal -> Int64.equal (flow_success_ordinal_to_int64 ordinal) 2L
+    | Error Flow_success_ordinal_space_exhausted -> false);
+  assert (
+    match Flow_state.reserve_preference_scope store ~scope:"new" with
+    | Ok (reservation, None) ->
+      Int64.equal (flow_preference_reservation_to_int64 reservation) 2L
+    | Ok _ | Error _ -> false)
 ;;
