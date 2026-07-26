@@ -45,7 +45,6 @@ type domain_settlement_receipt =
 
 type ('scope, 'candidate) preference_store =
   { mutex : Mutex.t
-  ; condition : Condition.t
   ; capacity : int
   ; entries : ('scope, 'candidate preference_entry) Hashtbl.t
   ; recovered_domains : (string, domain_disposition) Hashtbl.t
@@ -79,6 +78,7 @@ type success_ordinal_error = Success_ordinal_exhausted
 type domain_settlement_begin =
   | Domain_settlement_claimed
   | Domain_settlement_replayed of domain_settlement_receipt
+  | Domain_settlement_in_progress
   | Domain_settlement_conflict
 
 type domain_settlement_error = Domain_settlement_apply_conflict
@@ -122,7 +122,6 @@ let start_preference_recovery ~capacity =
   else
     Ok
       { mutex = Mutex.create ()
-      ; condition = Condition.create ()
       ; capacity
       ; entries = Hashtbl.create (Int.min capacity 16)
       ; recovered_domains = Hashtbl.create 16
@@ -221,35 +220,27 @@ let same_receipt left right =
   && same_disposition left.disposition right.disposition
 ;;
 
-let rec begin_domain_settlement settlement preferences requested =
-  let decision =
-    with_preference_lock preferences (fun () ->
-      match Atomic.get settlement with
-      | Pending ->
-        Atomic.set settlement (Publishing requested);
-        `Done Domain_settlement_claimed
-      | Settled receipt ->
-        if same_receipt receipt requested
-        then `Done (Domain_settlement_replayed receipt)
-        else `Done Domain_settlement_conflict
-      | Publishing receipt ->
-        if not (same_receipt receipt requested)
-        then `Done Domain_settlement_conflict
-        else (
-          Condition.wait preferences.condition preferences.mutex;
-          `Await_settlement))
-  in
-  match decision with
-  | `Done result -> result
-  | `Await_settlement -> begin_domain_settlement settlement preferences requested
+let begin_domain_settlement settlement preferences requested =
+  with_preference_lock preferences (fun () ->
+    match Atomic.get settlement with
+    | Pending ->
+      Atomic.set settlement (Publishing requested);
+      Domain_settlement_claimed
+    | Settled receipt ->
+      if same_receipt receipt requested
+      then Domain_settlement_replayed receipt
+      else Domain_settlement_conflict
+    | Publishing receipt ->
+      if same_receipt receipt requested
+      then Domain_settlement_in_progress
+      else Domain_settlement_conflict)
 ;;
 
 let abort_domain_settlement settlement preferences requested =
   with_preference_lock preferences (fun () ->
     match Atomic.get settlement with
     | Publishing receipt when same_receipt receipt requested ->
-      Atomic.set settlement Pending;
-      Condition.broadcast preferences.condition
+      Atomic.set settlement Pending
     | Pending | Publishing _ | Settled _ -> ())
 ;;
 
@@ -270,7 +261,6 @@ let finish_domain_settlement
        | Valid ->
          record_preference_locked preferences ~scope ~reservation ~candidate ~ordinal);
       Atomic.set settlement (Settled requested);
-      Condition.broadcast preferences.condition;
       Ok requested
     | Settled receipt when same_receipt receipt requested -> Ok receipt
     | Pending | Publishing _ | Settled _ -> Error Domain_settlement_apply_conflict)

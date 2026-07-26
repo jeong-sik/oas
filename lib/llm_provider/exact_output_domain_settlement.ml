@@ -24,6 +24,7 @@ type decode_error =
 
 type 'commit_error commit_error =
   | Domain_commit_failed of 'commit_error
+  | Domain_settlement_in_progress
   | Domain_settlement_conflict
 
 type resume_error =
@@ -330,6 +331,7 @@ let commit_and_settle
   in
   match Flow_contract.begin_domain_settlement domain_settlement preferences receipt with
   | Flow_contract.Domain_settlement_replayed receipt -> Ok receipt
+  | Flow_contract.Domain_settlement_in_progress -> Error Domain_settlement_in_progress
   | Flow_contract.Domain_settlement_conflict -> Error Domain_settlement_conflict
   | Flow_contract.Domain_settlement_claimed ->
     let finished = ref false in

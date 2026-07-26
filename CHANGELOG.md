@@ -13,10 +13,10 @@ original tag dates. `0.100.4` was never tagged or released.
 * **exact-output durable domain settlement:** replace process-local
   `settle_flow_domain` and its already-settled error with a provider-neutral
   current-schema durable intent, caller commit fence, deterministic idempotent
-  receipt, and restart-only preference recovery. Recovery restores OAS-owned
-  reservation and success-ordinal high-water marks before an active preference
-  store can create snapshots. No compatibility wrapper or predecessor decoder
-  is provided.
+  receipt, typed nonblocking concurrent-publication outcome, and restart-only
+  preference recovery. Recovery restores OAS-owned reservation and
+  success-ordinal high-water marks before an active preference store can create
+  snapshots. No compatibility wrapper or predecessor decoder is provided.
 * **exact-output flow settlement:** require an explicit hard capacity when
   creating a scope-local preference store, add explicit scope removal and typed
   capacity/released-scope failures, and replace caller-provided success

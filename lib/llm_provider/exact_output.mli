@@ -603,6 +603,7 @@ type domain_settlement_intent_decode_error =
 
 type 'commit_error domain_commit_error =
   | Domain_commit_failed of 'commit_error
+  | Domain_settlement_in_progress
   | Domain_settlement_conflict
 
 type domain_settlement_resume_error =
@@ -627,9 +628,10 @@ val domain_settlement_receipt_disposition
 (** Fence caller-owned domain validation behind a durable content commit.
     [commit] receives the only current-schema, provider-neutral replay intent
     and must store it in authenticated durable state before returning [Ok].
-    No callback runs while the preference mutex is held. A same-ID,
-    same-disposition replay returns the same deterministic receipt; a different
-    disposition is a typed conflict.
+    No callback runs while the preference mutex is held. A concurrent same-ID,
+    same-disposition publisher receives [Domain_settlement_in_progress] without
+    blocking; a later replay returns the same deterministic receipt. A
+    different disposition is a typed conflict.
 
     This is logical idempotent replay, not a claim that arbitrary external
     storage performs a physical effect exactly once. If [commit] raises after

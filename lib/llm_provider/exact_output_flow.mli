@@ -37,6 +37,7 @@ type domain_settlement_receipt =
 type domain_settlement_begin =
   | Domain_settlement_claimed
   | Domain_settlement_replayed of domain_settlement_receipt
+  | Domain_settlement_in_progress
   | Domain_settlement_conflict
 
 type domain_settlement_error = Domain_settlement_apply_conflict
@@ -109,9 +110,10 @@ val success_ordinal_to_int64 : success_ordinal -> int64
 val success_ordinal_of_int64 : int64 -> success_ordinal option
 
 (** Claim one live durable settlement. The preference-store mutex is only a
-    condition/publication barrier; no caller callback runs while it is held.
-    A concurrent same-ID/same-disposition caller waits for and receives the
-    same receipt. A different disposition for that ID is a conflict. *)
+    publication barrier; no caller callback runs while it is held. A concurrent
+    same-ID/same-disposition caller receives a typed nonblocking in-progress
+    outcome and can replay later for the same receipt. A different disposition
+    for that ID is a conflict. *)
 val begin_domain_settlement
   :  domain_settlement
   -> ('scope, 'candidate) preference_store

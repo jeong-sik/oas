@@ -725,7 +725,9 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
     true
     (match duplicate_settlement with
      | Error EO.Domain_settlement_conflict -> true
-     | Error (EO.Domain_commit_failed _) | Ok _ -> false);
+     | Error EO.Domain_settlement_in_progress
+     | Error (EO.Domain_commit_failed _)
+     | Ok _ -> false);
   check
     (list string)
     "domain rejection records no preference"
@@ -735,10 +737,10 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
 ;;
 
 let test_concurrent_domain_settlement_has_one_winner () =
-  let left, right, future_order, commits, posts =
+  let first, in_progress, replay, future_order, commits, posts =
     let result, posts =
       with_server ~response:(openai_response {|{"name":"accepted"}|})
-      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+      @@ fun ~sw ~net ~clock:_ ~base_url ->
       with_catalog
         [ catalog_entry ~id:"winner-a" ~base_url ~native:true ~json:true ()
         ; catalog_entry ~id:"declared-b" ~base_url ~native:true ~json:true ()
@@ -753,49 +755,65 @@ let test_concurrent_domain_settlement_has_one_winner () =
       with
       | Error _ -> fail "concurrent-settlement fixture did not succeed"
       | Ok success ->
-        let ready = Atomic.make 0 in
-        let start = Atomic.make false in
         let commits = Atomic.make 0 in
-        let contend () =
-          ignore (Atomic.fetch_and_add ready 1);
-          while not (Atomic.get start) do
-            Domain.cpu_relax ()
-          done;
+        let commit_entered, commit_entered_resolver = Eio.Promise.create () in
+        let release_commit, release_commit_resolver = Eio.Promise.create () in
+        let first_result, first_result_resolver = Eio.Promise.create () in
+        Eio.Fiber.fork ~sw (fun () ->
+          let result =
+            EO.commit_and_settle_flow_domain
+              ~commit:(fun _ ->
+                Atomic.incr commits;
+                Eio.Promise.resolve commit_entered_resolver ();
+                Eio.Promise.await release_commit;
+                Ok ())
+              success
+              EO.Domain_valid
+          in
+          Eio.Promise.resolve first_result_resolver result);
+        Eio.Promise.await commit_entered;
+        let in_progress =
           EO.commit_and_settle_flow_domain
-            ~commit:(fun _ ->
-              ignore (Atomic.fetch_and_add commits 1);
-              Ok ())
+            ~commit:(fun _ -> fail "in-progress settlement ran a second commit")
             success
             EO.Domain_valid
         in
-        let left_domain = Domain.spawn contend in
-        let right_domain = Domain.spawn contend in
-        while Atomic.get ready <> 2 do
-          Domain.cpu_relax ()
-        done;
-        Atomic.set start true;
-        let left = Domain.join left_domain in
-        let right = Domain.join right_domain in
+        Eio.Promise.resolve release_commit_resolver ();
+        let first = Eio.Promise.await first_result in
+        let replay =
+          EO.commit_and_settle_flow_domain
+            ~commit:(fun _ -> fail "settled replay ran another commit")
+            success
+            EO.Domain_valid
+        in
         let future_order =
           frozen_flow ~preferences ~scope snapshot [ "declared-b"; "winner-a" ]
           |> flow_snapshot_ids
         in
-        left, right, future_order, Atomic.get commits
+        first, in_progress, replay, future_order, Atomic.get commits
     in
-    let left, right, future_order, commits = result in
-    left, right, future_order, commits, posts
+    let first, in_progress, replay, future_order, commits = result in
+    first, in_progress, replay, future_order, commits, posts
   in
-  let receipt = function
+  (match in_progress with
+   | Error EO.Domain_settlement_in_progress -> ()
+   | Error (EO.Domain_commit_failed _)
+   | Error EO.Domain_settlement_conflict
+   | Ok _ -> fail "same-domain concurrent settlement did not return in-progress");
+  let receipt label = function
     | Ok receipt -> receipt
-    | Error _ -> fail "concurrent idempotent settlement returned an error"
+    | Error (EO.Domain_commit_failed _)
+    | Error EO.Domain_settlement_in_progress
+    | Error EO.Domain_settlement_conflict ->
+      failf "%s idempotent settlement returned an error" label
   in
-  let left_receipt = receipt left in
-  let right_receipt = receipt right in
+  let first_receipt = receipt "first" first in
+  let replay_receipt = receipt "replay" replay in
   check
     string
-    "concurrent replay returns same receipt"
-    (settlement_id left_receipt)
-    (settlement_id right_receipt);
+    "later replay returns first receipt"
+    (settlement_id first_receipt)
+    (settlement_id replay_receipt);
   check int "durable commit callback runs once" 1 commits;
   check
     (list string)
@@ -1215,15 +1233,24 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
       ; "integrity_sha256"
       ]
       fields;
+    let encoded_lower = String.lowercase_ascii encoded in
+    let contains_substring text needle =
+      let text_length = String.length text in
+      let needle_length = String.length needle in
+      let rec loop index =
+        index + needle_length <= text_length
+        && (String.equal (String.sub text index needle_length) needle
+            || loop (index + 1))
+      in
+      loop 0
+    in
     List.iter
       (fun forbidden ->
          check
            bool
            ("durable envelope excludes " ^ forbidden)
            false
-           (String.starts_with ~prefix:forbidden encoded
-            || String.contains encoded '\000'
-            || String.equal forbidden encoded))
+           (contains_substring encoded_lower forbidden))
       [ "provider"; "model"; "catalog"; "credential"; "wire"; "pricing" ];
     let intent =
       match EO.domain_settlement_intent_of_string encoded with
@@ -1312,7 +1339,9 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
          EO.Domain_valid
      with
      | Error (EO.Domain_commit_failed ()) -> ()
-     | Ok _ | Error EO.Domain_settlement_conflict ->
+     | Ok _
+     | Error EO.Domain_settlement_in_progress
+     | Error EO.Domain_settlement_conflict ->
        fail "failed durable callback did not remain retryable");
     let next_encoded =
       match !next_encoded with
@@ -1370,7 +1399,9 @@ let test_recovery_conflicting_disposition_fails_closed () =
            disposition
        with
        | Error (EO.Domain_commit_failed ()) -> ()
-       | Ok _ | Error EO.Domain_settlement_conflict ->
+       | Ok _
+       | Error EO.Domain_settlement_in_progress
+       | Error EO.Domain_settlement_conflict ->
          fail "failed commit unexpectedly consumed the disposition");
       match !encoded with
       | Some encoded ->
@@ -1428,7 +1459,9 @@ let test_recovery_capacity_failure_is_typed_unmutated_and_retryable () =
            EO.Domain_valid
        with
        | Error (EO.Domain_commit_failed ()) -> ()
-       | Ok _ | Error EO.Domain_settlement_conflict ->
+       | Ok _
+       | Error EO.Domain_settlement_in_progress
+       | Error EO.Domain_settlement_conflict ->
          fail "capacity recovery fixture unexpectedly settled");
       match !encoded with
       | Some encoded ->
@@ -4097,7 +4130,7 @@ let () =
             `Quick
             test_domain_rejection_never_updates_preference_and_settlement_is_affine
         ; test_case
-            "concurrent domain settlement replays one receipt"
+            "concurrent domain settlement is nonblocking and later replays"
             `Quick
             test_concurrent_domain_settlement_has_one_winner
         ; test_case

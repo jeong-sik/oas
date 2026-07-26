@@ -12,6 +12,7 @@ type decode_error =
 
 type 'commit_error commit_error =
   | Domain_commit_failed of 'commit_error
+  | Domain_settlement_in_progress
   | Domain_settlement_conflict
 
 type resume_error =

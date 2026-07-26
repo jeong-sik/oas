@@ -68,6 +68,7 @@ type domain_settlement_receipt =
 type domain_settlement_begin =
   | Domain_settlement_claimed
   | Domain_settlement_replayed of domain_settlement_receipt
+  | Domain_settlement_in_progress
   | Domain_settlement_conflict
 
 type domain_settlement_apply_error = Domain_settlement_apply_conflict
@@ -207,6 +208,7 @@ let begin_domain_settlement settlement preferences receipt =
   with
   | Flow_state.Domain_settlement_claimed -> Domain_settlement_claimed
   | Flow_state.Domain_settlement_replayed _ -> Domain_settlement_replayed receipt
+  | Flow_state.Domain_settlement_in_progress -> Domain_settlement_in_progress
   | Flow_state.Domain_settlement_conflict -> Domain_settlement_conflict
 ;;
 

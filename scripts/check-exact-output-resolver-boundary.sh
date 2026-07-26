@@ -7,6 +7,7 @@ required_basenames=(
   exact_output.ml
   exact_output_flow.ml
   exact_output_flow_contract.ml
+  exact_output_domain_settlement.ml
   exact_output_resolver.ml
   exact_output_catalog_binding.ml
   exact_output_flow_admission.ml
@@ -571,6 +572,7 @@ scan_public_error_accessors() {
 exact_output_source=""
 exact_output_flow_source=""
 exact_output_flow_contract_source=""
+exact_output_domain_settlement_source=""
 exact_output_flow_admission_source=""
 exact_output_ready_admission_source=""
 resolver_source=""
@@ -587,6 +589,10 @@ for source_file in "${source_files[@]}"; do
       ;;
     exact_output_flow_contract.ml)
       exact_output_flow_contract_source="$source_file"
+      downstream_sources+=("$source_file")
+      ;;
+    exact_output_domain_settlement.ml)
+      exact_output_domain_settlement_source="$source_file"
       downstream_sources+=("$source_file")
       ;;
     exact_output_flow_admission.ml)
@@ -836,6 +842,7 @@ for private_module in \
   exact_output_plan \
   exact_output_execution \
   exact_output_flow \
+  exact_output_domain_settlement \
   exact_output_generation_receipt \
   exact_output_provider_trace \
   exact_output_resolver \
@@ -867,6 +874,10 @@ scan_code \
   "private exact-output flow acquired provider, model, tier, pricing, retry, cascade, or string policy" \
   'Provider|provider|Model|model|Tier|tier|Pricing|pricing|Retry|retry|Cascade|cascade|String\.|Str\.|Re\.' \
   "$exact_output_flow_source"
+scan_code \
+  "durable exact-output settlement acquired provider, model, tier, pricing, retry, or cascade policy" \
+  'Provider|provider|Model|model|Tier|tier|Pricing|pricing|Retry|retry|Cascade|cascade' \
+  "$exact_output_domain_settlement_source"
 require_code_sequence \
   "canonical facade lost outer exact-flow execution" \
   'val[[:space:]]+execute_flow_once[[:space:]]*:' \
@@ -1125,10 +1136,11 @@ require_code_sequence \
   "scope-local preference can be overwritten by an older success ordinal" \
   'compare_success_ordinal[[:space:]]+ordinal[[:space:]]+current_ordinal[[:space:]]*<=[[:space:]]*0' \
   "$exact_output_flow_source"
-require_code_sequence \
+require_named_function_pattern \
   "scope-local preference lost snapshot reservation generation validation" \
-  'entry[.]reservation[[:space:]]*<>[[:space:]]*reservation' \
-  "$exact_output_flow_source"
+  'Hashtbl[.]find_opt[[:space:]]+store[.]entries[[:space:]]+scope.*Some[[:space:]]+entry[[:space:]]+when[[:space:]]+entry[.]reservation[[:space:]]*<>[[:space:]]*reservation[[:space:]]*->[[:space:]]*\(\)' \
+  "$exact_output_flow_source" \
+  "record_preference_locked"
 require_code_sequence \
   "scope-local preference stopped failing closed on ordinal exhaustion" \
   'let[[:space:]]+allocate_success_ordinal.*Int64[.]max_int.*Int64[.]succ' \
@@ -1142,15 +1154,30 @@ scan_code_sequence \
   'type[[:space:]]+domain_settlement[[:space:]]*=[[:space:]]*\{[^}]*Mutex[.]t' \
   "$exact_output_flow_source"
 scan_named_functions \
-  "domain settlement acquired a second mutex or revived a settlement lock" \
-  'Mutex[.](lock|unlock)|settlement[.][[:alnum:]_]*mutex' \
+  "domain settlement acquired a second mutex, blocking wait, or busy wait" \
+  'Mutex[.](lock|unlock)|settlement[.][[:alnum:]_]*mutex|Condition[.]wait|Domain[.]cpu_relax' \
   "$exact_output_flow_source" \
-  "settle_domain_valid_once_with_publication_hook settle_domain_rejected_once_with_publication_hook"
+  "begin_domain_settlement abort_domain_settlement finish_domain_settlement"
 require_named_function_pattern \
-  "domain-valid settlement lost store-lock-first atomic publication" \
-  'with_preference_lock[[:space:]]+preferences.*Atomic[.]compare_and_set[[:space:]]+settlement[[:space:]]+Pending[[:space:]]+Publishing.*Fun[.]protect.*Atomic[.]set[[:space:]]+settlement[[:space:]]+Settled.*record_preference_locked' \
+  "domain settlement lost store-lock-first publishing claim" \
+  'with_preference_lock[[:space:]]+preferences.*Atomic[.]get[[:space:]]+settlement.*Pending[[:space:]]*->.*Atomic[.]set[[:space:]]+settlement[[:space:]]+\(Publishing[[:space:]]+requested\).*Domain_settlement_claimed' \
   "$exact_output_flow_source" \
-  "settle_domain_valid_once_with_publication_hook"
+  "begin_domain_settlement"
+require_named_function_pattern \
+  "domain settlement lost replay, nonblocking in-progress, or conflict convergence" \
+  'Settled[[:space:]]+receipt[[:space:]]*->.*same_receipt[[:space:]]+receipt[[:space:]]+requested.*Domain_settlement_replayed[[:space:]]+receipt.*Domain_settlement_conflict.*Publishing[[:space:]]+receipt[[:space:]]*->.*same_receipt[[:space:]]+receipt[[:space:]]+requested.*Domain_settlement_in_progress.*Domain_settlement_conflict' \
+  "$exact_output_flow_source" \
+  "begin_domain_settlement"
+require_named_function_pattern \
+  "aborted domain settlement stopped releasing its publishing claim" \
+  'with_preference_lock[[:space:]]+preferences.*Atomic[.]get[[:space:]]+settlement.*Publishing[[:space:]]+receipt[[:space:]]+when[[:space:]]+same_receipt[[:space:]]+receipt[[:space:]]+requested[[:space:]]*->.*Atomic[.]set[[:space:]]+settlement[[:space:]]+Pending' \
+  "$exact_output_flow_source" \
+  "abort_domain_settlement"
+require_named_function_pattern \
+  "domain settlement lost locked disposition publication" \
+  'with_preference_lock[[:space:]]+preferences.*Atomic[.]get[[:space:]]+settlement.*Publishing[[:space:]]+receipt[[:space:]]+when[[:space:]]+same_receipt[[:space:]]+receipt[[:space:]]+requested.*requested[.]disposition.*Rejected[[:space:]]*->[[:space:]]*\(\).*Valid[[:space:]]*->.*record_preference_locked[[:space:]]+preferences[[:space:]]+~scope[[:space:]]+~reservation[[:space:]]+~candidate[[:space:]]+~ordinal.*Atomic[.]set[[:space:]]+settlement[[:space:]]+\(Settled[[:space:]]+requested\).*Ok[[:space:]]+requested.*Settled[[:space:]]+receipt[[:space:]]+when[[:space:]]+same_receipt[[:space:]]+receipt[[:space:]]+requested[[:space:]]*->[[:space:]]+Ok[[:space:]]+receipt.*Domain_settlement_apply_conflict' \
+  "$exact_output_flow_source" \
+  "finish_domain_settlement"
 require_code_occurrence_count \
   "locked preference recorder reference set changed" \
   'record_preference_locked' \
@@ -1160,16 +1187,25 @@ scan_outside_named_functions \
   "locked preference recorder escaped its definition or canonical publication path" \
   'record_preference_locked' \
   "$exact_output_flow_source" \
-  "record_preference_locked settle_domain_valid_once_with_publication_hook"
+  "record_preference_locked finish_domain_settlement"
 scan_code \
   "locked preference recorder escaped through the private interface" \
   'record_preference_locked' \
   "$module_dir/exact_output_flow.mli"
+scan_named_functions \
+  "durable settlement orchestration acquired a store lock or raw atomic transition" \
+  'with_preference_lock|Mutex[.](lock|unlock)|Atomic[.](get|set|compare_and_set)' \
+  "$exact_output_domain_settlement_source" \
+  "commit_and_settle"
 require_named_function_pattern \
-  "domain-rejected CAS loss stopped synchronizing with preference publication" \
-  'Atomic[.]compare_and_set[[:space:]]+settlement[[:space:]]+Pending[[:space:]]+Settled.*after_failed_cas.*with_preference_lock[[:space:]]+preferences.*Error[[:space:]]+Already_settled' \
-  "$exact_output_flow_source" \
-  "settle_domain_rejected_once_with_publication_hook"
+  "durable settlement lost claim-commit-finish ordering or abort cleanup" \
+  'Flow_contract[.]begin_domain_settlement[[:space:]]+domain_settlement[[:space:]]+preferences[[:space:]]+receipt.*Domain_settlement_replayed.*Domain_settlement_in_progress.*Domain_settlement_conflict.*Domain_settlement_claimed.*Fun[.]protect.*Flow_contract[.]abort_domain_settlement[[:space:]]+domain_settlement[[:space:]]+preferences[[:space:]]+receipt.*match[[:space:]]+commit[[:space:]]+intent[[:space:]]+with.*Domain_commit_failed.*Flow_contract[.]finish_domain_settlement[[:space:]]+domain_settlement[[:space:]]+preferences.*finished[[:space:]]*:=[[:space:]]*true.*Ok[[:space:]]+receipt' \
+  "$exact_output_domain_settlement_source" \
+  "commit_and_settle"
+require_code_sequence \
+  "public durable settlement lost its typed nonblocking publication outcome" \
+  'type[[:space:]]+[^[:space:]]+[[:space:]]+domain_commit_error.*Domain_commit_failed.*Domain_settlement_in_progress.*Domain_settlement_conflict' \
+  "$exact_output_interface"
 require_named_function_pattern \
   "preference capacity check and reservation add are no longer atomic" \
   'with_preference_lock[[:space:]]+store.*Hashtbl[.]length[[:space:]]+store[.]entries.*Hashtbl[.]add[[:space:]]+store[.]entries' \

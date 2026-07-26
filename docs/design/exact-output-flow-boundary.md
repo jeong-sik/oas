@@ -134,14 +134,16 @@ the installed preference unchanged and returns a typed superseded receipt
 containing the retained candidate identity and ordinal.
 
 Each success has a closed atomic settlement state: `Pending`, `Publishing
-receipt`, or `Settled receipt`. The preference-store mutex and condition form
-the publication barrier, but the durable callback runs outside that lock.
-Concurrent same-ID/same-disposition callers wait and receive the same
-deterministic `{ settlement_id; disposition }` receipt. A different disposition
-for the same structural ID is a typed conflict. Callback error or exception
-returns the live claim to `Pending`; if the callback committed before an
-exception or process crash, restart decodes and replays the durable intent.
-There is no per-settlement mutex or nested lock order.
+receipt`, or `Settled receipt`. The preference-store mutex forms the publication
+barrier, but the durable callback runs outside that lock. A concurrent
+same-ID/same-disposition caller receives typed `Domain_settlement_in_progress`
+without blocking or changing settlement state. After the first publisher
+finishes, replay returns the same deterministic
+`{ settlement_id; disposition }` receipt. A different disposition for the same
+structural ID is a typed conflict. Callback error or exception returns the live
+claim to `Pending`; if the callback committed before an exception or process
+crash, restart decodes and replays the durable intent. There is no
+per-settlement mutex or nested lock order.
 
 No network or filesystem I/O occurs while the preference mutex is held.
 
