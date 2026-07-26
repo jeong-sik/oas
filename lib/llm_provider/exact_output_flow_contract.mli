@@ -83,16 +83,13 @@ type flow_preference_retirement_begin =
   | Flow_preference_scope_not_reserved
   | Flow_preference_retirement_conflict
 
-type flow_preference_retirement_apply_error =
-  | Flow_preference_retirement_apply_conflict
+type flow_preference_retirement_apply_error = Flow_preference_retirement_apply_conflict
 
 type flow_preference_retirement_recovery_error =
   | Flow_preference_retirement_recovery_finished
   | Flow_preference_retirement_recovery_conflict
 
-val create_validated_flow_preference_recovery
-  :  capacity:int
-  -> flow_preference_recovery
+val create_validated_flow_preference_recovery : capacity:int -> flow_preference_recovery
 
 val activate_validated_flow_preference_recovery
   :  flow_preference_recovery
@@ -199,9 +196,7 @@ val finish_flow_preference_retirement
   :  flow_preference_store
   -> flow_scope
   -> flow_preference_retirement_receipt
-  -> ( flow_preference_retirement_receipt
-       , flow_preference_retirement_apply_error )
-       result
+  -> (flow_preference_retirement_receipt, flow_preference_retirement_apply_error) result
 
 val resume_committed_flow_preference_retirement
   :  flow_preference_recovery

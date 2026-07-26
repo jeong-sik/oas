@@ -10,9 +10,7 @@ type intent =
   ; integrity_sha256 : string
   }
 
-type receipt =
-  { retirement_id : id
-  }
+type receipt = { retirement_id : id }
 
 type decode_error =
   | Flow_preference_retirement_intent_malformed_json of string
@@ -44,10 +42,10 @@ let intent_format = "oas.exact-output.flow-preference-retirement-intent"
 let intent_version = 1
 let sha256_string value = Digestif.SHA256.(to_hex (digest_string value))
 let id_to_string (Flow_preference_retirement_id id) = id
-let intent_id intent = intent.retirement_id
-let receipt_id receipt = receipt.retirement_id
+let intent_id (intent : intent) = intent.retirement_id
+let receipt_id (receipt : receipt) = receipt.retirement_id
 
-let structural_fields intent =
+let structural_fields (intent : intent) =
   [ "format", `String intent_format
   ; "version", `Int intent_version
   ; "scope", `String (Flow_contract.flow_scope_to_string intent.scope)
@@ -71,8 +69,7 @@ let payload_json (intent : intent) = `Assoc (payload_fields intent)
 let intent_to_string (intent : intent) =
   Yojson.Safe.to_string
     (`Assoc
-      (payload_fields intent
-       @ [ "integrity_sha256", `String intent.integrity_sha256 ]))
+        (payload_fields intent @ [ "integrity_sha256", `String intent.integrity_sha256 ]))
 ;;
 
 let make_intent ~scope ~reservation ~success_high_water =
@@ -132,11 +129,8 @@ let intent_of_string encoded =
     let* raw = string_field fields name in
     match Int64.of_string_opt raw with
     | Some value
-      when (if allow_zero
-            then Int64.compare value 0L >= 0
-            else Int64.compare value 0L > 0)
-           && String.equal raw (Int64.to_string value) ->
-      Ok value
+      when (if allow_zero then Int64.compare value 0L >= 0 else Int64.compare value 0L > 0)
+           && String.equal raw (Int64.to_string value) -> Ok value
     | Some _ | None -> invalid name
   in
   try
@@ -197,7 +191,9 @@ let intent_of_string encoded =
           ; integrity_sha256
           }
         in
-        let expected_id = structural_json intent |> Yojson.Safe.to_string |> sha256_string in
+        let expected_id =
+          structural_json intent |> Yojson.Safe.to_string |> sha256_string
+        in
         let expected_integrity =
           payload_json intent |> Yojson.Safe.to_string |> sha256_string
         in
@@ -212,7 +208,7 @@ let intent_of_string encoded =
     Error (Flow_preference_retirement_intent_malformed_json detail)
 ;;
 
-let recovery_evidence intent =
+let recovery_evidence (intent : intent) =
   { retirement_id = intent.retirement_id
   ; scope = intent.scope
   ; reservation = intent.reservation
@@ -220,16 +216,14 @@ let recovery_evidence intent =
   }
 ;;
 
-let flow_receipt intent : Flow_contract.flow_preference_retirement_receipt =
+let flow_receipt (intent : intent) : Flow_contract.flow_preference_retirement_receipt =
   { retirement_id = id_to_string intent.retirement_id
   ; reservation = intent.reservation
   ; success_high_water = intent.success_high_water
   }
 ;;
 
-let public_receipt
-      (flow_receipt : Flow_contract.flow_preference_retirement_receipt)
-  =
+let public_receipt (flow_receipt : Flow_contract.flow_preference_retirement_receipt) =
   { retirement_id = Flow_preference_retirement_id flow_receipt.retirement_id }
 ;;
 
@@ -238,10 +232,7 @@ let commit_and_retire ~commit preferences scope =
     make_intent ~scope ~reservation ~success_high_water |> flow_receipt
   in
   match
-    Flow_contract.begin_flow_preference_retirement
-      preferences
-      scope
-      ~make_receipt
+    Flow_contract.begin_flow_preference_retirement preferences scope ~make_receipt
   with
   | Flow_contract.Flow_preference_retirement_replayed receipt ->
     Ok (public_receipt receipt)
@@ -260,14 +251,14 @@ let commit_and_retire ~commit preferences scope =
     in
     (match commit intent with
      | Error cause ->
-       Flow_contract.abort_flow_preference_retirement preferences scope requested;
+       Flow_contract.mark_flow_preference_retirement_indeterminate
+         preferences
+         scope
+         requested;
        Error (Flow_preference_retirement_commit_failed cause)
      | Ok () ->
        (match
-          Flow_contract.finish_flow_preference_retirement
-            preferences
-            scope
-            requested
+          Flow_contract.finish_flow_preference_retirement preferences scope requested
         with
         | Error Flow_contract.Flow_preference_retirement_apply_conflict ->
           Flow_contract.mark_flow_preference_retirement_indeterminate
@@ -285,7 +276,7 @@ let commit_and_retire ~commit preferences scope =
        Printexc.raise_with_backtrace exn raw_backtrace)
 ;;
 
-let resume recovery intent =
+let resume (recovery : Flow_contract.flow_preference_recovery) (intent : intent) =
   match
     Flow_contract.resume_committed_flow_preference_retirement
       recovery

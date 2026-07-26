@@ -226,18 +226,14 @@ let check_settlement_disposition label expected receipt =
 
 let retire_scope preferences scope =
   match
-    EO.commit_and_retire_flow_preference_scope
-      ~commit:(fun _ -> Ok ())
-      preferences
-      scope
+    EO.commit_and_retire_flow_preference_scope ~commit:(fun _ -> Ok ()) preferences scope
   with
   | Ok receipt -> receipt
   | Error (EO.Flow_preference_retirement_commit_failed _) ->
     fail "infallible retirement commit failed"
   | Error EO.Flow_preference_retirement_in_progress ->
     fail "single retirement was in progress"
-  | Error EO.Flow_preference_retirement_conflict ->
-    fail "single retirement conflicted"
+  | Error EO.Flow_preference_retirement_conflict -> fail "single retirement conflicted"
   | Error EO.Flow_preference_scope_not_reserved ->
     fail "reserved fixture scope was absent"
 ;;
@@ -1305,9 +1301,7 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
         EO.recover_flow_preferences
           ~concurrent_scope_budget:0
           ~evidence:
-            [ EO.Domain_settlement_evidence intent
-            ; EO.Domain_settlement_evidence intent
-            ]
+            [ EO.Domain_settlement_evidence intent; EO.Domain_settlement_evidence intent ]
       with
       | Ok preferences -> preferences
       | Error _ -> fail "committed intent did not recover"
@@ -1469,13 +1463,8 @@ let test_retirement_recovery_blocks_stale_and_allows_newer_reservation () =
                 |> EO.flow_preference_retirement_intent_of_string
               with
               | Error (EO.Flow_preference_retirement_intent_invalid_field rejected)
-                when String.equal rejected field ->
-                ()
-              | Ok _ | Error _ ->
-                failf
-                  "noncanonical retirement %s=%s survived"
-                  field
-                  raw)
+                when String.equal rejected field -> ()
+              | Ok _ | Error _ -> failf "noncanonical retirement %s=%s survived" field raw)
            [ "01"; "+1"; "0x1"; "0_1" ])
       [ "reservation_ordinal"; "success_high_water" ];
     List.iter
@@ -1582,10 +1571,8 @@ let test_rejected_only_recovery_restores_high_water_without_active_scope () =
          EO.Domain_rejected
      with
      | Error (EO.Domain_commit_failed ()) -> ()
-     | Ok _
-     | Error EO.Domain_settlement_in_progress
-     | Error EO.Domain_settlement_conflict ->
-       fail "rejected-only fixture unexpectedly settled");
+     | Ok _ | Error EO.Domain_settlement_in_progress | Error EO.Domain_settlement_conflict
+       -> fail "rejected-only fixture unexpectedly settled");
     let original_encoded, rejected =
       match !original_encoded with
       | None -> fail "rejected-only fixture emitted no intent"
@@ -1645,10 +1632,8 @@ let test_rejected_only_recovery_restores_high_water_without_active_scope () =
          EO.Domain_rejected
      with
      | Error (EO.Domain_commit_failed ()) -> ()
-     | Ok _
-     | Error EO.Domain_settlement_in_progress
-     | Error EO.Domain_settlement_conflict ->
-       fail "post rejected-only fixture unexpectedly settled");
+     | Ok _ | Error EO.Domain_settlement_in_progress | Error EO.Domain_settlement_conflict
+       -> fail "post rejected-only fixture unexpectedly settled");
     let next_encoded =
       match !next_encoded with
       | Some encoded -> encoded
@@ -1666,7 +1651,11 @@ let test_rejected_only_recovery_restores_high_water_without_active_scope () =
   in
   check int "rejected-only high-water fixture dispatches twice" 2 posts;
   check bool "rejected-only evidence consumes no active capacity" true zero_active;
-  check bool "rejected-only recovery restores reservation high-water" true reservation_advanced;
+  check
+    bool
+    "rejected-only recovery restores reservation high-water"
+    true
+    reservation_advanced;
   check bool "rejected-only recovery restores success high-water" true ordinal_advanced
 ;;
 
@@ -1695,8 +1684,7 @@ let test_retirement_cancellation_replays_stable_intent_after_high_water_drift ()
               first_encoded
               := Some (EO.flow_preference_retirement_intent_to_string intent);
               raise
-                (Eio.Cancel.Cancelled
-                   (Failure "injected after durable retirement commit")))
+                (Eio.Cancel.Cancelled (Failure "injected after durable retirement commit")))
             preferences
             retirement_scope);
        fail "injected retirement cancellation did not escape"
@@ -1704,11 +1692,7 @@ let test_retirement_cancellation_replays_stable_intent_after_high_water_drift ()
      | Eio.Cancel.Cancelled _ -> ());
     let drift_scope = flow_scope "/runtime/retirement-stable-drift" in
     (match
-       frozen_flow
-         ~preferences
-         ~scope:drift_scope
-         snapshot
-         [ "retirement-stable" ]
+       frozen_flow ~preferences ~scope:drift_scope snapshot [ "retirement-stable" ]
        |> start_flow
        |> execute_ok ~net
      with
@@ -1735,8 +1719,7 @@ let test_retirement_cancellation_replays_stable_intent_after_high_water_drift ()
       match
         EO.commit_and_retire_flow_preference_scope
           ~commit:(fun intent ->
-            replay_encoded
-            := Some (EO.flow_preference_retirement_intent_to_string intent);
+            replay_encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
             Ok ())
           preferences
           retirement_scope
@@ -1773,11 +1756,94 @@ let test_retirement_cancellation_replays_stable_intent_after_high_water_drift ()
           |> EO.flow_preference_retirement_id_to_string)
   in
   check int "retirement stability fixture dispatches only high-water drift" 1 posts;
-  check
-    bool
-    "post-commit cancellation replays exact retirement intent"
-    true
-    stable_intent
+  check bool "post-commit cancellation replays exact retirement intent" true stable_intent
+;;
+
+let test_retirement_initial_error_preserves_intent_after_high_water_drift () =
+  let (stable_intent, initial_call_count, final_call_count), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"retirement-error" ~base_url ~native:true ~json:true () ]
+    @@ fun snapshot ->
+    let preferences = preference_store ~capacity:2 () in
+    let retirement_scope = flow_scope "/runtime/retirement-error" in
+    (match
+       snapshot_candidates
+         ~preferences
+         ~scope:retirement_scope
+         [ flow_candidate snapshot "retirement-error" ]
+     with
+     | Ok _ -> ()
+     | Error _ -> fail "retirement error scope was not reserved");
+    let callback_calls = ref 0 in
+    let first_encoded = ref None in
+    (match
+       EO.commit_and_retire_flow_preference_scope
+         ~commit:(fun intent ->
+           incr callback_calls;
+           first_encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
+           Error ())
+         preferences
+         retirement_scope
+     with
+     | Error (EO.Flow_preference_retirement_commit_failed ()) -> ()
+     | Ok _
+     | Error EO.Flow_preference_retirement_in_progress
+     | Error EO.Flow_preference_retirement_conflict
+     | Error EO.Flow_preference_scope_not_reserved ->
+       fail "initial retirement error lost its typed outcome");
+    let initial_call_count = !callback_calls in
+    let drift_scope = flow_scope "/runtime/retirement-error-drift" in
+    (match
+       frozen_flow ~preferences ~scope:drift_scope snapshot [ "retirement-error" ]
+       |> start_flow
+       |> execute_ok ~net
+     with
+     | Ok _ -> ()
+     | Error _ -> fail "retirement error high-water drift did not execute");
+    let retry_encoded = ref None in
+    let retry_receipt =
+      match
+        EO.commit_and_retire_flow_preference_scope
+          ~commit:(fun intent ->
+            incr callback_calls;
+            retry_encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
+            Ok ())
+          preferences
+          retirement_scope
+      with
+      | Ok receipt -> receipt
+      | Error _ -> fail "initial retirement error was not explicitly retryable"
+    in
+    let first_encoded =
+      match !first_encoded with
+      | Some encoded -> encoded
+      | None -> fail "initial retirement error exposed no intent"
+    in
+    let retry_encoded =
+      match !retry_encoded with
+      | Some encoded -> encoded
+      | None -> fail "retirement error retry exposed no intent"
+    in
+    let first_intent =
+      match EO.flow_preference_retirement_intent_of_string first_encoded with
+      | Ok intent -> intent
+      | Error _ -> fail "initial retirement error intent did not decode"
+    in
+    ( String.equal first_encoded retry_encoded
+      && String.equal
+           (EO.flow_preference_retirement_intent_id first_intent
+            |> EO.flow_preference_retirement_id_to_string)
+           (EO.flow_preference_retirement_receipt_id retry_receipt
+            |> EO.flow_preference_retirement_id_to_string)
+    , initial_call_count
+    , !callback_calls )
+  in
+  check int "initial error does not auto-redispatch callback" 1 initial_call_count;
+  check int "explicit retry dispatches callback exactly once" 2 final_call_count;
+  check int "initial error stability fixture dispatches only high-water drift" 1 posts;
+  check bool "initial error retry preserves exact retirement intent" true stable_intent
 ;;
 
 let test_recovery_conflicting_disposition_fails_closed () =
@@ -1827,9 +1893,7 @@ let test_recovery_conflicting_disposition_fails_closed () =
       EO.recover_flow_preferences
         ~concurrent_scope_budget:1
         ~evidence:
-          [ EO.Domain_settlement_evidence valid
-          ; EO.Domain_settlement_evidence rejected
-          ]
+          [ EO.Domain_settlement_evidence valid; EO.Domain_settlement_evidence rejected ]
     with
     | Error (EO.Conflicting_domain_settlement_evidence _) -> true
     | Ok _
@@ -1887,9 +1951,7 @@ let test_recovery_capacity_is_derived_from_distinct_active_scopes () =
         EO.recover_flow_preferences
           ~concurrent_scope_budget:0
           ~evidence:
-            [ EO.Domain_settlement_evidence first
-            ; EO.Domain_settlement_evidence second
-            ]
+            [ EO.Domain_settlement_evidence first; EO.Domain_settlement_evidence second ]
       with
       | Ok preferences -> preferences
       | Error _ -> fail "distinct-scope recovery failed"
@@ -4570,6 +4632,10 @@ let () =
             "retirement cancellation replays stable intent after high-water drift"
             `Quick
             test_retirement_cancellation_replays_stable_intent_after_high_water_drift
+        ; test_case
+            "retirement initial error preserves intent after high-water drift"
+            `Quick
+            test_retirement_initial_error_preserves_intent_after_high_water_drift
         ; test_case
             "recovery rejects conflicting disposition"
             `Quick

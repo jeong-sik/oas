@@ -7,8 +7,7 @@ type flow_preference_retirement_id = Scope_retirement.id
 type flow_preference_retirement_intent = Scope_retirement.intent
 
 type flow_preference_retirement_receipt = Scope_retirement.receipt =
-  { retirement_id : flow_preference_retirement_id
-  }
+  { retirement_id : flow_preference_retirement_id }
 
 type flow_preference_retirement_intent_decode_error = Scope_retirement.decode_error =
   | Flow_preference_retirement_intent_malformed_json of string
@@ -19,7 +18,7 @@ type flow_preference_retirement_intent_decode_error = Scope_retirement.decode_er
   | Flow_preference_retirement_intent_integrity_mismatch
 
 type 'commit_error flow_preference_retirement_commit_error =
-  'commit_error Scope_retirement.commit_error =
+      'commit_error Scope_retirement.commit_error =
   | Flow_preference_retirement_commit_failed of 'commit_error
   | Flow_preference_retirement_in_progress
   | Flow_preference_retirement_conflict

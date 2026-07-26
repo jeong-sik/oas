@@ -84,8 +84,7 @@ type flow_preference_retirement_begin =
   | Flow_preference_scope_not_reserved
   | Flow_preference_retirement_conflict
 
-type flow_preference_retirement_apply_error =
-  | Flow_preference_retirement_apply_conflict
+type flow_preference_retirement_apply_error = Flow_preference_retirement_apply_conflict
 
 type flow_preference_retirement_recovery_error =
   | Flow_preference_retirement_recovery_finished
@@ -269,33 +268,22 @@ let resume_committed_domain
     Error Domain_settlement_recovery_conflict
 ;;
 
-let begin_flow_preference_retirement
-      preferences
-      (Flow_scope scope)
-      ~make_receipt
-  =
+let begin_flow_preference_retirement preferences (Flow_scope scope) ~make_receipt =
   match Flow_state.begin_preference_retirement preferences ~scope ~make_receipt with
   | Flow_state.Preference_retirement_claimed receipt ->
     Flow_preference_retirement_claimed receipt
   | Flow_state.Preference_retirement_replayed receipt ->
     Flow_preference_retirement_replayed receipt
-  | Flow_state.Preference_retirement_in_progress ->
-    Flow_preference_retirement_in_progress
-  | Flow_state.Preference_retirement_not_reserved ->
-    Flow_preference_scope_not_reserved
-  | Flow_state.Preference_retirement_conflict ->
-    Flow_preference_retirement_conflict
+  | Flow_state.Preference_retirement_in_progress -> Flow_preference_retirement_in_progress
+  | Flow_state.Preference_retirement_not_reserved -> Flow_preference_scope_not_reserved
+  | Flow_state.Preference_retirement_conflict -> Flow_preference_retirement_conflict
 ;;
 
 let abort_flow_preference_retirement preferences (Flow_scope scope) receipt =
   Flow_state.abort_preference_retirement preferences ~scope receipt
 ;;
 
-let mark_flow_preference_retirement_indeterminate
-      preferences
-      (Flow_scope scope)
-      receipt
-  =
+let mark_flow_preference_retirement_indeterminate preferences (Flow_scope scope) receipt =
   Flow_state.mark_preference_retirement_indeterminate preferences ~scope receipt
 ;;
 
@@ -306,11 +294,7 @@ let finish_flow_preference_retirement preferences (Flow_scope scope) receipt =
     Error Flow_preference_retirement_apply_conflict
 ;;
 
-let resume_committed_flow_preference_retirement
-      recovery
-      (Flow_scope scope)
-      receipt
-  =
+let resume_committed_flow_preference_retirement recovery (Flow_scope scope) receipt =
   match Flow_state.resume_committed_retirement recovery ~scope receipt with
   | Ok receipt -> Ok receipt
   | Error Flow_state.Preference_retirement_recovery_finished ->

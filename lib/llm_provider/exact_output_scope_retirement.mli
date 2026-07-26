@@ -2,10 +2,7 @@
 
 type id
 type intent
-
-type receipt = private
-  { retirement_id : id
-  }
+type receipt = private { retirement_id : id }
 
 type decode_error =
   | Flow_preference_retirement_intent_malformed_json of string

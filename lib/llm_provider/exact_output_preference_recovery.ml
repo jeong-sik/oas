@@ -10,8 +10,7 @@ type evidence =
 
 type error =
   | Invalid_concurrent_scope_budget of int
-  | Conflicting_domain_settlement_evidence of
-      Flow_contract.domain_settlement_id
+  | Conflicting_domain_settlement_evidence of Flow_contract.domain_settlement_id
   | Conflicting_scope_retirement_evidence of Scope_retirement.id
 
 type domain_item =
@@ -70,12 +69,10 @@ let latest_retirements retirements =
        | None -> Ok (String_map.add scope item by_scope)
        | Some current ->
          let incoming =
-           Flow_contract.flow_preference_reservation_to_int64
-             item.evidence.reservation
+           Flow_contract.flow_preference_reservation_to_int64 item.evidence.reservation
          in
          let existing =
-           Flow_contract.flow_preference_reservation_to_int64
-             current.evidence.reservation
+           Flow_contract.flow_preference_reservation_to_int64 current.evidence.reservation
          in
          if Int64.compare incoming existing > 0
          then Ok (String_map.add scope item by_scope)
@@ -86,9 +83,7 @@ let latest_retirements retirements =
              (Scope_retirement.id_to_string item.evidence.retirement_id)
              (Scope_retirement.id_to_string current.evidence.retirement_id)
          then Ok by_scope
-         else
-           Error
-             (Conflicting_scope_retirement_evidence item.evidence.retirement_id))
+         else Error (Conflicting_scope_retirement_evidence item.evidence.retirement_id))
     retirements
     (Ok String_map.empty)
 ;;
@@ -100,8 +95,7 @@ let settlement_survives_retirement latest item =
   | Some retirement ->
     Int64.compare
       (Flow_contract.flow_preference_reservation_to_int64 item.evidence.reservation)
-      (Flow_contract.flow_preference_reservation_to_int64
-         retirement.evidence.reservation)
+      (Flow_contract.flow_preference_reservation_to_int64 retirement.evidence.reservation)
     > 0
 ;;
 
@@ -113,9 +107,7 @@ let active_scope_count domains latest =
        | Flow_contract.Domain_valid ->
          if settlement_survives_retirement latest item
          then
-           String_set.add
-             (Flow_contract.flow_scope_to_string item.evidence.scope)
-             active
+           String_set.add (Flow_contract.flow_scope_to_string item.evidence.scope) active
          else active)
     domains
     String_set.empty
@@ -129,9 +121,7 @@ let recover ~concurrent_scope_budget ~evidence =
     let* domains, retirements = collect evidence in
     let* latest = latest_retirements retirements in
     let capacity = Int.max concurrent_scope_budget (active_scope_count domains latest) in
-    let recovery =
-      Flow_contract.create_validated_flow_preference_recovery ~capacity
-    in
+    let recovery = Flow_contract.create_validated_flow_preference_recovery ~capacity in
     let* () =
       String_map.fold
         (fun _ item resumed ->
@@ -139,8 +129,7 @@ let recover ~concurrent_scope_budget ~evidence =
            match Scope_retirement.resume recovery item.intent with
            | Ok _ -> Ok ()
            | Error _ ->
-             Error
-               (Conflicting_scope_retirement_evidence item.evidence.retirement_id))
+             Error (Conflicting_scope_retirement_evidence item.evidence.retirement_id))
         latest
         (Ok ())
     in
@@ -151,15 +140,9 @@ let recover ~concurrent_scope_budget ~evidence =
            let restore_preference =
              match item.evidence.disposition with
              | Flow_contract.Domain_rejected -> false
-             | Flow_contract.Domain_valid ->
-               settlement_survives_retirement latest item
+             | Flow_contract.Domain_valid -> settlement_survives_retirement latest item
            in
-           match
-             Domain_settlement.resume
-               recovery
-               ~restore_preference
-               item.intent
-           with
+           match Domain_settlement.resume recovery ~restore_preference item.intent with
            | Ok _ -> Ok ()
            | Error _ ->
              Error

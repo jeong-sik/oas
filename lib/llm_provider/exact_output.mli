@@ -580,8 +580,7 @@ type 'commit_error domain_commit_error =
   | Domain_settlement_conflict
 
 type flow_preference_retirement_receipt = private
-  { retirement_id : flow_preference_retirement_id
-  }
+  { retirement_id : flow_preference_retirement_id }
 
 type flow_preference_retirement_intent_decode_error =
   | Flow_preference_retirement_intent_malformed_json of string
@@ -639,9 +638,7 @@ val commit_and_settle_flow_domain
   -> (domain_settlement_receipt, 'commit_error domain_commit_error) result
 
 (** Return the stable digest identity of one current-schema retirement. *)
-val flow_preference_retirement_id_to_string
-  :  flow_preference_retirement_id
-  -> string
+val flow_preference_retirement_id_to_string : flow_preference_retirement_id -> string
 
 val flow_preference_retirement_intent_id
   :  flow_preference_retirement_intent

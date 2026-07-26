@@ -351,14 +351,15 @@ let same_retirement_receipt left right =
 
 let begin_preference_retirement store ~scope ~make_receipt =
   with_preference_lock store (fun () ->
-    match Hashtbl.find_opt store.retirements scope, Hashtbl.find_opt store.entries scope with
+    match
+      Hashtbl.find_opt store.retirements scope, Hashtbl.find_opt store.entries scope
+    with
     | Some (Retirement_publishing _), _ -> Preference_retirement_in_progress
     | Some (Retirement_indeterminate claim), _ ->
       let claim = { claim with possibly_committed = true } in
       Hashtbl.replace store.retirements scope (Retirement_publishing claim);
       Preference_retirement_claimed claim.requested
-    | Some (Retirement_settled receipt), None ->
-      Preference_retirement_replayed receipt
+    | Some (Retirement_settled receipt), None -> Preference_retirement_replayed receipt
     | None, None -> Preference_retirement_not_reserved
     | Some (Retirement_settled previous), Some entry
       when Int64.compare
@@ -386,8 +387,7 @@ let begin_preference_retirement store ~scope ~make_receipt =
       Hashtbl.add
         store.retirements
         scope
-        (Retirement_publishing
-           { requested; previous = None; possibly_committed = false });
+        (Retirement_publishing { requested; previous = None; possibly_committed = false });
       Preference_retirement_claimed requested)
 ;;
 
@@ -397,11 +397,7 @@ let abort_preference_retirement store ~scope requested =
     | Some (Retirement_publishing publishing)
       when same_retirement_receipt publishing.requested requested ->
       if publishing.possibly_committed
-      then
-        Hashtbl.replace
-          store.retirements
-          scope
-          (Retirement_indeterminate publishing)
+      then Hashtbl.replace store.retirements scope (Retirement_indeterminate publishing)
       else (
         match publishing.previous with
         | None -> Hashtbl.remove store.retirements scope
@@ -410,8 +406,7 @@ let abort_preference_retirement store ~scope requested =
     | None
     | Some (Retirement_publishing _)
     | Some (Retirement_indeterminate _)
-    | Some (Retirement_settled _) ->
-      ())
+    | Some (Retirement_settled _) -> ())
 ;;
 
 let mark_preference_retirement_indeterminate store ~scope requested =
@@ -426,8 +421,7 @@ let mark_preference_retirement_indeterminate store ~scope requested =
     | None
     | Some (Retirement_publishing _)
     | Some (Retirement_indeterminate _)
-    | Some (Retirement_settled _) ->
-      ())
+    | Some (Retirement_settled _) -> ())
 ;;
 
 let finish_preference_retirement store ~scope requested =
@@ -446,8 +440,7 @@ let finish_preference_retirement store ~scope requested =
     | None
     | Some (Retirement_publishing _)
     | Some (Retirement_indeterminate _)
-    | Some (Retirement_settled _) ->
-      Error Preference_retirement_apply_conflict)
+    | Some (Retirement_settled _) -> Error Preference_retirement_apply_conflict)
 ;;
 
 let resume_committed_retirement recovery ~scope receipt =
@@ -464,8 +457,7 @@ let resume_committed_retirement recovery ~scope receipt =
         <- max_int64 recovery.last_success_ordinal receipt.success_high_water
       in
       (match Hashtbl.find_opt recovery.retirements scope with
-       | Some (Retirement_publishing _)
-       | Some (Retirement_indeterminate _) ->
+       | Some (Retirement_publishing _) | Some (Retirement_indeterminate _) ->
          Error Recovered_retirement_conflict
        | Some (Retirement_settled current) ->
          let incoming = preference_reservation_to_int64 receipt.reservation in
@@ -488,8 +480,7 @@ let resume_committed_retirement recovery ~scope receipt =
               when Int64.compare
                      (preference_reservation_to_int64 entry.reservation)
                      incoming
-                   <= 0 ->
-              Hashtbl.remove recovery.entries scope
+                   <= 0 -> Hashtbl.remove recovery.entries scope
             | None | Some _ -> ());
            Hashtbl.replace recovery.retirements scope (Retirement_settled receipt);
            Ok receipt)
@@ -500,8 +491,7 @@ let resume_committed_retirement recovery ~scope receipt =
             when Int64.compare
                    (preference_reservation_to_int64 entry.reservation)
                    (preference_reservation_to_int64 receipt.reservation)
-                 <= 0 ->
-            Hashtbl.remove recovery.entries scope
+                 <= 0 -> Hashtbl.remove recovery.entries scope
           | None | Some _ -> ());
          Hashtbl.add recovery.retirements scope (Retirement_settled receipt);
          Ok receipt))
@@ -513,16 +503,10 @@ let%test_unit "retirement recovery conflict does not mutate high-water" =
   in
   let reservation = Preference_reservation 1L in
   let first =
-    { retirement_id = String.make 64 'a'
-    ; reservation
-    ; success_high_water = 1L
-    }
+    { retirement_id = String.make 64 'a'; reservation; success_high_water = 1L }
   in
   let conflicting =
-    { retirement_id = String.make 64 'b'
-    ; reservation
-    ; success_high_water = 99L
-    }
+    { retirement_id = String.make 64 'b'; reservation; success_high_water = 99L }
   in
   assert (Result.is_ok (resume_committed_retirement recovery ~scope:"old" first));
   assert (
