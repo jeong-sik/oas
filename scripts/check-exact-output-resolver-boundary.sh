@@ -1181,13 +1181,28 @@ require_named_function_pattern \
 require_code_occurrence_count \
   "locked preference recorder reference set changed" \
   'record_preference_locked' \
-  2 \
+  3 \
   "$exact_output_flow_source"
 scan_outside_named_functions \
   "locked preference recorder escaped its definition or canonical publication path" \
   'record_preference_locked' \
   "$exact_output_flow_source" \
-  "record_preference_locked finish_domain_settlement"
+  "record_preference_locked finish_domain_settlement install_recovered_preference_locked"
+require_code_occurrence_count \
+  "recovered preference installer reference set changed" \
+  'install_recovered_preference_locked' \
+  2 \
+  "$exact_output_flow_source"
+scan_outside_named_functions \
+  "recovered preference installer escaped its definition or locked recovery path" \
+  'install_recovered_preference_locked' \
+  "$exact_output_flow_source" \
+  "install_recovered_preference_locked resume_committed_domain"
+require_named_function_pattern \
+  "recovered preference installation escaped the recovery lock" \
+  'with_preference_lock[[:space:]]+recovery.*install_recovered_preference_locked[[:space:]]+recovery' \
+  "$exact_output_flow_source" \
+  "resume_committed_domain"
 scan_code \
   "locked preference recorder escaped through the private interface" \
   'record_preference_locked' \
