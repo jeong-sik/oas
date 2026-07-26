@@ -191,6 +191,39 @@ let test_is_retryable () =
     (Retry.is_retryable (Retry.PaymentRequired { message = "" }))
 ;;
 
+(* 413 states its cause in the status line. Before this it fell through the final
+   catch-all of classify_error and arrived as Unknown_invalid_request, which a consumer
+   must read as a defect in what it built rather than a size it can reduce — the
+   distinction that decides whether shrinking the input is worth trying. *)
+let test_payload_too_large_is_classified_from_the_status () =
+  (match
+     Retry.classify_error
+       ~retry_after_header:None
+       ~status:413
+       ~body:{|{"error":{"message":"request body too large"}}|}
+   with
+   | Retry.InvalidRequest
+       { reason = Retry.Request_body_refused_by_provider { status = 413 }; message } ->
+     check string "the provider message survives" "request body too large" message
+   | Retry.InvalidRequest { reason = Retry.Unknown_invalid_request; _ } ->
+     fail "413 was classified as an unknown invalid request"
+   | _ -> fail "413 was not classified as an invalid request at all");
+  (* The limit is absent on purpose: a 413 response carries a status, not a bound, and
+     Request_body_too_large means a measured pair. *)
+  (match Retry.classify_error ~retry_after_header:None ~status:413 ~body:"" with
+   | Retry.InvalidRequest { reason = Retry.Request_body_too_large _; _ } ->
+     fail "a provider refusal was given fabricated measurements"
+   | _ -> ());
+  (* Neighbouring statuses keep their own classification. *)
+  match
+    ( Retry.classify_error ~retry_after_header:None ~status:400 ~body:""
+    , Retry.classify_error ~retry_after_header:None ~status:422 ~body:"" )
+  with
+  | ( Retry.InvalidRequest { reason = Retry.Unknown_invalid_request; _ }
+    , Retry.InvalidRequest { reason = Retry.Unknown_invalid_request; _ } ) -> ()
+  | _ -> fail "400/422 classification moved with the 413 arm"
+;;
+
 let test_invalid_request_reason_boundary () =
   let expect_unknown body =
     match Retry.classify_error ~retry_after_header:None ~status:400 ~body with
@@ -280,7 +313,11 @@ let () =
             test_classify_error_429_retry_after_finite_guard
         ] )
     ; ( "typed_projection"
-      , [ test_case "retryable predicates" `Quick test_is_retryable
+      , [ test_case
+            "413 is classified from the status"
+            `Quick
+            test_payload_too_large_is_classified_from_the_status
+        ; test_case "retryable predicates" `Quick test_is_retryable
         ; test_case
             "invalid request reason boundary"
             `Quick
