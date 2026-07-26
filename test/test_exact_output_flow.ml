@@ -1271,9 +1271,9 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
     in
     (match EO.resume_committed_flow_domain recovery intent with
      | Error EO.Domain_preference_recovery_finished -> ()
-     | ( Ok _
-       | Error EO.Domain_settlement_recovery_conflict
-       | Error (EO.Preference_recovery_capacity_exhausted _) ) ->
+     | Ok _
+     | Error EO.Domain_settlement_recovery_conflict
+     | Error (EO.Preference_recovery_capacity_exhausted _) ->
        fail "finished recovery accepted another replay");
     let future_order =
       frozen_flow
@@ -1390,9 +1390,9 @@ let test_recovery_conflicting_disposition_fails_closed () =
      | Error _ -> fail "first recovered disposition did not settle");
     match EO.resume_committed_flow_domain recovery rejected with
     | Error EO.Domain_settlement_recovery_conflict -> true
-    | ( Ok _
-      | Error EO.Domain_preference_recovery_finished
-      | Error (EO.Preference_recovery_capacity_exhausted _) ) -> false
+    | Ok _
+    | Error EO.Domain_preference_recovery_finished
+    | Error (EO.Preference_recovery_capacity_exhausted _) -> false
   in
   check int "conflicting recovery performs no extra dispatch" 1 posts;
   check bool "conflicting disposition fails closed" true conflicted
@@ -1402,18 +1402,13 @@ let test_recovery_capacity_failure_is_typed_unmutated_and_retryable () =
   let (retryable, reservation_unadvanced, ordinal_unadvanced), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"capacity-a" ~base_url ~native:true ~json:true () ]
+    with_catalog [ catalog_entry ~id:"capacity-a" ~base_url ~native:true ~json:true () ]
     @@ fun snapshot ->
     let live_preferences = preference_store ~capacity:2 () in
-    let capture preferences scope =
-      let success =
-        frozen_flow
-          ~preferences
-          ~scope
-          snapshot
-          [ "capacity-a" ]
-        |> start_flow
+      let capture preferences scope =
+        let success =
+        frozen_flow ~preferences ~scope snapshot [ "capacity-a" ]
+          |> start_flow
         |> execute_ok ~net
       in
       let success =
@@ -1451,10 +1446,10 @@ let test_recovery_capacity_failure_is_typed_unmutated_and_retryable () =
     let capacity_failure () =
       match EO.resume_committed_flow_domain recovery second with
       | Error (EO.Preference_recovery_capacity_exhausted { capacity = 1 }) -> true
-      | ( Ok _
-        | Error EO.Domain_preference_recovery_finished
-        | Error EO.Domain_settlement_recovery_conflict
-        | Error (EO.Preference_recovery_capacity_exhausted _) ) -> false
+      | Ok _
+      | Error EO.Domain_preference_recovery_finished
+      | Error EO.Domain_settlement_recovery_conflict
+      | Error (EO.Preference_recovery_capacity_exhausted _) -> false
     in
     let retryable = capacity_failure () && capacity_failure () in
     let recovered_preferences =
@@ -1479,8 +1474,16 @@ let test_recovery_capacity_failure_is_typed_unmutated_and_retryable () =
   in
   check int "capacity recovery proof dispatches only live fixtures" 3 posts;
   check bool "capacity failure remains retryable" true retryable;
-  check bool "capacity failure does not advance reservation high-water" true reservation_unadvanced;
-  check bool "capacity failure does not advance success high-water" true ordinal_unadvanced
+  check
+    bool
+    "capacity failure does not advance reservation high-water"
+    true
+    reservation_unadvanced;
+  check
+    bool
+    "capacity failure does not advance success high-water"
+    true
+    ordinal_unadvanced
 ;;
 
 let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =

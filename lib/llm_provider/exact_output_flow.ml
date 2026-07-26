@@ -263,8 +263,8 @@ let finish_domain_settlement
       requested
   =
   with_preference_lock preferences (fun () ->
-     match Atomic.get settlement with
-     | Publishing receipt when same_receipt receipt requested ->
+    match Atomic.get settlement with
+    | Publishing receipt when same_receipt receipt requested ->
       (match requested.disposition with
        | Rejected -> ()
        | Valid ->

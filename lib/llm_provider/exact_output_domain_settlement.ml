@@ -191,8 +191,8 @@ let intent_of_string encoded =
     let* raw = string_field fields name in
     match Int64.of_string_opt raw with
     | Some value
-      when Int64.compare value 0L > 0
-           && String.equal raw (Int64.to_string value) -> Ok value
+      when Int64.compare value 0L > 0 && String.equal raw (Int64.to_string value) ->
+      Ok value
     | Some _ | None -> invalid name
   in
   try
