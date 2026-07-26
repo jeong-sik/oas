@@ -406,8 +406,7 @@ let abort_preference_retirement store ~same_receipt ~scope requested =
 let mark_preference_retirement_indeterminate store ~same_receipt ~scope requested =
   with_preference_lock store (fun () ->
     match Hashtbl.find_opt store.retirements scope with
-    | Some (Retirement_publishing claim)
-      when same_receipt claim.requested requested ->
+    | Some (Retirement_publishing claim) when same_receipt claim.requested requested ->
       Hashtbl.replace
         store.retirements
         scope
@@ -429,8 +428,7 @@ let finish_preference_retirement store ~same_receipt ~scope requested =
          Hashtbl.replace store.retirements scope (Retirement_settled requested);
          Ok requested
        | None | Some _ -> Error Preference_retirement_apply_conflict)
-    | Some (Retirement_settled receipt) when same_receipt receipt requested ->
-      Ok receipt
+    | Some (Retirement_settled receipt) when same_receipt receipt requested -> Ok receipt
     | None
     | Some (Retirement_publishing _)
     | Some (Retirement_indeterminate _)
@@ -490,7 +488,6 @@ let resume_committed_retirement recovery ~same_receipt ~scope receipt =
          Hashtbl.add recovery.retirements scope (Retirement_settled receipt);
          Ok receipt))
 ;;
-
 
 let record_admission progress admission =
   let current = Atomic.get progress in
