@@ -722,9 +722,9 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
   check
     bool
     "conflicting settlement is typed"
-     true
-     (match duplicate_settlement with
-      | Error EO.Domain_settlement_conflict -> true
+    true
+    (match duplicate_settlement with
+     | Error EO.Domain_settlement_conflict -> true
      | Error EO.Domain_settlement_in_progress | Error (EO.Domain_commit_failed _) | Ok _
        -> false);
   check
