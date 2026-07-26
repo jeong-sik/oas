@@ -283,7 +283,11 @@ let install_recovered_preference_locked recovery ~scope ~reservation ~candidate 
       entry.reservation <- reservation;
       entry.preference <- Some (candidate, ordinal))
     else if Int64.equal incoming current
-    then record_preference_locked recovery ~scope ~reservation ~candidate ~ordinal
+    then (
+      match entry.preference with
+      | Some (_, current_ordinal)
+        when compare_success_ordinal ordinal current_ordinal <= 0 -> ()
+      | None | Some _ -> entry.preference <- Some (candidate, ordinal))
 ;;
 
 let resume_committed_domain recovery ~scope ~reservation ~candidate ~ordinal receipt =

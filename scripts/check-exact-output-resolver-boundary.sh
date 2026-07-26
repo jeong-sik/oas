@@ -1181,13 +1181,13 @@ require_named_function_pattern \
 require_code_occurrence_count \
   "locked preference recorder reference set changed" \
   'record_preference_locked' \
-  3 \
+  2 \
   "$exact_output_flow_source"
 scan_outside_named_functions \
   "locked preference recorder escaped its definition or canonical publication path" \
   'record_preference_locked' \
   "$exact_output_flow_source" \
-  "record_preference_locked finish_domain_settlement install_recovered_preference_locked"
+  "record_preference_locked finish_domain_settlement"
 require_code_occurrence_count \
   "recovered preference installer reference set changed" \
   'install_recovered_preference_locked' \
