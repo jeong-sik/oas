@@ -210,15 +210,11 @@ let preference_store ?(capacity = 16) () =
 ;;
 
 let settle success disposition =
-  EO.commit_and_settle_flow_domain
-    ~commit:(fun _ -> Ok ())
-    success
-    disposition
+  EO.commit_and_settle_flow_domain ~commit:(fun _ -> Ok ()) success disposition
 ;;
 
 let settlement_id receipt =
-  EO.domain_settlement_receipt_id receipt
-  |> EO.domain_settlement_id_to_string
+  EO.domain_settlement_receipt_id receipt |> EO.domain_settlement_id_to_string
 ;;
 
 let check_settlement_disposition label expected receipt =
@@ -638,10 +634,7 @@ let test_concurrent_flow_scopes_isolate_attempts_and_future_preferences () =
       let settle success =
         match settle success EO.Domain_valid with
         | Ok receipt ->
-          check_settlement_disposition
-            "fresh scoped settlement"
-            EO.Domain_valid
-            receipt
+          check_settlement_disposition "fresh scoped settlement" EO.Domain_valid receipt
         | Error _ -> fail "fresh scoped success could not settle"
       in
       Eio.Fiber.both (fun () -> settle success_a) (fun () -> settle success_b);
@@ -721,11 +714,10 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
     before_settlement;
   check
     bool
-    "domain rejection returns a typed receipt"
-    true
-    (match first_settlement with
-     | Ok receipt ->
-       EO.domain_settlement_receipt_disposition receipt = EO.Domain_rejected
+     "domain rejection returns a typed receipt"
+     true
+     (match first_settlement with
+     | Ok receipt -> EO.domain_settlement_receipt_disposition receipt = EO.Domain_rejected
      | Error _ -> false);
   check
     bool
@@ -799,7 +791,10 @@ let test_concurrent_domain_settlement_has_one_winner () =
   in
   let left_receipt = receipt left in
   let right_receipt = receipt right in
-  check string "concurrent replay returns same receipt" (settlement_id left_receipt)
+  check
+    string
+    "concurrent replay returns same receipt"
+    (settlement_id left_receipt)
     (settlement_id right_receipt);
   check int "durable commit callback runs once" 1 commits;
   check
@@ -887,15 +882,21 @@ let test_older_success_cannot_overwrite_newer_after_reversed_domain_settlement (
     "later structural success survives reversed cross-domain settlement"
     [ "newer-b"; "older-a" ]
     future_order;
-  let require_valid = function
-    | Ok receipt ->
-      check_settlement_disposition "settlement remains domain-valid" EO.Domain_valid receipt;
-      receipt
+    let require_valid = function
+      | Ok receipt ->
+      check_settlement_disposition
+        "settlement remains domain-valid"
+        EO.Domain_valid
+        receipt;
+        receipt
     | Error _ -> fail "domain-valid settlement failed"
   in
   let newer_receipt = require_valid newer_receipt in
   let older_receipt = require_valid older_receipt in
-  check bool "distinct successes retain distinct settlement ids" true
+  check
+    bool
+    "distinct successes retain distinct settlement ids"
+    true
     (not (String.equal (settlement_id newer_receipt) (settlement_id older_receipt)))
 ;;
 
@@ -1106,11 +1107,10 @@ let test_removed_scope_consumes_domain_valid_settlement_as_typed_failure () =
   check int "released-scope proof dispatches once" 1 posts;
   check
     bool
-    "domain-valid settlement remains durable after scope release"
-    true
-    (match settlement with
-     | Ok receipt ->
-       EO.domain_settlement_receipt_disposition receipt = EO.Domain_valid
+     "domain-valid settlement remains durable after scope release"
+     true
+     (match settlement with
+     | Ok receipt -> EO.domain_settlement_receipt_disposition receipt = EO.Domain_valid
      | Error _ -> false);
   check
     bool
@@ -1330,8 +1330,7 @@ let test_recovery_conflicting_disposition_fails_closed () =
   let conflicted, posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"conflict-a" ~base_url ~native:true ~json:true () ]
+    with_catalog [ catalog_entry ~id:"conflict-a" ~base_url ~native:true ~json:true () ]
     @@ fun snapshot ->
     let success =
       frozen_flow snapshot [ "conflict-a" ] |> start_flow |> execute_ok ~net
@@ -1366,10 +1365,8 @@ let test_recovery_conflicting_disposition_fails_closed () =
     check
       string
       "opposite dispositions share structural settlement id"
-      (EO.domain_settlement_intent_id valid
-       |> EO.domain_settlement_id_to_string)
-      (EO.domain_settlement_intent_id rejected
-       |> EO.domain_settlement_id_to_string);
+      (EO.domain_settlement_intent_id valid |> EO.domain_settlement_id_to_string)
+      (EO.domain_settlement_intent_id rejected |> EO.domain_settlement_id_to_string);
     let recovery = preference_recovery () in
     (match EO.resume_committed_flow_domain recovery valid with
      | Ok _ -> ()

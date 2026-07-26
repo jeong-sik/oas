@@ -90,7 +90,9 @@ val flow_preference_reservation_to_int64 : flow_preference_reservation -> int64
 val flow_preference_reservation_of_int64 : int64 -> flow_preference_reservation option
 val flow_success_ordinal_to_int64 : flow_success_ordinal -> int64
 val flow_success_ordinal_of_int64 : int64 -> flow_success_ordinal option
-val flow_preference_identity_of_candidate : flow_candidate_identity -> flow_preference_identity
+val flow_preference_identity_of_candidate
+  :  flow_candidate_identity
+  -> flow_preference_identity
 
 val make_flow_preference_identity
   :  candidate_id:string
@@ -124,7 +126,10 @@ val make_domain_settlement_receipt
   -> domain_settlement_receipt
 
 val domain_settlement_receipt_id : domain_settlement_receipt -> domain_settlement_id
-val domain_settlement_receipt_disposition : domain_settlement_receipt -> domain_disposition
+
+val domain_settlement_receipt_disposition
+  :  domain_settlement_receipt
+  -> domain_disposition
 
 val begin_domain_settlement
   :  Exact_output_flow.domain_settlement

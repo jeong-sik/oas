@@ -618,7 +618,10 @@ val domain_settlement_intent_of_string
   -> (domain_settlement_intent, domain_settlement_intent_decode_error) result
 
 val domain_settlement_receipt_id : domain_settlement_receipt -> domain_settlement_id
-val domain_settlement_receipt_disposition : domain_settlement_receipt -> domain_disposition
+
+val domain_settlement_receipt_disposition
+  :  domain_settlement_receipt
+  -> domain_disposition
 
 (** Fence caller-owned domain validation behind a durable content commit.
     [commit] receives the only current-schema, provider-neutral replay intent

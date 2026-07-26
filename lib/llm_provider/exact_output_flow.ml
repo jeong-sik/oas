@@ -54,8 +54,7 @@ type ('scope, 'candidate) preference_store =
   ; mutable last_success_ordinal : int64
   }
 
-type ('scope, 'candidate) preference_recovery =
-  ('scope, 'candidate) preference_store
+type ('scope, 'candidate) preference_recovery = ('scope, 'candidate) preference_store
 
 type settlement_state =
   | Pending
@@ -206,10 +205,8 @@ let record_preference_locked store ~scope ~reservation ~candidate ~ordinal =
   | None -> ()
   | Some entry when entry.reservation <> reservation -> ()
   | Some { preference = Some (current_candidate, current_ordinal); _ }
-    when compare_success_ordinal ordinal current_ordinal <= 0 ->
-    ignore current_candidate
-  | Some entry ->
-    entry.preference <- Some (candidate, ordinal)
+    when compare_success_ordinal ordinal current_ordinal <= 0 -> ignore current_candidate
+  | Some entry -> entry.preference <- Some (candidate, ordinal)
 ;;
 
 let same_disposition left right =
@@ -267,15 +264,10 @@ let finish_domain_settlement
   with_preference_lock preferences (fun () ->
     match Atomic.get settlement with
     | Publishing receipt when same_receipt receipt requested ->
-      (match requested.disposition with
-       | Rejected -> ()
-       | Valid ->
-         record_preference_locked
-           preferences
-           ~scope
-           ~reservation
-           ~candidate
-           ~ordinal);
+       (match requested.disposition with
+        | Rejected -> ()
+        | Valid ->
+         record_preference_locked preferences ~scope ~reservation ~candidate ~ordinal);
       Atomic.set settlement (Settled requested);
       Condition.broadcast preferences.condition;
       Ok requested
@@ -285,13 +277,7 @@ let finish_domain_settlement
 
 let max_int64 left right = if Int64.compare left right >= 0 then left else right
 
-let install_recovered_preference_locked
-      recovery
-      ~scope
-      ~reservation
-      ~candidate
-      ~ordinal
-  =
+let install_recovered_preference_locked recovery ~scope ~reservation ~candidate ~ordinal =
   match Hashtbl.find_opt recovery.entries scope with
   | None ->
     if Hashtbl.length recovery.entries < recovery.capacity
@@ -308,23 +294,10 @@ let install_recovered_preference_locked
       entry.reservation <- reservation;
       entry.preference <- Some (candidate, ordinal))
     else if Int64.equal incoming current
-    then
-      record_preference_locked
-        recovery
-        ~scope
-        ~reservation
-        ~candidate
-        ~ordinal
+    then record_preference_locked recovery ~scope ~reservation ~candidate ~ordinal
 ;;
 
-let resume_committed_domain
-      recovery
-      ~scope
-      ~reservation
-      ~candidate
-      ~ordinal
-      receipt
-  =
+let resume_committed_domain recovery ~scope ~reservation ~candidate ~ordinal receipt =
   with_preference_lock recovery (fun () ->
     match recovery.lifecycle with
     | Active -> Error Preference_recovery_finished
@@ -349,10 +322,7 @@ let resume_committed_domain
               ~reservation
               ~candidate
               ~ordinal);
-         Hashtbl.add
-           recovery.recovered_domains
-           receipt.settlement_id
-           receipt.disposition;
+         Hashtbl.add recovery.recovered_domains receipt.settlement_id receipt.disposition;
          Ok receipt))
 ;;
 

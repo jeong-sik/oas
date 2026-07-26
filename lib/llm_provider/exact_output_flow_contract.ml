@@ -196,7 +196,9 @@ let flow_receipt receipt : Flow_state.domain_settlement_receipt =
 ;;
 
 let begin_domain_settlement settlement preferences receipt =
-  match Flow_state.begin_domain_settlement settlement preferences (flow_receipt receipt) with
+  match
+    Flow_state.begin_domain_settlement settlement preferences (flow_receipt receipt)
+  with
   | Flow_state.Domain_settlement_claimed -> Domain_settlement_claimed
   | Flow_state.Domain_settlement_replayed _ -> Domain_settlement_replayed receipt
   | Flow_state.Domain_settlement_conflict -> Domain_settlement_conflict
