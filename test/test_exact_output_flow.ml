@@ -1622,11 +1622,11 @@ let test_recovery_rejects_superseded_retirement_conflicts_regardless_order () =
     then fail "retirement conflict fixture reused the first retirement intent";
     if
       not
-    (String.equal
-       (retirement_field "scope" first)
-       (retirement_field "scope" conflicting)
-     && String.equal (retirement_field "scope" first) (retirement_field "scope" newer)
-    )
+        (String.equal
+           (retirement_field "scope" first)
+           (retirement_field "scope" conflicting)
+         && String.equal (retirement_field "scope" first) (retirement_field "scope" newer)
+        )
     then fail "retirement conflict fixture did not preserve one scope";
     let first_reservation = retirement_reservation first in
     let conflicting_reservation = retirement_reservation conflicting in
