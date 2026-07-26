@@ -371,7 +371,7 @@ let%test_unit "retirement recovery conflict does not mutate high-water" =
   assert (
     match allocate_flow_success_ordinal store with
     | Ok ordinal -> Int64.equal (flow_success_ordinal_to_int64 ordinal) 2L
-    | Error Flow_success_ordinal_space_exhausted -> false);
+    | Error Success_ordinal_space_exhausted -> false);
   assert (
     match Flow_state.reserve_preference_scope store ~scope:"new" with
     | Ok (reservation, None) ->
