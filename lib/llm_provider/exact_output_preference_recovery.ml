@@ -66,14 +66,14 @@ let collect evidence =
     evidence
 ;;
 
-let latest_retirements retirements =
+let latest_retirements (retirements : retirement_item String_map.t) =
   String_map.fold
-    (fun _ item accumulated ->
-       let* by_scope = accumulated in
+    (fun _ (item : retirement_item) accumulated ->
+       let* (by_scope : retirement_item String_map.t) = accumulated in
        let scope = Flow_contract.flow_scope_to_string item.evidence.scope in
        match String_map.find_opt scope by_scope with
        | None -> Ok (String_map.add scope item by_scope)
-       | Some current ->
+       | Some (current : retirement_item) ->
          let incoming =
            Flow_contract.flow_preference_reservation_to_int64 item.evidence.reservation
          in
@@ -91,23 +91,29 @@ let latest_retirements retirements =
          then Ok by_scope
          else Error (Conflicting_scope_retirement_evidence item.evidence.retirement_id))
     retirements
-    (Ok String_map.empty)
+    (Ok (String_map.empty : retirement_item String_map.t))
 ;;
 
-let settlement_survives_retirement latest item =
+let settlement_survives_retirement
+      (latest : retirement_item String_map.t)
+      (item : domain_item)
+  =
   let scope = Flow_contract.flow_scope_to_string item.evidence.scope in
   match String_map.find_opt scope latest with
   | None -> true
-  | Some retirement ->
+  | Some (retirement : retirement_item) ->
     Int64.compare
       (Flow_contract.flow_preference_reservation_to_int64 item.evidence.reservation)
       (Flow_contract.flow_preference_reservation_to_int64 retirement.evidence.reservation)
     > 0
 ;;
 
-let active_scope_count domains latest =
+let active_scope_count
+      (domains : domain_item String_map.t)
+      (latest : retirement_item String_map.t)
+  =
   String_map.fold
-    (fun _ item active ->
+    (fun _ (item : domain_item) active ->
        match item.evidence.disposition with
        | Flow_contract.Domain_rejected -> active
        | Flow_contract.Domain_valid ->
@@ -130,7 +136,7 @@ let recover ~concurrent_scope_budget ~evidence =
     let recovery = Flow_contract.create_validated_flow_preference_recovery ~capacity in
     let* () =
       String_map.fold
-        (fun _ item resumed ->
+        (fun _ (item : retirement_item) resumed ->
            let* () = resumed in
            match Scope_retirement.resume recovery item.intent with
            | Ok _ -> Ok ()
@@ -141,7 +147,7 @@ let recover ~concurrent_scope_budget ~evidence =
     in
     let* () =
       String_map.fold
-        (fun _ item resumed ->
+        (fun _ (item : domain_item) resumed ->
            let* () = resumed in
            let restore_preference =
              match item.evidence.disposition with
