@@ -6,8 +6,7 @@ module Scope_retirement = Exact_output_scope_retirement
 type flow_preference_retirement_id = Scope_retirement.id
 type flow_preference_retirement_intent = Scope_retirement.intent
 
-type flow_preference_retirement_receipt = Scope_retirement.receipt =
-  { retirement_id : flow_preference_retirement_id }
+type flow_preference_retirement_receipt = Scope_retirement.receipt
 
 type flow_preference_retirement_intent_decode_error = Scope_retirement.decode_error =
   | Flow_preference_retirement_intent_malformed_json of string

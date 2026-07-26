@@ -57,7 +57,10 @@ let collect evidence =
          in
          loop domains (String_map.add key item retirements) rest)
   in
-  loop String_map.empty String_map.empty evidence
+  loop
+    (String_map.empty : domain_item String_map.t)
+    (String_map.empty : retirement_item String_map.t)
+    evidence
 ;;
 
 let latest_retirements retirements =

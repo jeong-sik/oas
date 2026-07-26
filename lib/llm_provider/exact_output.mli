@@ -579,8 +579,7 @@ type 'commit_error domain_commit_error =
   | Domain_settlement_in_progress
   | Domain_settlement_conflict
 
-type flow_preference_retirement_receipt = private
-  { retirement_id : flow_preference_retirement_id }
+type flow_preference_retirement_receipt
 
 type flow_preference_retirement_intent_decode_error =
   | Flow_preference_retirement_intent_malformed_json of string
