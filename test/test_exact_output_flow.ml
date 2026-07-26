@@ -1699,6 +1699,69 @@ let test_later_missing_credential_does_not_block_current_success () =
   | Error _ -> fail "later missing credential blocked the current candidate"
 ;;
 
+(* The format axis of the exact-output contract had no behavioural coverage. The
+   chain that carries a format refusal to the next candidate — capability read refuses
+   (exact_output.ml No_structured_output + Json_syntax -> Error Json_syntax_unavailable),
+   the refusal classifies as a candidate rejection (admission_error_disposition ->
+   Output_requirement_rejected), the walk treats a rejection as advanceable
+   (advanceable_flow_failure) — held only by construction. Json_syntax_unavailable
+   appeared nowhere in any test, so nothing observed a format refusal ordering rather
+   than ending the walk. The neighbouring credential cases exercise the same advance
+   step through Runtime_slot_unavailable, which is why the mechanism worked; what was
+   unobserved is that a *format* refusal reaches it and that a capable successor then
+   serves the same request. *)
+let test_format_refusal_orders_the_walk () =
+  let (result, dispositions, advances), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"no-json" ~base_url ~native:false ~json:false ()
+      ; catalog_entry ~id:"json-capable" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let dispositions = ref [] in
+    let advances = ref 0 in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
+        ~before_measurement_dispatch:(fun _ -> Ok ())
+        ~before_dispatch:(fun _ -> Ok ())
+        ~before_advance:(fun ~failed ~next:_ ->
+          incr advances;
+          (match failed with
+           | EO.Flow_candidate_rejected rejection ->
+             dispositions := EO.candidate_rejection_disposition rejection :: !dispositions
+           | _ -> fail "a format refusal did not arrive as a candidate rejection");
+          Ok ())
+        (start_flow (frozen_flow snapshot [ "no-json"; "json-capable" ]))
+    in
+    result, !dispositions, !advances
+  in
+  (* Pre-dispatch: the refused candidate never reaches the wire, so ordering past it
+     is not a duplicate request. *)
+  check int "only the capable candidate posts" 1 posts;
+  check int "the format refusal advanced the walk once" 1 advances;
+  (match dispositions with
+   | [ EO.Output_requirement_rejected ] -> ()
+   | [ _ ] -> fail "a format refusal was classified as some other disposition"
+   | _ -> failf "expected exactly one rejection, saw %d" (List.length dispositions));
+  match result with
+  | Ok success ->
+    check
+      string
+      "the capable successor served the same request"
+      "json-capable"
+      (candidate_id (EO.flow_success_candidate success));
+    check
+      int
+      "both candidates were visited"
+      2
+      (EO.candidate_visit_count_to_int
+         (EO.flow_success_evidence success).candidate_visit_count)
+  | Error _ -> fail "a format refusal ended the walk instead of ordering it"
+;;
+
 let test_missing_current_credential_advances_after_durable_settlement () =
   let (result, transitions, bound, next_visit), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
@@ -4168,6 +4231,10 @@ let () =
             "later missing credential does not block current success"
             `Quick
             test_later_missing_credential_does_not_block_current_success
+        ; test_case
+            "format refusal orders the walk"
+            `Quick
+            test_format_refusal_orders_the_walk
         ; test_case
             "missing current credential advances after durable settlement"
             `Quick
