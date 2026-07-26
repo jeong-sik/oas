@@ -217,7 +217,7 @@ let same_disposition left right =
 ;;
 
 let same_receipt left right =
-  String.equal left.settlement_id right.settlement_id
+  left.settlement_id = right.settlement_id
   && same_disposition left.disposition right.disposition
 ;;
 
@@ -237,11 +237,11 @@ let rec begin_domain_settlement settlement preferences requested =
         then `Done Domain_settlement_conflict
         else (
           Condition.wait preferences.condition preferences.mutex;
-          `Retry))
+          `Await_settlement))
   in
   match decision with
   | `Done result -> result
-  | `Retry -> begin_domain_settlement settlement preferences requested
+  | `Await_settlement -> begin_domain_settlement settlement preferences requested
 ;;
 
 let abort_domain_settlement settlement preferences requested =
