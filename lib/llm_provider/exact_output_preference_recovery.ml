@@ -29,8 +29,8 @@ let ( let* ) = Result.bind
 
 let collect evidence =
   let rec loop
-      (domains : domain_item String_map.t)
-      (retirements : retirement_item String_map.t)
+            (domains : domain_item String_map.t)
+            (retirements : retirement_item String_map.t)
     = function
     | [] -> Ok (domains, retirements)
     | Domain_settlement_evidence intent :: rest ->
