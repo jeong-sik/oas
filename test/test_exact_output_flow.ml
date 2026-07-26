@@ -1540,7 +1540,7 @@ let test_retirement_recovery_blocks_stale_and_allows_newer_reservation () =
 ;;
 
 let test_recovery_rejects_superseded_retirement_conflicts_regardless_order () =
-  let every_order_conflicted, posts =
+  let (every_order_conflicted, deterministic_conflict_payload), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     with_catalog
@@ -1598,41 +1598,105 @@ let test_recovery_rejects_superseded_retirement_conflicts_regardless_order () =
     let conflicting = retire conflicting_preferences in
     let newer_preferences = preference_store ~capacity:2 () in
     advance newer_preferences scope;
+    let _retired = retire newer_preferences in
     advance newer_preferences scope;
     let newer = retire newer_preferences in
     let retirement_id intent =
       EO.flow_preference_retirement_intent_id intent
       |> EO.flow_preference_retirement_id_to_string
     in
-    if String.equal (retirement_id first) (retirement_id conflicting)
+    let retirement_field field intent =
+      EO.flow_preference_retirement_intent_to_string intent |> json_field_string field
+    in
+    let retirement_reservation intent =
+      retirement_field "reservation_ordinal" intent |> Int64.of_string
+    in
+    let first_id = retirement_id first in
+    let conflicting_id = retirement_id conflicting in
+    let newer_id = retirement_id newer in
+    if String.equal first_id conflicting_id
     then fail "retirement conflict fixture produced identical older intents";
-    [ [ first; conflicting; newer ]
-    ; [ first; newer; conflicting ]
-    ; [ conflicting; first; newer ]
-    ; [ conflicting; newer; first ]
-    ; [ newer; first; conflicting ]
-    ; [ newer; conflicting; first ]
-    ]
-    |> List.for_all (fun ordered ->
-      match
-        EO.recover_flow_preferences
-          ~concurrent_scope_budget:0
-          ~evidence:
-            (List.map
-               (fun intent -> EO.Scope_retirement_evidence intent)
-               ordered)
-      with
-      | Error (EO.Conflicting_scope_retirement_evidence _) -> true
-      | Ok _
-      | Error (EO.Invalid_concurrent_scope_budget _)
-      | Error (EO.Conflicting_domain_settlement_evidence _) -> false)
+    if String.equal conflicting_id newer_id
+    then fail "retirement conflict fixture did not create a distinct newer intent";
+    if String.equal first_id newer_id
+    then fail "retirement conflict fixture reused the first retirement intent";
+    if
+      not
+        (String.equal
+           (retirement_field "scope" first)
+           (retirement_field "scope" conflicting)
+         && String.equal
+              (retirement_field "scope" first)
+              (retirement_field "scope" newer))
+    then fail "retirement conflict fixture did not preserve one scope";
+    let first_reservation = retirement_reservation first in
+    let conflicting_reservation = retirement_reservation conflicting in
+    let newer_reservation = retirement_reservation newer in
+    if not (Int64.equal first_reservation conflicting_reservation)
+    then fail "retirement conflict fixture did not share the older reservation";
+    if Int64.compare newer_reservation first_reservation <= 0
+    then fail "retirement conflict fixture did not create a newer reservation";
+    let permutations =
+      [ [ first; conflicting; newer ]
+      ; [ first; newer; conflicting ]
+      ; [ conflicting; first; newer ]
+      ; [ conflicting; newer; first ]
+      ; [ newer; first; conflicting ]
+      ; [ newer; conflicting; first ]
+      ]
+    in
+    let permutation_keys =
+      List.map
+        (fun ordered -> List.map retirement_id ordered |> String.concat ":")
+        permutations
+    in
+    if List.length (List.sort_uniq String.compare permutation_keys) <> 6
+    then fail "retirement conflict fixture did not produce six distinct permutations";
+    let conflict_ids =
+      List.map
+        (fun ordered ->
+           match
+             EO.recover_flow_preferences
+               ~concurrent_scope_budget:0
+               ~evidence:
+                 (List.map
+                    (fun intent -> EO.Scope_retirement_evidence intent)
+                    ordered)
+           with
+           | Error (EO.Conflicting_scope_retirement_evidence id) ->
+             Some (EO.flow_preference_retirement_id_to_string id)
+           | Ok _
+           | Error (EO.Invalid_concurrent_scope_budget _)
+           | Error (EO.Conflicting_domain_settlement_evidence _) -> None)
+        permutations
+    in
+    let every_order_conflicted =
+      List.for_all (function Some _ -> true | None -> false) conflict_ids
+    in
+    let deterministic_conflict_payload =
+      match conflict_ids with
+      | Some expected :: rest ->
+        (String.equal expected first_id || String.equal expected conflicting_id)
+        && List.for_all
+             (function
+               | Some actual -> String.equal actual expected
+               | None -> false)
+             rest
+      | None :: _ | [] -> false
+    in
+    every_order_conflicted, deterministic_conflict_payload
   in
   check int "superseded retirement conflict fixture dispatches five times" 5 posts;
   check
     bool
     "superseded equal-reservation retirements always conflict"
     true
-    every_order_conflicted
+    every_order_conflicted;
+  check
+    bool
+    "superseded retirement conflict payload is deterministic"
+    true
+    deterministic_conflict_payload
 ;;
 
 let test_rejected_only_recovery_restores_high_water_without_active_scope () =
