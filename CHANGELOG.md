@@ -8,6 +8,8 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.224.0](https://github.com/jeong-sik/oas/compare/v0.223.2...v0.224.0) (2026-07-26)
+
 ### Breaking Changes
 
 * **exact-output durable domain settlement:** replace process-local
