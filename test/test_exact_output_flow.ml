@@ -1028,6 +1028,8 @@ let test_preference_store_capacity_is_typed_and_reusable_after_removal () =
     | Error (EO.Flow_preference_capacity_exhausted { capacity = 1 }) -> `Exhausted
     | Error (EO.Flow_preference_capacity_exhausted { capacity }) ->
       failf "capacity exhaustion reported the wrong bound: %d" capacity
+    | Error EO.Flow_preference_reservation_exhausted ->
+      fail "capacity exhaustion was reported as reservation exhaustion"
     | Error (EO.Duplicate_flow_candidate_id _) ->
       fail "capacity exhaustion was reported as a duplicate candidate"
   in

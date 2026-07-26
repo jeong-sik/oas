@@ -131,7 +131,12 @@ let target_binding_equal recorded current =
     (Resolver.target_identity_fingerprint current.target_identity)
 ;;
 
-let prefer_last_good preferences (Flow_scope scope) ~candidate_identity candidates =
+let prefer_last_good
+      preferences
+      (Flow_scope scope)
+      ~(candidate_identity : _ -> flow_candidate_identity)
+      candidates
+  =
   match Flow_state.reserve_preference_scope preferences ~scope with
   | Error (Flow_state.Preference_capacity_exhausted { capacity }) ->
     Error (Preference_capacity_exhausted { capacity })
