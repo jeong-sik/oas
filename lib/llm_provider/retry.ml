@@ -6,6 +6,7 @@ type invalid_request_reason =
       { actual_bytes : int
       ; limit_bytes : int
       }
+  | Request_body_refused_by_provider of { status : int }
   | Unknown_invalid_request
 
 type input_capacity_reason =
@@ -62,6 +63,8 @@ let invalid_request_reason_to_string = function
   | Json_parse_error -> "json_parse_error"
   | Request_body_too_large { actual_bytes; limit_bytes } ->
     Printf.sprintf "request_body_too_large(actual=%d,limit=%d)" actual_bytes limit_bytes
+  | Request_body_refused_by_provider { status } ->
+    Printf.sprintf "request_body_refused_by_provider(status=%d)" status
   | Unknown_invalid_request -> "unknown"
 ;;
 
@@ -323,6 +326,17 @@ let classify_error ~retry_after_header ~status ~body : api_error =
        boundary without inspecting provider prose. *)
     AuthorizationError { message }
   | 400 | 422 -> InvalidRequest { message; reason = Unknown_invalid_request }
+  | 413 ->
+    (* HTTP 413 states the refusal cause in the status line: the payload was too
+       large. Leaving it in the catch-all below reported that cause as
+       [Unknown_invalid_request], which a consumer must treat as a defect in what it
+       built rather than a size it can reduce. The limit is not mapped into
+       [Request_body_too_large] because the response does not carry one; a
+       fabricated bound would make that variant's measured pair mean something it
+       does not. This repository already reads 413 as its own case when attributing
+       a failure (provider_failure_attribution.ml, 400 | 413 | 422 -> Attempt_local);
+       classification was the asymmetric half. *)
+    InvalidRequest { message; reason = Request_body_refused_by_provider { status } }
   | 429 ->
     let retry_after = resolve_retry_after ~body ~header:retry_after_header in
     RateLimited { retry_after; message }
@@ -367,7 +381,11 @@ let%test "is_retryable: flat Ollama provider prose is not retryable" =
   match classify_error ~retry_after_header:None ~status:400 ~body with
   | InvalidRequest { reason = Unknown_invalid_request; _ } as err ->
     not (is_retryable err)
-  | InvalidRequest { reason = Json_parse_error | Request_body_too_large _; _ } -> false
+  | InvalidRequest
+      { reason =
+          Json_parse_error | Request_body_too_large _ | Request_body_refused_by_provider _
+      ; _
+      } -> false
   | RateLimited _
   | Overloaded _
   | ServerError _
@@ -387,7 +405,11 @@ let%test "HTTP 400 prose does not synthesize ContextOverflow" =
   in
   match classify_error ~retry_after_header:None ~status:400 ~body with
   | InvalidRequest { reason = Unknown_invalid_request; _ } -> true
-  | InvalidRequest { reason = Json_parse_error | Request_body_too_large _; _ }
+  | InvalidRequest
+      { reason =
+          Json_parse_error | Request_body_too_large _ | Request_body_refused_by_provider _
+      ; _
+      }
   | ContextOverflow _
   | InputCapacity _
   | RateLimited _
@@ -405,7 +427,11 @@ let%test "classify_error returns Unknown InvalidRequest for non-overflow 400" =
   let body = {|{"error":{"message":"bad tool schema"}}|} in
   match classify_error ~retry_after_header:None ~status:400 ~body with
   | InvalidRequest { reason = Unknown_invalid_request; _ } -> true
-  | InvalidRequest { reason = Json_parse_error | Request_body_too_large _; _ } -> false
+  | InvalidRequest
+      { reason =
+          Json_parse_error | Request_body_too_large _ | Request_body_refused_by_provider _
+      ; _
+      } -> false
   | RateLimited _
   | Overloaded _
   | ServerError _
