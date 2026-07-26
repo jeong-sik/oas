@@ -172,6 +172,12 @@ val abort_preference_retirement
   -> preference_retirement_receipt
   -> unit
 
+val mark_preference_retirement_indeterminate
+  :  ('scope, 'candidate) preference_store
+  -> scope:'scope
+  -> preference_retirement_receipt
+  -> unit
+
 val finish_preference_retirement
   :  ('scope, 'candidate) preference_store
   -> scope:'scope

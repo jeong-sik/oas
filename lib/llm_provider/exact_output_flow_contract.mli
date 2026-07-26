@@ -189,6 +189,12 @@ val abort_flow_preference_retirement
   -> flow_preference_retirement_receipt
   -> unit
 
+val mark_flow_preference_retirement_indeterminate
+  :  flow_preference_store
+  -> flow_scope
+  -> flow_preference_retirement_receipt
+  -> unit
+
 val finish_flow_preference_retirement
   :  flow_preference_store
   -> flow_scope

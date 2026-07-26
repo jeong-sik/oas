@@ -47,33 +47,32 @@ let id_to_string (Flow_preference_retirement_id id) = id
 let intent_id intent = intent.retirement_id
 let receipt_id receipt = receipt.retirement_id
 
-let structural_json intent =
-  `Assoc
-    [ "format", `String intent_format
-    ; "version", `Int intent_version
-    ; "scope", `String (Flow_contract.flow_scope_to_string intent.scope)
-    ; ( "reservation_ordinal"
-      , `String
-          (Int64.to_string
-             (Flow_contract.flow_preference_reservation_to_int64 intent.reservation)) )
-    ; "success_high_water", `String (Int64.to_string intent.success_high_water)
-    ]
+let structural_fields intent =
+  [ "format", `String intent_format
+  ; "version", `Int intent_version
+  ; "scope", `String (Flow_contract.flow_scope_to_string intent.scope)
+  ; ( "reservation_ordinal"
+    , `String
+        (Int64.to_string
+           (Flow_contract.flow_preference_reservation_to_int64 intent.reservation)) )
+  ; "success_high_water", `String (Int64.to_string intent.success_high_water)
+  ]
 ;;
 
-let payload_json intent =
-  match structural_json intent with
-  | `Assoc fields ->
-    `Assoc
-      (fields @ [ "retirement_id", `String (id_to_string intent.retirement_id) ])
-  | _ -> assert false
+let structural_json intent = `Assoc (structural_fields intent)
+
+let payload_fields (intent : intent) =
+  structural_fields intent
+  @ [ "retirement_id", `String (id_to_string intent.retirement_id) ]
 ;;
 
-let intent_to_string intent =
-  match payload_json intent with
-  | `Assoc fields ->
-    Yojson.Safe.to_string
-      (`Assoc (fields @ [ "integrity_sha256", `String intent.integrity_sha256 ]))
-  | _ -> assert false
+let payload_json (intent : intent) = `Assoc (payload_fields intent)
+
+let intent_to_string (intent : intent) =
+  Yojson.Safe.to_string
+    (`Assoc
+      (payload_fields intent
+       @ [ "integrity_sha256", `String intent.integrity_sha256 ]))
 ;;
 
 let make_intent ~scope ~reservation ~success_high_water =
@@ -228,7 +227,9 @@ let flow_receipt intent : Flow_contract.flow_preference_retirement_receipt =
   }
 ;;
 
-let public_receipt flow_receipt =
+let public_receipt
+      (flow_receipt : Flow_contract.flow_preference_retirement_receipt)
+  =
   { retirement_id = Flow_preference_retirement_id flow_receipt.retirement_id }
 ;;
 
@@ -257,30 +258,31 @@ let commit_and_retire ~commit preferences scope =
         ~reservation:requested.reservation
         ~success_high_water:requested.success_high_water
     in
-    let finished = ref false in
-    Fun.protect
-      ~finally:(fun () ->
-        if not !finished
-        then
-          Flow_contract.abort_flow_preference_retirement
+    (match commit intent with
+     | Error cause ->
+       Flow_contract.abort_flow_preference_retirement preferences scope requested;
+       Error (Flow_preference_retirement_commit_failed cause)
+     | Ok () ->
+       (match
+          Flow_contract.finish_flow_preference_retirement
             preferences
             scope
-            requested)
-      (fun () ->
-         match commit intent with
-         | Error cause -> Error (Flow_preference_retirement_commit_failed cause)
-         | Ok () ->
-           (match
-              Flow_contract.finish_flow_preference_retirement
-                preferences
-                scope
-                requested
-            with
-            | Error Flow_contract.Flow_preference_retirement_apply_conflict ->
-              Error Flow_preference_retirement_conflict
-            | Ok receipt ->
-              finished := true;
-              Ok (public_receipt receipt)))
+            requested
+        with
+        | Error Flow_contract.Flow_preference_retirement_apply_conflict ->
+          Flow_contract.mark_flow_preference_retirement_indeterminate
+            preferences
+            scope
+            requested;
+          Error Flow_preference_retirement_conflict
+        | Ok receipt -> Ok (public_receipt receipt))
+     | exception exn ->
+       let raw_backtrace = Printexc.get_raw_backtrace () in
+       Flow_contract.mark_flow_preference_retirement_indeterminate
+         preferences
+         scope
+         requested;
+       Printexc.raise_with_backtrace exn raw_backtrace)
 ;;
 
 let resume recovery intent =

@@ -638,11 +638,7 @@ val commit_and_settle_flow_domain
   -> domain_disposition
   -> (domain_settlement_receipt, 'commit_error domain_commit_error) result
 
-(** Resume one authenticated committed intent before preference recovery is
-    finished. This function has no network, provider, resolver, callback, or
-    dispatch capability. It restores reservation and success high-water marks
-    and returns the same deterministic receipt for a same-ID replay. A valid
-    new scope fails before any recovery mutation when capacity is full. *)
+(** Return the stable digest identity of one current-schema retirement. *)
 val flow_preference_retirement_id_to_string
   :  flow_preference_retirement_id
   -> string

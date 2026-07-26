@@ -1179,6 +1179,15 @@ let rewrite_json_field name replacement encoded =
   | _ -> fail "intent envelope was not an object"
 ;;
 
+let duplicate_json_field name encoded =
+  match Yojson.Safe.from_string encoded with
+  | `Assoc fields ->
+    (match List.assoc_opt name fields with
+     | Some value -> `Assoc ((name, value) :: fields) |> Yojson.Safe.to_string
+     | None -> failf "intent field %s was absent" name)
+  | _ -> fail "intent envelope was not an object"
+;;
+
 let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
   let (first_id, replay_id, future_order, ordinal_advanced, reservation_advanced), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
@@ -1425,14 +1434,59 @@ let test_retirement_recovery_blocks_stale_and_allows_newer_reservation () =
       | Ok receipt -> receipt
       | Error _ -> fail "durable retirement did not commit"
     in
-    let retirement =
+    let retirement_encoded, retirement =
       match !retirement_encoded with
       | None -> fail "durable retirement callback emitted no intent"
       | Some encoded ->
         (match EO.flow_preference_retirement_intent_of_string encoded with
-         | Ok intent -> intent
+         | Ok intent -> encoded, intent
          | Error _ -> fail "current retirement intent did not decode")
     in
+    (match EO.flow_preference_retirement_intent_of_string "{" with
+     | Error (EO.Flow_preference_retirement_intent_malformed_json _) -> ()
+     | Ok _ | Error _ -> fail "malformed retirement intent did not fail closed");
+    (match EO.flow_preference_retirement_intent_of_string "[]" with
+     | Error EO.Flow_preference_retirement_intent_invalid_fields -> ()
+     | Ok _ | Error _ -> fail "non-object retirement intent did not fail closed");
+    (match
+       duplicate_json_field "scope" retirement_encoded
+       |> EO.flow_preference_retirement_intent_of_string
+     with
+     | Error EO.Flow_preference_retirement_intent_invalid_fields -> ()
+     | Ok _ | Error _ -> fail "duplicate retirement field did not fail closed");
+    (match
+       rewrite_json_field "version" (`Int 0) retirement_encoded
+       |> EO.flow_preference_retirement_intent_of_string
+     with
+     | Error (EO.Flow_preference_retirement_intent_unsupported_version 0) -> ()
+     | Ok _ | Error _ -> fail "old retirement intent version did not fail closed");
+    List.iter
+      (fun field ->
+         List.iter
+           (fun raw ->
+              match
+                rewrite_json_field field (`String raw) retirement_encoded
+                |> EO.flow_preference_retirement_intent_of_string
+              with
+              | Error (EO.Flow_preference_retirement_intent_invalid_field rejected)
+                when String.equal rejected field ->
+                ()
+              | Ok _ | Error _ ->
+                failf
+                  "noncanonical retirement %s=%s survived"
+                  field
+                  raw)
+           [ "01"; "+1"; "0x1"; "0_1" ])
+      [ "reservation_ordinal"; "success_high_water" ];
+    List.iter
+      (fun field ->
+         match
+           rewrite_json_field field (`String (String.make 64 '0')) retirement_encoded
+           |> EO.flow_preference_retirement_intent_of_string
+         with
+         | Error EO.Flow_preference_retirement_intent_integrity_mismatch -> ()
+         | Ok _ | Error _ -> failf "retirement %s tampering survived" field)
+      [ "retirement_id"; "integrity_sha256" ];
     let retirement_roundtrip =
       String.equal
         (EO.flow_preference_retirement_receipt_id retirement_receipt
@@ -1614,6 +1668,116 @@ let test_rejected_only_recovery_restores_high_water_without_active_scope () =
   check bool "rejected-only evidence consumes no active capacity" true zero_active;
   check bool "rejected-only recovery restores reservation high-water" true reservation_advanced;
   check bool "rejected-only recovery restores success high-water" true ordinal_advanced
+;;
+
+let test_retirement_cancellation_replays_stable_intent_after_high_water_drift () =
+  let stable_intent, posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"retirement-stable" ~base_url ~native:true ~json:true () ]
+    @@ fun snapshot ->
+    let preferences = preference_store ~capacity:2 () in
+    let retirement_scope = flow_scope "/runtime/retirement-stable" in
+    (match
+       snapshot_candidates
+         ~preferences
+         ~scope:retirement_scope
+         [ flow_candidate snapshot "retirement-stable" ]
+     with
+     | Ok _ -> ()
+     | Error _ -> fail "retirement cancellation scope was not reserved");
+    let first_encoded = ref None in
+    (try
+       ignore
+         (EO.commit_and_retire_flow_preference_scope
+            ~commit:(fun intent ->
+              first_encoded
+              := Some (EO.flow_preference_retirement_intent_to_string intent);
+              raise
+                (Eio.Cancel.Cancelled
+                   (Failure "injected after durable retirement commit")))
+            preferences
+            retirement_scope);
+       fail "injected retirement cancellation did not escape"
+     with
+     | Eio.Cancel.Cancelled _ -> ());
+    let drift_scope = flow_scope "/runtime/retirement-stable-drift" in
+    (match
+       frozen_flow
+         ~preferences
+         ~scope:drift_scope
+         snapshot
+         [ "retirement-stable" ]
+       |> start_flow
+       |> execute_ok ~net
+     with
+     | Ok _ -> ()
+     | Error _ -> fail "success high-water drift fixture did not execute");
+    let failed_replay_encoded = ref None in
+    (match
+       EO.commit_and_retire_flow_preference_scope
+         ~commit:(fun intent ->
+           failed_replay_encoded
+           := Some (EO.flow_preference_retirement_intent_to_string intent);
+           Error ())
+         preferences
+         retirement_scope
+     with
+     | Error (EO.Flow_preference_retirement_commit_failed ()) -> ()
+     | Ok _
+     | Error EO.Flow_preference_retirement_in_progress
+     | Error EO.Flow_preference_retirement_conflict
+     | Error EO.Flow_preference_scope_not_reserved ->
+       fail "failed indeterminate replay did not remain retryable");
+    let replay_encoded = ref None in
+    let replay_receipt =
+      match
+        EO.commit_and_retire_flow_preference_scope
+          ~commit:(fun intent ->
+            replay_encoded
+            := Some (EO.flow_preference_retirement_intent_to_string intent);
+            Ok ())
+          preferences
+          retirement_scope
+      with
+      | Ok receipt -> receipt
+      | Error _ -> fail "indeterminate retirement did not replay"
+    in
+    let first_encoded =
+      match !first_encoded with
+      | Some encoded -> encoded
+      | None -> fail "cancelled retirement exposed no intent"
+    in
+    let replay_encoded =
+      match !replay_encoded with
+      | Some encoded -> encoded
+      | None -> fail "retirement replay exposed no intent"
+    in
+    let failed_replay_encoded =
+      match !failed_replay_encoded with
+      | Some encoded -> encoded
+      | None -> fail "failed retirement replay exposed no intent"
+    in
+    let first_intent =
+      match EO.flow_preference_retirement_intent_of_string first_encoded with
+      | Ok intent -> intent
+      | Error _ -> fail "cancelled retirement intent did not decode"
+    in
+    String.equal first_encoded failed_replay_encoded
+    && String.equal first_encoded replay_encoded
+    && String.equal
+         (EO.flow_preference_retirement_intent_id first_intent
+          |> EO.flow_preference_retirement_id_to_string)
+         (EO.flow_preference_retirement_receipt_id replay_receipt
+          |> EO.flow_preference_retirement_id_to_string)
+  in
+  check int "retirement stability fixture dispatches only high-water drift" 1 posts;
+  check
+    bool
+    "post-commit cancellation replays exact retirement intent"
+    true
+    stable_intent
 ;;
 
 let test_recovery_conflicting_disposition_fails_closed () =
@@ -4402,6 +4566,10 @@ let () =
             "rejected-only recovery restores high-water without active scope"
             `Quick
             test_rejected_only_recovery_restores_high_water_without_active_scope
+        ; test_case
+            "retirement cancellation replays stable intent after high-water drift"
+            `Quick
+            test_retirement_cancellation_replays_stable_intent_after_high_water_drift
         ; test_case
             "recovery rejects conflicting disposition"
             `Quick

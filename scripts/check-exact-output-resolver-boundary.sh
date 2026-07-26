@@ -824,6 +824,19 @@ require_code_pattern \
   "canonical facade no longer re-exports the private resolver" \
   'include[[:space:]]+Exact_output_resolver' \
   "$exact_output_source"
+require_code_pattern \
+  "canonical facade no longer re-exports the private preference lifecycle facade" \
+  'include[[:space:]]+Preference_lifecycle_facade' \
+  "$exact_output_source"
+scan_code \
+  "preference lifecycle implementation escaped its private facade" \
+  'let[[:space:]]+(commit_and_retire_flow_preference_scope|recover_flow_preferences)' \
+  "$exact_output_source"
+scan_code \
+  "provider, model, pricing, credential, or legacy policy entered preference lifecycle facade" \
+  'Provider|provider|Model|model|Pricing|pricing|Credential|credential|Legacy|legacy|Migration|migration' \
+  "$module_dir/exact_output_preference_lifecycle_facade.ml" \
+  "$module_dir/exact_output_preference_lifecycle_facade.mli"
 scan_code \
   "secondary target projection exposed by the canonical facade" \
   'type[[:space:]]+(resolver_snapshot|selected_target|target_identity)[[:space:]]*=|val[[:space:]]+(target_(identity_id|provider_id|model_id|base_url|request_path)|selected_target_(provider_id|model_id|base_url|request_path)|target_identity_(provider_id|model_id|base_url|request_path))|Invalid_target_ref[[:space:]]+of[[:space:]]+string' \
@@ -845,6 +858,7 @@ for private_module in \
   exact_output_domain_settlement \
   exact_output_scope_retirement \
   exact_output_preference_recovery \
+  exact_output_preference_lifecycle_facade \
   exact_output_generation_receipt \
   exact_output_provider_trace \
   exact_output_resolver \

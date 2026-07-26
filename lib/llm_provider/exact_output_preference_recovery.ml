@@ -40,7 +40,7 @@ let collect evidence =
          loop domains retirements rest
        | Some _ -> Error (Conflicting_domain_settlement_evidence id)
        | None ->
-         let item =
+         let item : domain_item =
            { intent; encoded; evidence = Domain_settlement.recovery_evidence intent }
          in
          loop (String_map.add key item domains) retirements rest)
@@ -53,7 +53,7 @@ let collect evidence =
          loop domains retirements rest
        | Some _ -> Error (Conflicting_scope_retirement_evidence id)
        | None ->
-         let item =
+         let item : retirement_item =
            { intent; encoded; evidence = Scope_retirement.recovery_evidence intent }
          in
          loop domains (String_map.add key item retirements) rest)

@@ -467,6 +467,8 @@
   ../lib/llm_provider/exact_output_scope_retirement.mli
   ../lib/llm_provider/exact_output_preference_recovery.ml
   ../lib/llm_provider/exact_output_preference_recovery.mli
+  ../lib/llm_provider/exact_output_preference_lifecycle_facade.ml
+  ../lib/llm_provider/exact_output_preference_lifecycle_facade.mli
   ../lib/llm_provider/exact_output_resolver.ml
   ../lib/llm_provider/exact_output_resolver.mli
   ../lib/llm_provider/exact_output_catalog_binding.ml

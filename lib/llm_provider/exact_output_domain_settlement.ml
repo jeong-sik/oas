@@ -99,7 +99,7 @@ type recovery_evidence =
   ; disposition : Flow_contract.domain_disposition
   }
 
-let recovery_evidence intent =
+let recovery_evidence (intent : intent) =
   { scope = intent.scope
   ; reservation = intent.reservation
   ; candidate = intent.candidate

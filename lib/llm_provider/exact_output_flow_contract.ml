@@ -291,6 +291,14 @@ let abort_flow_preference_retirement preferences (Flow_scope scope) receipt =
   Flow_state.abort_preference_retirement preferences ~scope receipt
 ;;
 
+let mark_flow_preference_retirement_indeterminate
+      preferences
+      (Flow_scope scope)
+      receipt
+  =
+  Flow_state.mark_preference_retirement_indeterminate preferences ~scope receipt
+;;
+
 let finish_flow_preference_retirement preferences (Flow_scope scope) receipt =
   match Flow_state.finish_preference_retirement preferences ~scope receipt with
   | Ok receipt -> Ok receipt
