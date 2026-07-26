@@ -1054,8 +1054,8 @@ require_code_sequence \
   'type[[:space:]]+flow_preference_store.*type[[:space:]]+flow_scope' \
   "$exact_output_interface"
 require_code_sequence \
-  "outer exact-flow preference store lost its mandatory hard capacity" \
-  'val[[:space:]]+create_flow_preference_store[[:space:]]*:[[:space:]]*capacity:int[[:space:]]*->[[:space:]]*\(flow_preference_store,[[:space:]]*flow_preference_store_error\)[[:space:]]*result' \
+  "outer exact-flow preference recovery lost its mandatory hard capacity" \
+  'val[[:space:]]+begin_flow_preference_recovery[[:space:]]*:[[:space:]]*capacity:int[[:space:]]*->[[:space:]]*\(flow_preference_recovery,[[:space:]]*flow_preference_store_error\)[[:space:]]*result.*val[[:space:]]+finish_flow_preference_recovery' \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact-flow snapshot lost typed capacity exhaustion" \
@@ -1087,12 +1087,17 @@ require_code_sequence \
   'val[[:space:]]+candidate_rejection_scope[[:space:]]*:' \
   "$exact_output_interface"
 require_code_sequence \
-  "outer exact flow lost typed domain settlement" \
-  'type[[:space:]]+domain_disposition.*type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private.*Domain_rejected_recorded.*Domain_valid_preference_installed.*Domain_valid_preference_superseded.*val[[:space:]]+settle_flow_domain' \
+  "outer exact flow lost durable domain settlement" \
+  'type[[:space:]]+domain_disposition.*type[[:space:]]+domain_settlement_id.*type[[:space:]]+domain_settlement_intent.*type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private.*val[[:space:]]+commit_and_settle_flow_domain.*val[[:space:]]+resume_committed_flow_domain' \
   "$exact_output_interface"
 require_code_sequence \
   "private exact-flow contract exposed forgeable domain settlement receipts" \
   'type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private' \
+  "$module_dir/exact_output_flow_contract.mli"
+scan_code \
+  "legacy in-memory domain settlement surface returned" \
+  'val[[:space:]]+settle_flow_domain|Domain_already_settled|Domain_valid_preference_installed|Domain_valid_preference_superseded' \
+  "$exact_output_interface" \
   "$module_dir/exact_output_flow_contract.mli"
 scan_code \
   "domain-valid settlement regained caller-forgeable freshness" \

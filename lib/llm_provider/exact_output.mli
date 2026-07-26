@@ -51,6 +51,7 @@ type call_id
 type schema_fingerprint
 type flow_candidate
 type flow_preference_store
+type flow_preference_recovery
 type flow_scope
 type flow_success_ordinal
 type flow_snapshot
@@ -239,6 +240,11 @@ type flow_candidate_identity =
   ; target_identity : target_identity
   }
 
+type flow_preference_identity = private
+  { candidate_id : string
+  ; binding_sha256 : string
+  }
+
 type flow_id
 type flow_visit_ordinal
 type candidate_visit_count
@@ -250,11 +256,11 @@ type flow_preference_not_applied_reason =
 type flow_preference_observation =
   | No_preference_recorded
   | Preference_applied of
-      { candidate : flow_candidate_identity
+      { candidate : flow_preference_identity
       ; success_ordinal : flow_success_ordinal
       }
   | Preference_not_applied of
-      { candidate : flow_candidate_identity
+      { candidate : flow_preference_identity
       ; success_ordinal : flow_success_ordinal
       ; reason : flow_preference_not_applied_reason
       }
@@ -293,6 +299,7 @@ type candidate_admission =
 type flow_candidate_error = Blank_flow_candidate_id
 type flow_scope_error = Blank_flow_scope_id
 type flow_preference_store_error = Invalid_flow_preference_capacity of int
+type flow_preference_recovery_error = Flow_preference_recovery_already_finished
 
 type flow_preference_scope_removal =
   | Flow_preference_scope_removed
@@ -305,6 +312,7 @@ type flow_snapshot_error =
       ; duplicate_position : int
       }
   | Flow_preference_capacity_exhausted of { capacity : int }
+  | Flow_preference_reservation_exhausted
 
 (** Construct one provider-neutral candidate from a catalog-admitted target.
     Credential selection remains frozen but unresolved until this candidate is
@@ -320,13 +328,17 @@ val make_flow_candidate
 
 val flow_candidate_identity : flow_candidate -> flow_candidate_identity
 
-(** Create one caller-owned, process-local preference store with an explicit
-    hard scope capacity. Nonpositive capacities fail closed. The store has no
-    global singleton, environment-derived policy, expiry, clock, persistence,
-    or background refresh. *)
-val create_flow_preference_store
+(** Begin one caller-owned preference-store recovery with an explicit hard
+    scope capacity. The returned handle cannot create snapshots. Replay every
+    authenticated current-schema committed intent, then finish recovery to
+    obtain the active process-local store. *)
+val begin_flow_preference_recovery
   :  capacity:int
-  -> (flow_preference_store, flow_preference_store_error) result
+  -> (flow_preference_recovery, flow_preference_store_error) result
+
+val finish_flow_preference_recovery
+  :  flow_preference_recovery
+  -> (flow_preference_store, flow_preference_recovery_error) result
 
 (** Brand one opaque caller scope. OAS compares the trimmed nonempty identity
     exactly; it does not parse coordinator, tenant, provider, or model fields. *)
@@ -573,38 +585,65 @@ type domain_disposition =
   | Domain_valid
   | Domain_rejected
 
+type domain_settlement_id
+type domain_settlement_intent
+
 type domain_settlement_receipt = private
-  | Domain_rejected_recorded
-  | Domain_valid_preference_installed of
-      { candidate : flow_candidate_identity
-      ; success_ordinal : flow_success_ordinal
-      }
-  | Domain_valid_preference_superseded of
-      { current_candidate : flow_candidate_identity
-      ; current_success_ordinal : flow_success_ordinal
-      }
+  { settlement_id : domain_settlement_id
+  ; disposition : domain_disposition
+  }
 
-type domain_settlement_error =
-  | Domain_already_settled
-  | Domain_preference_scope_released
+type domain_settlement_intent_decode_error =
+  | Domain_settlement_intent_malformed_json of string
+  | Domain_settlement_intent_invalid_fields
+  | Domain_settlement_intent_unknown_format of string
+  | Domain_settlement_intent_unsupported_version of int
+  | Domain_settlement_intent_invalid_field of string
+  | Domain_settlement_intent_integrity_mismatch
 
-(** Settle caller-owned domain validation exactly once after structural
-    success. OAS freezes an immutable monotonic ordinal when structural success
-    is created; the caller cannot supply or alter freshness. [Domain_valid]
-    records the successful opaque candidate and frozen ordinal as last-good for
-    this flow's scope. [Domain_rejected] records no preference and never resumes
-    or advances the terminal flow. Concurrent or duplicate settlement returns
-    [Domain_already_settled]. A success whose ordinal is not newer cannot
-    overwrite the retained preference and returns a typed
-    [Domain_valid_preference_superseded] receipt. If the caller explicitly
-    removed the scope reservation after snapshot, domain-valid settlement
-    returns [Domain_preference_scope_released]; recreating the same textual
-    scope does not revive the old reservation. Every disposition is consumed
-    exactly once. *)
-val settle_flow_domain
-  :  flow_success
+type 'commit_error domain_commit_error =
+  | Domain_commit_failed of 'commit_error
+  | Domain_settlement_conflict
+
+type domain_settlement_resume_error =
+  | Domain_preference_recovery_finished
+  | Domain_settlement_recovery_conflict
+
+val domain_settlement_id_to_string : domain_settlement_id -> string
+val domain_settlement_intent_id : domain_settlement_intent -> domain_settlement_id
+val domain_settlement_intent_to_string : domain_settlement_intent -> string
+
+val domain_settlement_intent_of_string
+  :  string
+  -> (domain_settlement_intent, domain_settlement_intent_decode_error) result
+
+val domain_settlement_receipt_id : domain_settlement_receipt -> domain_settlement_id
+val domain_settlement_receipt_disposition : domain_settlement_receipt -> domain_disposition
+
+(** Fence caller-owned domain validation behind a durable content commit.
+    [commit] receives the only current-schema, provider-neutral replay intent
+    and must store it in authenticated durable state before returning [Ok].
+    No callback runs while the preference mutex is held. A same-ID,
+    same-disposition replay returns the same deterministic receipt; a different
+    disposition is a typed conflict.
+
+    This is logical idempotent replay, not a claim that arbitrary external
+    storage performs a physical effect exactly once. If [commit] raises after
+    its durable effect, restart must decode and resume that committed intent. *)
+val commit_and_settle_flow_domain
+  :  commit:(domain_settlement_intent -> (unit, 'commit_error) result)
+  -> flow_success
   -> domain_disposition
-  -> (domain_settlement_receipt, domain_settlement_error) result
+  -> (domain_settlement_receipt, 'commit_error domain_commit_error) result
+
+(** Resume one authenticated committed intent before preference recovery is
+    finished. This function has no network, provider, resolver, callback, or
+    dispatch capability. It restores reservation and success high-water marks
+    and returns the same deterministic receipt for a same-ID replay. *)
+val resume_committed_flow_domain
+  :  flow_preference_recovery
+  -> domain_settlement_intent
+  -> (domain_settlement_receipt, domain_settlement_resume_error) result
 
 type flow_candidate_failure =
   | Flow_candidate_rejected of candidate_rejection_receipt
@@ -744,7 +783,7 @@ val execute_once
     success are terminal. Cancellation is re-raised after the flow is
     terminalized; inspect {!flow_attempt_evidence} for monotonic progress.
     Domain validation occurs after an OAS success through
-    {!settle_flow_domain}; either disposition remains terminal and is never
+    {!commit_and_settle_flow_domain}; either disposition remains terminal and is never
     failover eligible. Only a domain-valid settlement can affect a future
     snapshot in the same explicit scope. *)
 val execute_flow_once

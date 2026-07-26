@@ -248,6 +248,7 @@ type flow_snapshot_error =
       ; duplicate_position : int
       }
   | Flow_preference_capacity_exhausted of { capacity : int }
+  | Flow_preference_reservation_exhausted
 
 type start_attempt_error = Call_id_generation_failed of string
 
@@ -279,6 +280,34 @@ type flow_success =
   ; scope : flow_scope
   ; preference_reservation : Flow_contract.flow_preference_reservation
   }
+
+type domain_settlement_intent =
+  { settlement_id : domain_settlement_id
+  ; flow_id : string
+  ; scope : flow_scope
+  ; reservation : Flow_contract.flow_preference_reservation
+  ; candidate : flow_preference_identity
+  ; success_ordinal : flow_success_ordinal
+  ; execution_evidence_sha256 : string
+  ; disposition : domain_disposition
+  ; integrity_sha256 : string
+  }
+
+type domain_settlement_intent_decode_error =
+  | Domain_settlement_intent_malformed_json of string
+  | Domain_settlement_intent_invalid_fields
+  | Domain_settlement_intent_unknown_format of string
+  | Domain_settlement_intent_unsupported_version of int
+  | Domain_settlement_intent_invalid_field of string
+  | Domain_settlement_intent_integrity_mismatch
+
+type 'commit_error domain_commit_error =
+  | Domain_commit_failed of 'commit_error
+  | Domain_settlement_conflict
+
+type domain_settlement_resume_error =
+  | Domain_preference_recovery_finished
+  | Domain_settlement_recovery_conflict
 
 type flow_candidate_failure =
   | Flow_candidate_rejected of candidate_rejection_receipt
@@ -391,6 +420,8 @@ let snapshot_flow ~preferences ~scope ~first ~rest ~messages requirement =
      with
      | Error (Preference_capacity_exhausted { capacity }) ->
        Error (Flow_preference_capacity_exhausted { capacity })
+     | Error Preference_reservation_space_exhausted ->
+       Error Flow_preference_reservation_exhausted
      | Ok (candidates, preference_observation, preference_reservation) ->
        Ok
          { preferences
@@ -457,17 +488,6 @@ let flow_success_candidate success = success.candidate
 let flow_success_output success = success.success
 let flow_success_evidence success = success.evidence
 let flow_success_ordinal success = success.success_ordinal
-
-let settle_flow_domain success disposition =
-  Flow_contract.settle_domain
-    success.domain_settlement
-    success.preferences
-    success.scope
-    ~reservation:success.preference_reservation
-    ~candidate:success.candidate.visit.identity
-    ~success_ordinal:success.success_ordinal
-    disposition
-;;
 
 let call_id_to_string (Call_id id) = id
 let flow_id_to_string (Flow_id id) = id
@@ -586,6 +606,347 @@ let generation_receipt_snapshot_catalog_evidence =
 
 let generation_receipt_snapshot_target_identity =
   Generation_receipt.snapshot_target_identity
+;;
+
+let domain_settlement_intent_format = "oas.exact-output.domain-settlement-intent"
+let domain_settlement_intent_version = 1
+let sha256_string value = Digestif.SHA256.(to_hex (digest_string value))
+
+let domain_disposition_to_string = function
+  | Domain_valid -> "domain_valid"
+  | Domain_rejected -> "domain_rejected"
+;;
+
+let domain_disposition_of_string = function
+  | "domain_valid" -> Some Domain_valid
+  | "domain_rejected" -> Some Domain_rejected
+  | _ -> None
+;;
+
+let domain_settlement_structural_json intent =
+  `Assoc
+    [ "format", `String domain_settlement_intent_format
+    ; "version", `Int domain_settlement_intent_version
+    ; "flow_id", `String intent.flow_id
+    ; "scope", `String (Flow_contract.flow_scope_to_string intent.scope)
+    ; ( "reservation_ordinal"
+      , `String
+          (Int64.to_string
+             (Flow_contract.flow_preference_reservation_to_int64 intent.reservation)) )
+    ; "candidate_id", `String intent.candidate.candidate_id
+    ; "candidate_binding_sha256", `String intent.candidate.binding_sha256
+    ; ( "success_ordinal"
+      , `String
+          (Int64.to_string
+             (Flow_contract.flow_success_ordinal_to_int64 intent.success_ordinal)) )
+    ; "execution_evidence_sha256", `String intent.execution_evidence_sha256
+    ]
+;;
+
+let domain_settlement_payload_json intent =
+  match domain_settlement_structural_json intent with
+  | `Assoc fields ->
+    `Assoc
+      (fields
+       @ [ ( "settlement_id"
+           , `String
+               (Flow_contract.domain_settlement_id_to_string intent.settlement_id) )
+         ; "disposition", `String (domain_disposition_to_string intent.disposition)
+         ])
+  | _ -> assert false
+;;
+
+let domain_settlement_intent_to_string intent =
+  match domain_settlement_payload_json intent with
+  | `Assoc fields ->
+    Yojson.Safe.to_string
+      (`Assoc (fields @ [ "integrity_sha256", `String intent.integrity_sha256 ]))
+  | _ -> assert false
+;;
+
+let domain_settlement_intent_id intent = intent.settlement_id
+
+let effect_phase_to_string = function
+  | Not_started -> "not_started"
+  | Before_dispatch -> "before_dispatch"
+  | Dispatch_started -> "dispatch_started"
+  | Response_received -> "response_received"
+  | Terminal -> "terminal"
+;;
+
+let make_domain_settlement_intent success disposition =
+  let candidate = success.candidate in
+  let snapshot = generation_receipt_snapshot candidate.receipt in
+  let execution_evidence =
+    `Assoc
+      [ ( "call_id"
+        , `String
+            (generation_receipt_snapshot_call_id snapshot |> call_id_to_string) )
+      ; ( "plan_fingerprint"
+        , `String (generation_receipt_snapshot_plan_fingerprint snapshot) )
+      ; ( "request_body_sha256"
+        , `String (generation_receipt_snapshot_request_body_sha256 snapshot) )
+      ; ( "phase"
+        , `String
+            (generation_receipt_snapshot_phase snapshot |> effect_phase_to_string) )
+      ; ( "dispatch_count"
+        , `Int (generation_receipt_snapshot_dispatch_count snapshot) )
+      ; ( "http_status"
+        , match generation_receipt_snapshot_http_status snapshot with
+          | None -> `Null
+          | Some status -> `Int status )
+      ]
+  in
+  let provisional =
+    { settlement_id =
+        Flow_contract.domain_settlement_id_of_string (String.make 64 '0')
+    ; flow_id = flow_id_to_string candidate.visit.flow_id
+    ; scope = success.scope
+    ; reservation = success.preference_reservation
+    ; candidate =
+        Flow_contract.flow_preference_identity_of_candidate candidate.visit.identity
+    ; success_ordinal = success.success_ordinal
+    ; execution_evidence_sha256 =
+        sha256_string (Yojson.Safe.to_string execution_evidence)
+    ; disposition
+    ; integrity_sha256 = String.make 64 '0'
+    }
+  in
+  let settlement_id =
+    domain_settlement_structural_json provisional
+    |> Yojson.Safe.to_string
+    |> sha256_string
+    |> Flow_contract.domain_settlement_id_of_string
+  in
+  let with_id = { provisional with settlement_id } in
+  let integrity_sha256 =
+    domain_settlement_payload_json with_id |> Yojson.Safe.to_string |> sha256_string
+  in
+  { with_id with integrity_sha256 }
+;;
+
+let domain_settlement_intent_expected_fields =
+  [ "format"
+  ; "version"
+  ; "flow_id"
+  ; "scope"
+  ; "reservation_ordinal"
+  ; "candidate_id"
+  ; "candidate_binding_sha256"
+  ; "success_ordinal"
+  ; "execution_evidence_sha256"
+  ; "settlement_id"
+  ; "disposition"
+  ; "integrity_sha256"
+  ]
+;;
+
+let is_sha256 value =
+  String.length value = 64
+  && String.for_all
+       (function
+         | '0' .. '9' | 'a' .. 'f' -> true
+         | _ -> false)
+       value
+;;
+
+let domain_settlement_intent_of_string encoded =
+  let invalid field = Error (Domain_settlement_intent_invalid_field field) in
+  let find fields name =
+    match List.assoc_opt name fields with
+    | Some value -> Ok value
+    | None -> invalid name
+  in
+  let string_field fields name =
+    let* value = find fields name in
+    match value with
+    | `String value -> Ok value
+    | _ -> invalid name
+  in
+  let int64_field fields name =
+    let* value = string_field fields name in
+    match Int64.of_string_opt value with
+    | Some value when Int64.compare value 0L > 0 -> Ok value
+    | Some _ | None -> invalid name
+  in
+  try
+    match Yojson.Safe.from_string encoded with
+    | `Assoc fields ->
+      let actual = List.map fst fields |> List.sort String.compare in
+      let expected =
+        List.sort String.compare domain_settlement_intent_expected_fields
+      in
+      if actual <> expected
+      then Error Domain_settlement_intent_invalid_fields
+      else (
+        let* format = string_field fields "format" in
+        let* () =
+          if String.equal format domain_settlement_intent_format
+          then Ok ()
+          else Error (Domain_settlement_intent_unknown_format format)
+        in
+        let* version = find fields "version" in
+        let* () =
+          match version with
+          | `Int version when version = domain_settlement_intent_version -> Ok ()
+          | `Int version ->
+            Error (Domain_settlement_intent_unsupported_version version)
+          | _ -> invalid "version"
+        in
+        let* flow_id = string_field fields "flow_id" in
+        let* scope_text = string_field fields "scope" in
+        let* scope =
+          match Flow_contract.make_flow_scope ~id:scope_text with
+          | Ok scope when String.equal scope_text (Flow_contract.flow_scope_to_string scope)
+            -> Ok scope
+          | Ok _ | Error _ -> invalid "scope"
+        in
+        let* reservation_ordinal = int64_field fields "reservation_ordinal" in
+        let* reservation =
+          match
+            Flow_contract.flow_preference_reservation_of_int64 reservation_ordinal
+          with
+          | Some reservation -> Ok reservation
+          | None -> invalid "reservation_ordinal"
+        in
+        let* candidate_id = string_field fields "candidate_id" in
+        let* candidate_binding_sha256 =
+          string_field fields "candidate_binding_sha256"
+        in
+        let* () =
+          if (not (String.equal (String.trim candidate_id) ""))
+             && is_sha256 candidate_binding_sha256
+          then Ok ()
+          else invalid "candidate"
+        in
+        let candidate =
+          Flow_contract.make_flow_preference_identity
+            ~candidate_id
+            ~binding_sha256:candidate_binding_sha256
+        in
+        let* success_ordinal_raw = int64_field fields "success_ordinal" in
+        let* success_ordinal =
+          match Flow_contract.flow_success_ordinal_of_int64 success_ordinal_raw with
+          | Some ordinal -> Ok ordinal
+          | None -> invalid "success_ordinal"
+        in
+        let* execution_evidence_sha256 =
+          string_field fields "execution_evidence_sha256"
+        in
+        let* settlement_id_text = string_field fields "settlement_id" in
+        let* disposition_text = string_field fields "disposition" in
+        let* disposition =
+          match domain_disposition_of_string disposition_text with
+          | Some disposition -> Ok disposition
+          | None -> invalid "disposition"
+        in
+        let* integrity_sha256 = string_field fields "integrity_sha256" in
+        let* () =
+          if is_sha256 execution_evidence_sha256
+             && is_sha256 settlement_id_text
+             && is_sha256 integrity_sha256
+          then Ok ()
+          else invalid "sha256"
+        in
+        let intent =
+          { settlement_id =
+              Flow_contract.domain_settlement_id_of_string settlement_id_text
+          ; flow_id
+          ; scope
+          ; reservation
+          ; candidate
+          ; success_ordinal
+          ; execution_evidence_sha256
+          ; disposition
+          ; integrity_sha256
+          }
+        in
+        let expected_settlement_id =
+          domain_settlement_structural_json intent
+          |> Yojson.Safe.to_string
+          |> sha256_string
+        in
+        let expected_integrity =
+          domain_settlement_payload_json intent
+          |> Yojson.Safe.to_string
+          |> sha256_string
+        in
+        if String.equal expected_settlement_id settlement_id_text
+           && String.equal expected_integrity integrity_sha256
+        then Ok intent
+        else Error Domain_settlement_intent_integrity_mismatch)
+    | _ -> Error Domain_settlement_intent_invalid_fields
+  with
+  | Yojson.Json_error detail ->
+    Error (Domain_settlement_intent_malformed_json detail)
+;;
+
+let commit_and_settle_flow_domain ~commit success disposition =
+  let intent = make_domain_settlement_intent success disposition in
+  let receipt =
+    Flow_contract.make_domain_settlement_receipt
+      ~settlement_id:intent.settlement_id
+      ~disposition
+  in
+  match
+    Flow_contract.begin_domain_settlement
+      success.domain_settlement
+      success.preferences
+      receipt
+  with
+  | Flow_contract.Domain_settlement_replayed receipt -> Ok receipt
+  | Flow_contract.Domain_settlement_conflict -> Error Domain_settlement_conflict
+  | Flow_contract.Domain_settlement_claimed ->
+    let finished = ref false in
+    Fun.protect
+      ~finally:(fun () ->
+        if not !finished
+        then
+          Flow_contract.abort_domain_settlement
+            success.domain_settlement
+            success.preferences
+            receipt)
+      (fun () ->
+         match commit intent with
+         | Error cause -> Error (Domain_commit_failed cause)
+         | Ok () ->
+           (match
+              Flow_contract.finish_domain_settlement
+                success.domain_settlement
+                success.preferences
+                success.scope
+                ~reservation:success.preference_reservation
+                ~candidate:success.candidate.visit.identity
+                ~success_ordinal:success.success_ordinal
+                receipt
+            with
+            | Error Flow_contract.Domain_settlement_apply_conflict ->
+              Error Domain_settlement_conflict
+            | Ok receipt ->
+              finished := true;
+              Ok receipt))
+;;
+
+let resume_committed_flow_domain recovery intent =
+  let receipt =
+    Flow_contract.make_domain_settlement_receipt
+      ~settlement_id:intent.settlement_id
+      ~disposition:intent.disposition
+  in
+  match
+    Flow_contract.resume_committed_domain
+      recovery
+      intent.scope
+      ~reservation:intent.reservation
+      ~candidate:intent.candidate
+      ~success_ordinal:intent.success_ordinal
+      receipt
+  with
+  | Ok receipt -> Ok receipt
+  | Error Flow_contract.Domain_preference_recovery_finished ->
+    Error Domain_preference_recovery_finished
+  | Error Flow_contract.Domain_settlement_recovery_conflict ->
+    Error Domain_settlement_recovery_conflict
 ;;
 
 let candidate_rejection_identity (receipt : candidate_rejection_receipt) =

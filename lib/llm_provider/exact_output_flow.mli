@@ -7,11 +7,17 @@
 type t
 type ('admission, 'attempt, 'measurement) progress
 type ('scope, 'candidate) preference_store
+type ('scope, 'candidate) preference_recovery
 type preference_reservation
 type success_ordinal
 type domain_settlement
 type preference_store_error = Invalid_preference_capacity of int
-type preference_reservation_error = Preference_capacity_exhausted of { capacity : int }
+
+type preference_reservation_error =
+  | Preference_capacity_exhausted of { capacity : int }
+  | Preference_reservation_exhausted
+
+type preference_recovery_error = Preference_recovery_already_finished
 
 type preference_scope_removal =
   | Preference_scope_removed
@@ -19,16 +25,25 @@ type preference_scope_removal =
 
 type success_ordinal_error = Success_ordinal_exhausted
 
-type domain_settlement_error =
-  | Already_settled
-  | Preference_scope_released
+type domain_disposition =
+  | Valid
+  | Rejected
 
-type 'candidate preference_installation =
-  | Preference_installed
-  | Preference_superseded of
-      { current_candidate : 'candidate
-      ; current_ordinal : success_ordinal
-      }
+type domain_settlement_receipt =
+  { settlement_id : string
+  ; disposition : domain_disposition
+  }
+
+type domain_settlement_begin =
+  | Domain_settlement_claimed
+  | Domain_settlement_replayed of domain_settlement_receipt
+  | Domain_settlement_conflict
+
+type domain_settlement_error = Domain_settlement_apply_conflict
+
+type recovery_domain_error =
+  | Preference_recovery_finished
+  | Recovered_domain_conflict
 
 type ('admission, 'attempt, 'measurement) progress_snapshot =
   { candidate_visit_count : int
@@ -61,9 +76,13 @@ val create : unit -> t
     recorded admission and its subsequently allocated attempt. *)
 val create_progress : unit -> ('admission, 'attempt, 'measurement) progress
 
-val create_preference_store
+val start_preference_recovery
   :  capacity:int
-  -> (('scope, 'candidate) preference_store, preference_store_error) result
+  -> (('scope, 'candidate) preference_recovery, preference_store_error) result
+
+val finish_preference_recovery
+  :  ('scope, 'candidate) preference_recovery
+  -> (('scope, 'candidate) preference_store, preference_recovery_error) result
 
 val create_domain_settlement : unit -> domain_settlement
 
@@ -83,27 +102,48 @@ val allocate_success_ordinal
   :  ('scope, 'candidate) preference_store
   -> (success_ordinal, success_ordinal_error) result
 
+val preference_reservation_to_int64 : preference_reservation -> int64
+val preference_reservation_of_int64 : int64 -> preference_reservation option
 val success_ordinal_to_int64 : success_ordinal -> int64
+val success_ordinal_of_int64 : int64 -> success_ordinal option
 
-(** Settlement uses the preference store's single mutex as its publication
-    barrier. Domain-valid acquires that lock before changing [Pending] to
-    [Publishing], terminalizes [Settled] before unlocking even on exception,
-    and publishes the preference while the lock is held. A losing disposition
-    synchronizes through the same lock before returning [Already_settled].
-    There is no per-settlement mutex or nested lock order. *)
-val settle_domain_rejected_once
+(** Claim one live durable settlement. The preference-store mutex is only a
+    condition/publication barrier; no caller callback runs while it is held.
+    A concurrent same-ID/same-disposition caller waits for and receives the
+    same receipt. A different disposition for that ID is a conflict. *)
+val begin_domain_settlement
   :  domain_settlement
   -> ('scope, 'candidate) preference_store
-  -> (unit, domain_settlement_error) result
+  -> domain_settlement_receipt
+  -> domain_settlement_begin
 
-val settle_domain_valid_once
+val abort_domain_settlement
+  :  domain_settlement
+  -> ('scope, 'candidate) preference_store
+  -> domain_settlement_receipt
+  -> unit
+
+val finish_domain_settlement
   :  domain_settlement
   -> ('scope, 'candidate) preference_store
   -> scope:'scope
   -> reservation:preference_reservation
   -> candidate:'candidate
   -> ordinal:success_ordinal
-  -> ('candidate preference_installation, domain_settlement_error) result
+  -> domain_settlement_receipt
+  -> (domain_settlement_receipt, domain_settlement_error) result
+
+(** Replay one caller-authenticated committed intent while the store is still
+    recovering. This path has no transport capability. It advances reservation
+    and success high-water marks before the store can become active. *)
+val resume_committed_domain
+  :  ('scope, 'candidate) preference_recovery
+  -> scope:'scope
+  -> reservation:preference_reservation
+  -> candidate:'candidate
+  -> ordinal:success_ordinal
+  -> domain_settlement_receipt
+  -> (domain_settlement_receipt, recovery_domain_error) result
 
 val record_admission : ('admission, 'attempt, 'measurement) progress -> 'admission -> unit
 val record_attempt : ('admission, 'attempt, 'measurement) progress -> 'attempt -> unit
