@@ -31,6 +31,7 @@ type measurement_receipt_phase = Flow_admission.measurement_receipt_phase =
 module Exec = Exact_output_execution
 module Flow_state = Exact_output_flow
 module Flow_contract = Exact_output_flow_contract
+module Domain_settlement = Exact_output_domain_settlement
 module Trace = Exact_output_provider_trace
 module Generation_receipt = Exact_output_generation_receipt
 include Exact_output_resolver
@@ -248,6 +249,7 @@ type flow_snapshot_error =
       ; duplicate_position : int
       }
   | Flow_preference_capacity_exhausted of { capacity : int }
+  | Flow_preference_reservation_exhausted
 
 type start_attempt_error = Call_id_generation_failed of string
 
@@ -279,6 +281,26 @@ type flow_success =
   ; scope : flow_scope
   ; preference_reservation : Flow_contract.flow_preference_reservation
   }
+
+type domain_settlement_intent = Domain_settlement.intent
+
+type domain_settlement_intent_decode_error = Domain_settlement.decode_error =
+  | Domain_settlement_intent_malformed_json of string
+  | Domain_settlement_intent_invalid_fields
+  | Domain_settlement_intent_unknown_format of string
+  | Domain_settlement_intent_unsupported_version of int
+  | Domain_settlement_intent_invalid_field of string
+  | Domain_settlement_intent_integrity_mismatch
+
+type 'commit_error domain_commit_error = 'commit_error Domain_settlement.commit_error =
+  | Domain_commit_failed of 'commit_error
+  | Domain_settlement_in_progress
+  | Domain_settlement_conflict
+
+type domain_settlement_resume_error = Domain_settlement.resume_error =
+  | Domain_preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
+  | Domain_settlement_recovery_conflict
 
 type flow_candidate_failure =
   | Flow_candidate_rejected of candidate_rejection_receipt
@@ -391,6 +413,8 @@ let snapshot_flow ~preferences ~scope ~first ~rest ~messages requirement =
      with
      | Error (Preference_capacity_exhausted { capacity }) ->
        Error (Flow_preference_capacity_exhausted { capacity })
+     | Error Preference_reservation_space_exhausted ->
+       Error Flow_preference_reservation_exhausted
      | Ok (candidates, preference_observation, preference_reservation) ->
        Ok
          { preferences
@@ -457,18 +481,6 @@ let flow_success_candidate success = success.candidate
 let flow_success_output success = success.success
 let flow_success_evidence success = success.evidence
 let flow_success_ordinal success = success.success_ordinal
-
-let settle_flow_domain success disposition =
-  Flow_contract.settle_domain
-    success.domain_settlement
-    success.preferences
-    success.scope
-    ~reservation:success.preference_reservation
-    ~candidate:success.candidate.visit.identity
-    ~success_ordinal:success.success_ordinal
-    disposition
-;;
-
 let call_id_to_string (Call_id id) = id
 let flow_id_to_string (Flow_id id) = id
 let flow_visit_ordinal_to_int (Flow_visit_ordinal ordinal) = ordinal
@@ -587,6 +599,26 @@ let generation_receipt_snapshot_catalog_evidence =
 let generation_receipt_snapshot_target_identity =
   Generation_receipt.snapshot_target_identity
 ;;
+
+let domain_settlement_intent_to_string = Domain_settlement.intent_to_string
+let domain_settlement_intent_of_string = Domain_settlement.intent_of_string
+let domain_settlement_intent_id = Domain_settlement.intent_id
+
+let commit_and_settle_flow_domain ~commit success disposition =
+  Domain_settlement.commit_and_settle
+    ~commit
+    ~domain_settlement:success.domain_settlement
+    ~preferences:success.preferences
+    ~scope:success.scope
+    ~reservation:success.preference_reservation
+    ~candidate:success.candidate.visit.identity
+    ~success_ordinal:success.success_ordinal
+    ~flow_id:(flow_id_to_string success.candidate.visit.flow_id)
+    ~execution:(generation_receipt_snapshot success.candidate.receipt)
+    disposition
+;;
+
+let resume_committed_flow_domain = Domain_settlement.resume
 
 let candidate_rejection_identity (receipt : candidate_rejection_receipt) =
   receipt.visit.identity

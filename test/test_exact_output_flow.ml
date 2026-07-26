@@ -197,8 +197,39 @@ let flow_scope id =
 ;;
 
 let preference_store ?(capacity = 16) () =
-  match EO.create_flow_preference_store ~capacity with
+  let recovery =
+    match EO.begin_flow_preference_recovery ~capacity with
+    | Ok recovery -> recovery
+    | Error (EO.Invalid_flow_preference_capacity invalid) ->
+      failf "fixture preference capacity was invalid: %d" invalid
+  in
+  match EO.finish_flow_preference_recovery recovery with
   | Ok preferences -> preferences
+  | Error EO.Flow_preference_recovery_already_finished ->
+    fail "fresh preference recovery was already finished"
+;;
+
+let settle success disposition =
+  EO.commit_and_settle_flow_domain ~commit:(fun _ -> Ok ()) success disposition
+;;
+
+let settlement_id receipt =
+  EO.domain_settlement_receipt_id receipt |> EO.domain_settlement_id_to_string
+;;
+
+let check_settlement_disposition label expected receipt =
+  check
+    bool
+    label
+    true
+    (match expected, EO.domain_settlement_receipt_disposition receipt with
+     | EO.Domain_valid, EO.Domain_valid | EO.Domain_rejected, EO.Domain_rejected -> true
+     | EO.Domain_valid, EO.Domain_rejected | EO.Domain_rejected, EO.Domain_valid -> false)
+;;
+
+let preference_recovery ?(capacity = 16) () =
+  match EO.begin_flow_preference_recovery ~capacity with
+  | Ok recovery -> recovery
   | Error (EO.Invalid_flow_preference_capacity invalid) ->
     failf "fixture preference capacity was invalid: %d" invalid
 ;;
@@ -481,24 +512,15 @@ let test_scope_local_domain_valid_preference_changes_only_future_snapshots () =
         true
         (EO.flow_scope_equal primary_scope evidence.scope);
       let success_id = candidate_id candidate in
-      let settlement = EO.settle_flow_domain success EO.Domain_valid in
+      let settlement = settle success EO.Domain_valid in
       (match settlement with
-       | Ok
-           (EO.Domain_valid_preference_installed
-              { candidate; success_ordinal = installed_ordinal }) ->
-         check
-           string
-           "installed preference candidate"
-           "preferred-b"
-           candidate.candidate_id;
-         check
-           bool
-           "installed preference carries OAS-owned success ordinal"
-           true
-           (Int64.equal
-              (EO.flow_success_ordinal_to_int64 success_ordinal)
-              (EO.flow_success_ordinal_to_int64 installed_ordinal))
-       | Ok _ | Error _ -> fail "domain-valid preference was not installed exactly");
+       | Ok receipt ->
+         check_settlement_disposition
+           "domain-valid receipt disposition"
+           EO.Domain_valid
+           receipt;
+         check bool "settlement id is nonempty" true (settlement_id receipt <> "")
+       | Error _ -> fail "domain-valid content commit was not settled");
       let future =
         frozen_flow
           ~preferences
@@ -610,12 +632,10 @@ let test_concurrent_flow_scopes_isolate_attempts_and_future_preferences () =
         true
         (EO.flow_scope_equal scope_b candidate_b.scope);
       let settle success =
-        match EO.settle_flow_domain success EO.Domain_valid with
-        | Ok (EO.Domain_valid_preference_installed _) -> ()
-        | Ok (EO.Domain_rejected_recorded | EO.Domain_valid_preference_superseded _) ->
-          fail "fresh scoped success returned the wrong settlement receipt"
-        | Error (EO.Domain_already_settled | EO.Domain_preference_scope_released) ->
-          fail "fresh scoped success could not settle"
+        match settle success EO.Domain_valid with
+        | Ok receipt ->
+          check_settlement_disposition "fresh scoped settlement" EO.Domain_valid receipt
+        | Error _ -> fail "fresh scoped success could not settle"
       in
       Eio.Fiber.both (fun () -> settle success_a) (fun () -> settle success_b);
       (* Annotated because [flow_attempt_snapshot] now also carries a [receipt]
@@ -676,8 +696,8 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
           frozen_flow ~preferences ~scope snapshot [ "declared-b"; "rejected-a" ]
           |> flow_snapshot_ids
         in
-        let first_settlement = EO.settle_flow_domain success EO.Domain_rejected in
-        let duplicate_settlement = EO.settle_flow_domain success EO.Domain_valid in
+        let first_settlement = settle success EO.Domain_rejected in
+        let duplicate_settlement = settle success EO.Domain_valid in
         let after_settlement =
           frozen_flow ~preferences ~scope snapshot [ "declared-b"; "rejected-a" ]
           |> flow_snapshot_ids
@@ -697,21 +717,16 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
     "domain rejection returns a typed receipt"
     true
     (match first_settlement with
-     | Ok EO.Domain_rejected_recorded -> true
-     | Ok
-         (EO.Domain_valid_preference_installed _ | EO.Domain_valid_preference_superseded _)
-     | Error (EO.Domain_already_settled | EO.Domain_preference_scope_released) -> false);
+     | Ok receipt -> EO.domain_settlement_receipt_disposition receipt = EO.Domain_rejected
+     | Error _ -> false);
   check
     bool
-    "duplicate settlement is typed"
+    "conflicting settlement is typed"
     true
     (match duplicate_settlement with
-     | Error EO.Domain_already_settled -> true
-     | Error EO.Domain_preference_scope_released -> false
-     | Ok
-         ( EO.Domain_rejected_recorded
-         | EO.Domain_valid_preference_installed _
-         | EO.Domain_valid_preference_superseded _ ) -> false);
+     | Error EO.Domain_settlement_conflict -> true
+     | Error EO.Domain_settlement_in_progress | Error (EO.Domain_commit_failed _) | Ok _
+       -> false);
   check
     (list string)
     "domain rejection records no preference"
@@ -721,10 +736,10 @@ let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
 ;;
 
 let test_concurrent_domain_settlement_has_one_winner () =
-  let left, right, future_order, posts =
+  let first, in_progress, replay, future_order, commits, posts =
     let result, posts =
       with_server ~response:(openai_response {|{"name":"accepted"}|})
-      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+      @@ fun ~sw ~net ~clock:_ ~base_url ->
       with_catalog
         [ catalog_entry ~id:"winner-a" ~base_url ~native:true ~json:true ()
         ; catalog_entry ~id:"declared-b" ~base_url ~native:true ~json:true ()
@@ -739,45 +754,65 @@ let test_concurrent_domain_settlement_has_one_winner () =
       with
       | Error _ -> fail "concurrent-settlement fixture did not succeed"
       | Ok success ->
-        let ready = Atomic.make 0 in
-        let start = Atomic.make false in
-        let contend () =
-          ignore (Atomic.fetch_and_add ready 1);
-          while not (Atomic.get start) do
-            Domain.cpu_relax ()
-          done;
-          EO.settle_flow_domain success EO.Domain_valid
+        let commits = Atomic.make 0 in
+        let commit_entered, commit_entered_resolver = Eio.Promise.create () in
+        let release_commit, release_commit_resolver = Eio.Promise.create () in
+        let first_result, first_result_resolver = Eio.Promise.create () in
+        Eio.Fiber.fork ~sw (fun () ->
+          let result =
+            EO.commit_and_settle_flow_domain
+              ~commit:(fun _ ->
+                Atomic.incr commits;
+                Eio.Promise.resolve commit_entered_resolver ();
+                Eio.Promise.await release_commit;
+                Ok ())
+              success
+              EO.Domain_valid
+          in
+          Eio.Promise.resolve first_result_resolver result);
+        Eio.Promise.await commit_entered;
+        let in_progress =
+          EO.commit_and_settle_flow_domain
+            ~commit:(fun _ -> fail "in-progress settlement ran a second commit")
+            success
+            EO.Domain_valid
         in
-        let left_domain = Domain.spawn contend in
-        let right_domain = Domain.spawn contend in
-        while Atomic.get ready <> 2 do
-          Domain.cpu_relax ()
-        done;
-        Atomic.set start true;
-        let left = Domain.join left_domain in
-        let right = Domain.join right_domain in
+        Eio.Promise.resolve release_commit_resolver ();
+        let first = Eio.Promise.await first_result in
+        let replay =
+          EO.commit_and_settle_flow_domain
+            ~commit:(fun _ -> fail "settled replay ran another commit")
+            success
+            EO.Domain_valid
+        in
         let future_order =
           frozen_flow ~preferences ~scope snapshot [ "declared-b"; "winner-a" ]
           |> flow_snapshot_ids
         in
-        left, right, future_order
+        first, in_progress, replay, future_order, Atomic.get commits
     in
-    let left, right, future_order = result in
-    left, right, future_order, posts
+    let first, in_progress, replay, future_order, commits = result in
+    first, in_progress, replay, future_order, commits, posts
   in
-  let settlement_class = function
-    | Ok (EO.Domain_valid_preference_installed _) -> `Installed
-    | Error EO.Domain_already_settled -> `Already_settled
-    | Ok EO.Domain_rejected_recorded -> `Rejected
-    | Ok (EO.Domain_valid_preference_superseded _) -> `Superseded
-    | Error EO.Domain_preference_scope_released -> `Scope_released
+  (match in_progress with
+   | Error EO.Domain_settlement_in_progress -> ()
+   | Error (EO.Domain_commit_failed _) | Error EO.Domain_settlement_conflict | Ok _ ->
+     fail "same-domain concurrent settlement did not return in-progress");
+  let receipt label = function
+    | Ok receipt -> receipt
+    | Error (EO.Domain_commit_failed _)
+    | Error EO.Domain_settlement_in_progress
+    | Error EO.Domain_settlement_conflict ->
+      failf "%s idempotent settlement returned an error" label
   in
-  (match settlement_class left, settlement_class right with
-   | `Installed, `Already_settled | `Already_settled, `Installed -> ()
-   | _ ->
-     fail
-       "concurrent settlement did not return exactly one installed receipt and one \
-        already-settled error");
+  let first_receipt = receipt "first" first in
+  let replay_receipt = receipt "replay" replay in
+  check
+    string
+    "later replay returns first receipt"
+    (settlement_id first_receipt)
+    (settlement_id replay_receipt);
+  check int "durable commit callback runs once" 1 commits;
   check
     (list string)
     "winning settlement updates future snapshot once"
@@ -824,7 +859,7 @@ let test_older_success_cannot_overwrite_newer_after_reversed_domain_settlement (
     let newer_domain =
       Domain.spawn (fun () ->
         await_start ();
-        let receipt = EO.settle_flow_domain newer_success EO.Domain_valid in
+        let receipt = settle newer_success EO.Domain_valid in
         Atomic.set newer_settled true;
         receipt)
     in
@@ -834,7 +869,7 @@ let test_older_success_cannot_overwrite_newer_after_reversed_domain_settlement (
         while not (Atomic.get newer_settled) do
           Domain.cpu_relax ()
         done;
-        EO.settle_flow_domain older_success EO.Domain_valid)
+        settle older_success EO.Domain_valid)
     in
     while Atomic.get ready <> 2 do
       Domain.cpu_relax ()
@@ -863,36 +898,22 @@ let test_older_success_cannot_overwrite_newer_after_reversed_domain_settlement (
     "later structural success survives reversed cross-domain settlement"
     [ "newer-b"; "older-a" ]
     future_order;
-  (match newer_receipt with
-   | Ok
-       (EO.Domain_valid_preference_installed
-          { candidate; success_ordinal = installed_ordinal }) ->
-     check string "newer preference receipt candidate" "newer-b" candidate.candidate_id;
-     check
-       bool
-       "newer receipt carries its frozen ordinal"
-       true
-       (Int64.equal
-          (EO.flow_success_ordinal_to_int64 newer_ordinal)
-          (EO.flow_success_ordinal_to_int64 installed_ordinal))
-   | Ok _ | Error _ -> fail "newer success did not install its preference");
-  match older_receipt with
-  | Ok
-      (EO.Domain_valid_preference_superseded
-         { current_candidate; current_success_ordinal }) ->
-    check
-      string
-      "older receipt names retained candidate"
-      "newer-b"
-      current_candidate.candidate_id;
-    check
-      bool
-      "superseded receipt carries the retained ordinal"
-      true
-      (Int64.equal
-         (EO.flow_success_ordinal_to_int64 newer_ordinal)
-         (EO.flow_success_ordinal_to_int64 current_success_ordinal))
-  | Ok _ | Error _ -> fail "older success was not reported as superseded"
+  let require_valid = function
+    | Ok receipt ->
+      check_settlement_disposition
+        "settlement remains domain-valid"
+        EO.Domain_valid
+        receipt;
+      receipt
+    | Error _ -> fail "domain-valid settlement failed"
+  in
+  let newer_receipt = require_valid newer_receipt in
+  let older_receipt = require_valid older_receipt in
+  check
+    bool
+    "distinct successes retain distinct settlement ids"
+    true
+    (not (String.equal (settlement_id newer_receipt) (settlement_id older_receipt)))
 ;;
 
 let test_rebound_preference_is_not_promoted_and_observation_is_typed () =
@@ -916,9 +937,9 @@ let test_rebound_preference_is_not_promoted_and_observation_is_typed () =
       | Ok success -> success
       | Error _ -> fail "binding fixture did not structurally succeed"
     in
-    (match EO.settle_flow_domain success EO.Domain_valid with
-     | Ok (EO.Domain_valid_preference_installed _) -> ()
-     | Ok _ | Error _ -> fail "binding fixture did not install its preference");
+    (match settle success EO.Domain_valid with
+     | Ok _ -> ()
+     | Error _ -> fail "binding fixture did not install its preference");
     let success_ordinal = EO.flow_success_ordinal success in
     let fallback = flow_candidate_as snapshot ~id:"fallback" ~target_ref:"binding-a" in
     let rebound = flow_candidate_as snapshot ~id:"stable-slot" ~target_ref:"binding-b" in
@@ -983,7 +1004,7 @@ let test_blank_flow_scope_is_rejected () =
 ;;
 
 let test_preference_store_capacity_is_typed_and_reusable_after_removal () =
-  (match EO.create_flow_preference_store ~capacity:0 with
+  (match EO.begin_flow_preference_recovery ~capacity:0 with
    | Error (EO.Invalid_flow_preference_capacity 0) -> ()
    | Error (EO.Invalid_flow_preference_capacity invalid) ->
      failf "zero capacity reported the wrong value: %d" invalid
@@ -1023,6 +1044,8 @@ let test_preference_store_capacity_is_typed_and_reusable_after_removal () =
     | Error (EO.Flow_preference_capacity_exhausted { capacity = 1 }) -> `Exhausted
     | Error (EO.Flow_preference_capacity_exhausted { capacity }) ->
       failf "capacity exhaustion reported the wrong bound: %d" capacity
+    | Error EO.Flow_preference_reservation_exhausted ->
+      fail "capacity exhaustion was reported as reservation exhaustion"
     | Error (EO.Duplicate_flow_candidate_id _) ->
       fail "capacity exhaustion was reported as a duplicate candidate"
   in
@@ -1085,8 +1108,8 @@ let test_removed_scope_consumes_domain_valid_settlement_as_typed_failure () =
           snapshot
           [ "replacement-b"; "released-a" ]
       in
-      let settlement = EO.settle_flow_domain success EO.Domain_valid in
-      let duplicate = EO.settle_flow_domain success EO.Domain_valid in
+      let settlement = settle success EO.Domain_valid in
+      let duplicate = settle success EO.Domain_valid in
       let after_stale_settlement =
         frozen_flow
           ~preferences
@@ -1102,31 +1125,395 @@ let test_removed_scope_consumes_domain_valid_settlement_as_typed_failure () =
   check int "released-scope proof dispatches once" 1 posts;
   check
     bool
-    "domain-valid settlement reports released scope"
+    "domain-valid settlement remains durable after scope release"
     true
     (match settlement with
-     | Error EO.Domain_preference_scope_released -> true
-     | Error EO.Domain_already_settled
-     | Ok
-         ( EO.Domain_rejected_recorded
-         | EO.Domain_valid_preference_installed _
-         | EO.Domain_valid_preference_superseded _ ) -> false);
+     | Ok receipt -> EO.domain_settlement_receipt_disposition receipt = EO.Domain_valid
+     | Error _ -> false);
   check
     bool
-    "released-scope failure still consumes settlement"
+    "released-scope replay returns the same receipt"
     true
-    (match duplicate with
-     | Error EO.Domain_already_settled -> true
-     | Error EO.Domain_preference_scope_released
-     | Ok
-         ( EO.Domain_rejected_recorded
-         | EO.Domain_valid_preference_installed _
-         | EO.Domain_valid_preference_superseded _ ) -> false);
+    (match settlement, duplicate with
+     | Ok first, Ok second -> String.equal (settlement_id first) (settlement_id second)
+     | Ok _, Error _ | Error _, Ok _ | Error _, Error _ -> false);
   check
     (list string)
     "same scope reuses capacity without accepting stale generation"
     [ "replacement-b"; "released-a" ]
     replacement_order
+;;
+
+exception Injected_after_domain_commit
+
+let json_field_string name encoded =
+  match Yojson.Safe.from_string encoded with
+  | `Assoc fields ->
+    (match List.assoc_opt name fields with
+     | Some (`String value) -> value
+     | Some _ | None -> failf "intent field %s was not a string" name)
+  | _ -> fail "intent envelope was not an object"
+;;
+
+let rewrite_json_field name replacement encoded =
+  match Yojson.Safe.from_string encoded with
+  | `Assoc fields ->
+    `Assoc
+      (List.map
+         (fun (field, value) ->
+            if String.equal field name then field, replacement else field, value)
+         fields)
+    |> Yojson.Safe.to_string
+  | _ -> fail "intent envelope was not an object"
+;;
+
+let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
+  let (first_id, replay_id, future_order, ordinal_advanced, reservation_advanced), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"durable-a" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"durable-b" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let original_preferences = preference_store () in
+    let scope = flow_scope "/runtime/durable-settlement" in
+    let success =
+      match
+        frozen_flow
+          ~preferences:original_preferences
+          ~scope
+          snapshot
+          [ "durable-a"; "durable-b" ]
+        |> start_flow
+        |> execute_ok ~net
+      with
+      | Ok success -> success
+      | Error _ -> fail "durable settlement fixture did not succeed"
+    in
+    let original_ordinal = EO.flow_success_ordinal success in
+    let encoded = ref None in
+    (try
+       ignore
+         (EO.commit_and_settle_flow_domain
+            ~commit:(fun intent ->
+              encoded := Some (EO.domain_settlement_intent_to_string intent);
+              raise Injected_after_domain_commit)
+            success
+            EO.Domain_valid);
+       fail "injected post-commit crash did not escape"
+     with
+     | Injected_after_domain_commit -> ());
+    let encoded =
+      match !encoded with
+      | Some encoded -> encoded
+      | None -> fail "durable callback did not receive an intent"
+    in
+    let fields =
+      match Yojson.Safe.from_string encoded with
+      | `Assoc fields -> List.map fst fields
+      | _ -> fail "durable intent was not an object"
+    in
+    check
+      (list string)
+      "durable envelope has one provider-neutral current schema"
+      [ "format"
+      ; "version"
+      ; "flow_id"
+      ; "scope"
+      ; "reservation_ordinal"
+      ; "candidate_id"
+      ; "candidate_binding_sha256"
+      ; "success_ordinal"
+      ; "execution_evidence_sha256"
+      ; "settlement_id"
+      ; "disposition"
+      ; "integrity_sha256"
+      ]
+      fields;
+    let encoded_lower = String.lowercase_ascii encoded in
+    let contains_substring text needle =
+      let text_length = String.length text in
+      let needle_length = String.length needle in
+      let rec loop index =
+        index + needle_length <= text_length
+        && (String.equal (String.sub text index needle_length) needle || loop (index + 1))
+      in
+      loop 0
+    in
+    List.iter
+      (fun forbidden ->
+         check
+           bool
+           ("durable envelope excludes " ^ forbidden)
+           false
+           (contains_substring encoded_lower forbidden))
+      [ "provider"; "model"; "catalog"; "credential"; "wire"; "pricing" ];
+    let intent =
+      match EO.domain_settlement_intent_of_string encoded with
+      | Ok intent -> intent
+      | Error _ -> fail "current durable intent did not decode"
+    in
+    let old_version = rewrite_json_field "version" (`Int 0) encoded in
+    (match EO.domain_settlement_intent_of_string old_version with
+     | Error (EO.Domain_settlement_intent_unsupported_version 0) -> ()
+     | Ok _ | Error _ -> fail "old durable intent version did not fail closed");
+    List.iter
+      (fun field ->
+         List.iter
+           (fun raw ->
+              let noncanonical = rewrite_json_field field (`String raw) encoded in
+              match EO.domain_settlement_intent_of_string noncanonical with
+              | Error (EO.Domain_settlement_intent_invalid_field rejected)
+                when String.equal rejected field -> ()
+              | Ok _ | Error _ ->
+                failf
+                  "noncanonical %s=%s survived with original settlement hashes"
+                  field
+                  raw)
+           [ "01"; "+1"; "0x1"; "0_1" ])
+      [ "reservation_ordinal"; "success_ordinal" ];
+    let corrupt =
+      rewrite_json_field "integrity_sha256" (`String (String.make 64 '0')) encoded
+    in
+    (match EO.domain_settlement_intent_of_string corrupt with
+     | Error EO.Domain_settlement_intent_integrity_mismatch -> ()
+     | Ok _ | Error _ -> fail "corrupt durable intent did not fail closed");
+    let recovery = preference_recovery () in
+    let first =
+      match EO.resume_committed_flow_domain recovery intent with
+      | Ok receipt -> receipt
+      | Error _ -> fail "committed intent did not resume"
+    in
+    let replay =
+      match EO.resume_committed_flow_domain recovery intent with
+      | Ok receipt -> receipt
+      | Error _ -> fail "same committed intent did not replay idempotently"
+    in
+    let recovered_preferences =
+      match EO.finish_flow_preference_recovery recovery with
+      | Ok preferences -> preferences
+      | Error _ -> fail "preference recovery did not finish"
+    in
+    (match EO.resume_committed_flow_domain recovery intent with
+     | Error EO.Domain_preference_recovery_finished -> ()
+     | Ok _
+     | Error EO.Domain_settlement_recovery_conflict
+     | Error (EO.Preference_recovery_capacity_exhausted _) ->
+       fail "finished recovery accepted another replay");
+    let future_order =
+      frozen_flow
+        ~preferences:recovered_preferences
+        ~scope
+        snapshot
+        [ "durable-b"; "durable-a" ]
+      |> flow_snapshot_ids
+    in
+    (match EO.remove_flow_preference_scope recovered_preferences scope with
+     | EO.Flow_preference_scope_removed -> ()
+     | EO.Flow_preference_scope_not_reserved ->
+       fail "recovered preference scope was not reserved");
+    let next_success =
+      match
+        frozen_flow
+          ~preferences:recovered_preferences
+          ~scope
+          snapshot
+          [ "durable-b"; "durable-a" ]
+        |> start_flow
+        |> execute_ok ~net
+      with
+      | Ok success -> success
+      | Error _ -> fail "post-recovery success did not execute"
+    in
+    let next_encoded = ref None in
+    (match
+       EO.commit_and_settle_flow_domain
+         ~commit:(fun next ->
+           next_encoded := Some (EO.domain_settlement_intent_to_string next);
+           Error ())
+         next_success
+         EO.Domain_valid
+     with
+     | Error (EO.Domain_commit_failed ()) -> ()
+     | Ok _ | Error EO.Domain_settlement_in_progress | Error EO.Domain_settlement_conflict
+       -> fail "failed durable callback did not remain retryable");
+    let next_encoded =
+      match !next_encoded with
+      | Some encoded -> encoded
+      | None -> fail "next durable intent was not observed"
+    in
+    let original_reservation =
+      json_field_string "reservation_ordinal" encoded |> Int64.of_string
+    in
+    let next_reservation =
+      json_field_string "reservation_ordinal" next_encoded |> Int64.of_string
+    in
+    ( settlement_id first
+    , settlement_id replay
+    , future_order
+    , Int64.compare
+        (EO.flow_success_ordinal_to_int64 (EO.flow_success_ordinal next_success))
+        (EO.flow_success_ordinal_to_int64 original_ordinal)
+      > 0
+    , Int64.compare next_reservation original_reservation > 0 )
+  in
+  check int "restart proof dispatches only its two explicit executions" 2 posts;
+  check string "recovery replay returns same receipt" first_id replay_id;
+  check
+    (list string)
+    "recovered last-good affects only future snapshot"
+    [ "durable-a"; "durable-b" ]
+    future_order;
+  check bool "recovery restores success ordinal high-water" true ordinal_advanced;
+  check bool "recovery restores reservation high-water" true reservation_advanced
+;;
+
+let test_recovery_conflicting_disposition_fails_closed () =
+  let conflicted, posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog [ catalog_entry ~id:"conflict-a" ~base_url ~native:true ~json:true () ]
+    @@ fun snapshot ->
+    let success =
+      frozen_flow snapshot [ "conflict-a" ] |> start_flow |> execute_ok ~net
+    in
+    let success =
+      match success with
+      | Ok success -> success
+      | Error _ -> fail "conflicting intent fixture did not succeed"
+    in
+    let capture disposition =
+      let encoded = ref None in
+      (match
+         EO.commit_and_settle_flow_domain
+           ~commit:(fun intent ->
+             encoded := Some (EO.domain_settlement_intent_to_string intent);
+             Error ())
+           success
+           disposition
+       with
+       | Error (EO.Domain_commit_failed ()) -> ()
+       | Ok _
+       | Error EO.Domain_settlement_in_progress
+       | Error EO.Domain_settlement_conflict ->
+         fail "failed commit unexpectedly consumed the disposition");
+      match !encoded with
+      | Some encoded ->
+        (match EO.domain_settlement_intent_of_string encoded with
+         | Ok intent -> intent
+         | Error _ -> fail "captured conflict intent did not decode")
+      | None -> fail "commit callback did not receive conflict intent"
+    in
+    let valid = capture EO.Domain_valid in
+    let rejected = capture EO.Domain_rejected in
+    check
+      string
+      "opposite dispositions share structural settlement id"
+      (EO.domain_settlement_intent_id valid |> EO.domain_settlement_id_to_string)
+      (EO.domain_settlement_intent_id rejected |> EO.domain_settlement_id_to_string);
+    let recovery = preference_recovery () in
+    (match EO.resume_committed_flow_domain recovery valid with
+     | Ok _ -> ()
+     | Error _ -> fail "first recovered disposition did not settle");
+    match EO.resume_committed_flow_domain recovery rejected with
+    | Error EO.Domain_settlement_recovery_conflict -> true
+    | Ok _
+    | Error EO.Domain_preference_recovery_finished
+    | Error (EO.Preference_recovery_capacity_exhausted _) -> false
+  in
+  check int "conflicting recovery performs no extra dispatch" 1 posts;
+  check bool "conflicting disposition fails closed" true conflicted
+;;
+
+let test_recovery_capacity_failure_is_typed_unmutated_and_retryable () =
+  let (retryable, reservation_unadvanced, ordinal_unadvanced), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog [ catalog_entry ~id:"capacity-a" ~base_url ~native:true ~json:true () ]
+    @@ fun snapshot ->
+    let live_preferences = preference_store ~capacity:2 () in
+    let capture preferences scope =
+      let success =
+        frozen_flow ~preferences ~scope snapshot [ "capacity-a" ]
+        |> start_flow
+        |> execute_ok ~net
+      in
+      let success =
+        match success with
+        | Ok success -> success
+        | Error _ -> fail "capacity recovery fixture did not succeed"
+      in
+      let encoded = ref None in
+      (match
+         EO.commit_and_settle_flow_domain
+           ~commit:(fun intent ->
+             encoded := Some (EO.domain_settlement_intent_to_string intent);
+             Error ())
+           success
+           EO.Domain_valid
+       with
+       | Error (EO.Domain_commit_failed ()) -> ()
+       | Ok _
+       | Error EO.Domain_settlement_in_progress
+       | Error EO.Domain_settlement_conflict ->
+         fail "capacity recovery fixture unexpectedly settled");
+      match !encoded with
+      | Some encoded ->
+        (match EO.domain_settlement_intent_of_string encoded with
+         | Ok intent -> intent, encoded
+         | Error _ -> fail "capacity recovery fixture intent did not decode")
+      | None -> fail "capacity recovery fixture did not expose its intent"
+    in
+    let first_scope = flow_scope "/runtime/recovery-capacity/a" in
+    let second_scope = flow_scope "/runtime/recovery-capacity/b" in
+    let first, _ = capture live_preferences first_scope in
+    let second, second_encoded = capture live_preferences second_scope in
+    let recovery = preference_recovery ~capacity:1 () in
+    (match EO.resume_committed_flow_domain recovery first with
+     | Ok _ -> ()
+     | Error _ -> fail "first recovery capacity fixture did not settle");
+    let capacity_failure () =
+      match EO.resume_committed_flow_domain recovery second with
+      | Error (EO.Preference_recovery_capacity_exhausted { capacity = 1 }) -> true
+      | Ok _
+      | Error EO.Domain_preference_recovery_finished
+      | Error EO.Domain_settlement_recovery_conflict
+      | Error (EO.Preference_recovery_capacity_exhausted _) -> false
+    in
+    let retryable = capacity_failure () && capacity_failure () in
+    let recovered_preferences =
+      match EO.finish_flow_preference_recovery recovery with
+      | Ok preferences -> preferences
+      | Error _ -> fail "capacity recovery did not finish"
+    in
+    (match EO.remove_flow_preference_scope recovered_preferences first_scope with
+     | EO.Flow_preference_scope_removed -> ()
+     | EO.Flow_preference_scope_not_reserved ->
+       fail "first recovered capacity scope was absent");
+    let _, next_encoded =
+      capture recovered_preferences (flow_scope "/runtime/recovery-capacity/next")
+    in
+    ( retryable
+    , String.equal
+        (json_field_string "reservation_ordinal" second_encoded)
+        (json_field_string "reservation_ordinal" next_encoded)
+    , String.equal
+        (json_field_string "success_ordinal" second_encoded)
+        (json_field_string "success_ordinal" next_encoded) )
+  in
+  check int "capacity recovery proof dispatches only live fixtures" 3 posts;
+  check bool "capacity failure remains retryable" true retryable;
+  check
+    bool
+    "capacity failure does not advance reservation high-water"
+    true
+    reservation_unadvanced;
+  check
+    bool
+    "capacity failure does not advance success high-water"
+    true
+    ordinal_unadvanced
 ;;
 
 let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
@@ -3738,7 +4125,7 @@ let () =
             `Quick
             test_domain_rejection_never_updates_preference_and_settlement_is_affine
         ; test_case
-            "concurrent domain settlement has one winner"
+            "concurrent domain settlement is nonblocking and later replays"
             `Quick
             test_concurrent_domain_settlement_has_one_winner
         ; test_case
@@ -3758,9 +4145,21 @@ let () =
             `Quick
             test_preference_store_capacity_is_typed_and_reusable_after_removal
         ; test_case
-            "removed scope consumes domain-valid settlement as typed failure"
+            "removed scope keeps durable settlement idempotent"
             `Quick
             test_removed_scope_consumes_domain_valid_settlement_as_typed_failure
+        ; test_case
+            "committed intent resumes and restores high-water"
+            `Quick
+            test_committed_intent_resumes_without_dispatch_and_restores_high_water
+        ; test_case
+            "recovery rejects conflicting disposition"
+            `Quick
+            test_recovery_conflicting_disposition_fails_closed
+        ; test_case
+            "recovery capacity fails before mutation and remains retryable"
+            `Quick
+            test_recovery_capacity_failure_is_typed_unmutated_and_retryable
         ; test_case
             "snapshot defers admission and current attempts do not share"
             `Quick

@@ -18,7 +18,8 @@ output. OAS owns:
 - explicit scope-local last-good preference for future snapshots;
 - an immutable monotonic success ordinal allocated when structural success is
   created;
-- affine typed settlement of caller-owned domain validation.
+- a current-schema provider-neutral durable domain-settlement intent;
+- idempotent replay of caller-committed domain validation.
 
 The caller owns:
 
@@ -26,8 +27,8 @@ The caller owns:
 - domain schema, codec, and content validation;
 - durable business-state binding, release, quarantine, and completion;
 - operator configuration that names opaque candidate references;
-- creation and lifetime of each process-local preference store and opaque flow
-  scope, including its hard capacity and explicit scope removal;
+- recovery, activation, and lifetime of each process-local preference store and
+  opaque flow scope, including its hard capacity and explicit scope removal;
 - the domain-valid or domain-rejected disposition, but no freshness value.
 
 The outer flow is generic. It contains no coordinator vocabulary and no
@@ -53,9 +54,13 @@ candidate is preserved.
 
 The resulting order is immutable. A later success cannot change an existing
 snapshot, and a preference recorded in one scope cannot affect another scope.
-The store is caller-owned, bounded, and process-local. Explicit scope removal
-frees one capacity slot. There is no singleton, implicit clock, environment
-policy, expiry, eviction heuristic, persistence, or refresh daemon.
+The store is caller-owned, bounded, and process-local. It starts behind a
+recovery handle. The caller replays authenticated committed intents, OAS
+restores reservation and success-ordinal high-water marks, and only
+`finish_flow_preference_recovery` exposes an active store that can create new
+snapshots. Explicit scope removal frees one capacity slot. There is no
+singleton, implicit clock, environment policy, expiry, eviction heuristic,
+persistence, or refresh daemon.
 
 Starting the flow allocates one OAS-owned outer-flow identity and precomputes one
 immutable visit `(flow ID, 1-based ordinal, candidate identity)` for every
@@ -111,16 +116,16 @@ The following outcomes are terminal:
 - structural success.
 
 After structural success, the caller submits exactly one typed domain
-disposition. `Domain_rejected` leaves the flow terminal and records no
-preference. OAS allocates a monotonic immutable ordinal when it creates each
-structural success. `Domain_valid` carries no caller-provided freshness and
-atomically records the opaque successful candidate and its frozen ordinal for
-future snapshots in the same scope reservation. A duplicate or concurrent
-disposition returns a typed already-settled error. A domain-valid settlement
-whose reservation was explicitly removed, including one whose textual scope
-has since been recreated, returns a typed released-scope error and is still
-consumed exactly once. Neither disposition can trigger another provider
-dispatch.
+disposition through `commit_and_settle_flow_domain`. OAS derives a stable
+structural settlement ID and passes a current-schema opaque intent to the
+caller callback. The callback must put that exact intent behind its
+authenticated durable content commit before returning `Ok`. Only then does OAS
+publish the process-local preference. `Domain_rejected` records no preference.
+`Domain_valid` carries no caller-provided freshness and records the opaque
+successful candidate and frozen ordinal for future snapshots when its original
+scope reservation is still current. Scope release can suppress that
+optimization but cannot invalidate an already committed domain result.
+Neither disposition can trigger another provider dispatch.
 
 An older or equal OAS-owned success ordinal cannot overwrite a newer
 observation for the same scope reservation. OAS uses no wall clock, caller
@@ -128,17 +133,25 @@ timestamp, string, or target-specific tie-break. An older observation leaves
 the installed preference unchanged and returns a typed superseded receipt
 containing the retained candidate identity and ordinal.
 
-Each success has a closed atomic settlement state: `Pending`, `Publishing`, or
-`Settled`. Domain-valid acquires the preference-store mutex first, changes
-`Pending` to `Publishing`, publishes under that single lock, and terminalizes
-`Settled` in a protected finalizer before unlocking even if publication raises.
-A losing disposition synchronizes through the same preference-store mutex
-before returning `Domain_already_settled`, so its immediate snapshot cannot
-observe pre-publication state. Domain-rejected may change `Pending` directly to
-`Settled`; after a failed compare-and-set it uses the same publication barrier.
-There is no per-settlement mutex and no nested lock order.
+Each success has a closed atomic settlement state: `Pending`, `Publishing
+receipt`, or `Settled receipt`. The preference-store mutex forms the publication
+barrier, but the durable callback runs outside that lock. A concurrent
+same-ID/same-disposition caller receives typed `Domain_settlement_in_progress`
+without blocking or changing settlement state. After the first publisher
+finishes, replay returns the same deterministic
+`{ settlement_id; disposition }` receipt. A different disposition for the same
+structural ID is a typed conflict. Callback error or exception returns the live
+claim to `Pending`; if the callback committed before an exception or process
+crash, restart decodes and replays the durable intent. There is no
+per-settlement mutex or nested lock order.
 
 No network or filesystem I/O occurs while the preference mutex is held.
+
+This is logical idempotent replay, not a claim that arbitrary caller storage
+performs a physical effect exactly once. The caller's authenticated canonical
+commit is the durable fence. `resume_committed_flow_domain` accepts only a
+recovery handle and an opaque intent; it has no network, provider, resolver,
+callback, or dispatch capability.
 
 ## Evidence
 
@@ -148,9 +161,9 @@ Every flow evidence projection carries:
 - the exact opaque flow scope;
 - the caller-declared candidate identity snapshot;
 - the frozen effective candidate identity snapshot;
-- the single frozen preference observation: no record, applied, absent slot, or
-  changed target binding, including the observed OAS-owned success ordinal when
-  present;
+- the single frozen provider-neutral preference observation: no record,
+  applied, absent slot, or changed opaque binding, including the observed
+  OAS-owned success ordinal when present;
 - the monotonic typed candidate-visit count;
 - ordered admission outcomes only for candidates reached so far;
 - every non-shared execution receipt allocated for an admitted current
@@ -199,8 +212,8 @@ provider policy.
   surfaces, not MASC control inputs. MASC consumers may import only the outer
   flow's provider-neutral visit, disposition, receipt, and provenance
   projections.
-- There is no legacy cascade API, compatibility wrapper, or persisted runtime
-  JSON migration.
+- There is no legacy cascade API, compatibility wrapper, predecessor intent
+  decoder, or persisted runtime JSON migration.
 - A process-local last-good store is not a capability probe, health score,
   retry budget, or replacement for caller-owned durable state.
 - Preference capacity is caller policy, but exhaustion, reservation

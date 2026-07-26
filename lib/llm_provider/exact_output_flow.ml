@@ -22,29 +22,52 @@ type ('admission, 'attempt, 'measurement) progress_state =
 type ('admission, 'attempt, 'measurement) progress =
   ('admission, 'attempt, 'measurement) progress_state Atomic.t
 
-type preference_reservation = unit ref
+type preference_reservation = Preference_reservation of int64
 type success_ordinal = Success_ordinal of int64
 
 type 'candidate preference_entry =
-  { reservation : preference_reservation
+  { mutable reservation : preference_reservation
   ; mutable preference : ('candidate * success_ordinal) option
+  }
+
+type preference_lifecycle =
+  | Recovering
+  | Active
+
+type domain_disposition =
+  | Valid
+  | Rejected
+
+type domain_settlement_receipt =
+  { settlement_id : string
+  ; disposition : domain_disposition
   }
 
 type ('scope, 'candidate) preference_store =
   { mutex : Mutex.t
   ; capacity : int
   ; entries : ('scope, 'candidate preference_entry) Hashtbl.t
+  ; recovered_domains : (string, domain_disposition) Hashtbl.t
+  ; mutable lifecycle : preference_lifecycle
+  ; mutable last_reservation_ordinal : int64
   ; mutable last_success_ordinal : int64
   }
 
+type ('scope, 'candidate) preference_recovery = ('scope, 'candidate) preference_store
+
 type settlement_state =
   | Pending
-  | Publishing
-  | Settled
+  | Publishing of domain_settlement_receipt
+  | Settled of domain_settlement_receipt
 
 type domain_settlement = settlement_state Atomic.t
 type preference_store_error = Invalid_preference_capacity of int
-type preference_reservation_error = Preference_capacity_exhausted of { capacity : int }
+
+type preference_reservation_error =
+  | Preference_capacity_exhausted of { capacity : int }
+  | Preference_reservation_exhausted
+
+type preference_recovery_error = Preference_recovery_already_finished
 
 type preference_scope_removal =
   | Preference_scope_removed
@@ -52,18 +75,18 @@ type preference_scope_removal =
 
 type success_ordinal_error = Success_ordinal_exhausted
 
-type domain_settlement_error =
-  | Already_settled
-  | Preference_scope_released
+type domain_settlement_begin =
+  | Domain_settlement_claimed
+  | Domain_settlement_replayed of domain_settlement_receipt
+  | Domain_settlement_in_progress
+  | Domain_settlement_conflict
 
-type preference_record_error = Preference_scope_not_reserved_for_record
+type domain_settlement_error = Domain_settlement_apply_conflict
 
-type 'candidate preference_installation =
-  | Preference_installed
-  | Preference_superseded of
-      { current_candidate : 'candidate
-      ; current_ordinal : success_ordinal
-      }
+type recovery_domain_error =
+  | Preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
+  | Recovered_domain_conflict
 
 type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome =
   | Succeeded of
@@ -93,7 +116,7 @@ let create_progress () =
     }
 ;;
 
-let create_preference_store ~capacity =
+let start_preference_recovery ~capacity =
   if capacity <= 0
   then Error (Invalid_preference_capacity capacity)
   else
@@ -101,6 +124,9 @@ let create_preference_store ~capacity =
       { mutex = Mutex.create ()
       ; capacity
       ; entries = Hashtbl.create (Int.min capacity 16)
+      ; recovered_domains = Hashtbl.create 16
+      ; lifecycle = Recovering
+      ; last_reservation_ordinal = 0L
       ; last_success_ordinal = 0L
       }
 ;;
@@ -112,6 +138,16 @@ let with_preference_lock (store : (_, _) preference_store) f =
   Fun.protect ~finally:(fun () -> Mutex.unlock store.mutex) f
 ;;
 
+let finish_preference_recovery recovery =
+  with_preference_lock recovery (fun () ->
+    match recovery.lifecycle with
+    | Active -> Error Preference_recovery_already_finished
+    | Recovering ->
+      recovery.lifecycle <- Active;
+      Hashtbl.clear recovery.recovered_domains;
+      Ok recovery)
+;;
+
 let reserve_preference_scope store ~scope =
   with_preference_lock store (fun () ->
     match Hashtbl.find_opt store.entries scope with
@@ -119,8 +155,12 @@ let reserve_preference_scope store ~scope =
     | None ->
       if Hashtbl.length store.entries >= store.capacity
       then Error (Preference_capacity_exhausted { capacity = store.capacity })
+      else if Int64.equal store.last_reservation_ordinal Int64.max_int
+      then Error Preference_reservation_exhausted
       else (
-        let reservation = ref () in
+        let ordinal = Int64.succ store.last_reservation_ordinal in
+        store.last_reservation_ordinal <- ordinal;
+        let reservation = Preference_reservation ordinal in
         Hashtbl.add store.entries scope { reservation; preference = None };
         Ok (reservation, None)))
 ;;
@@ -144,7 +184,17 @@ let allocate_success_ordinal store =
       Ok (Success_ordinal ordinal)))
 ;;
 
+let preference_reservation_to_int64 (Preference_reservation ordinal) = ordinal
+
+let preference_reservation_of_int64 ordinal =
+  if Int64.compare ordinal 0L <= 0 then None else Some (Preference_reservation ordinal)
+;;
+
 let success_ordinal_to_int64 (Success_ordinal ordinal) = ordinal
+
+let success_ordinal_of_int64 ordinal =
+  if Int64.compare ordinal 0L <= 0 then None else Some (Success_ordinal ordinal)
+;;
 
 let compare_success_ordinal (Success_ordinal left) (Success_ordinal right) =
   Int64.compare left right
@@ -152,254 +202,126 @@ let compare_success_ordinal (Success_ordinal left) (Success_ordinal right) =
 
 let record_preference_locked store ~scope ~reservation ~candidate ~ordinal =
   match Hashtbl.find_opt store.entries scope with
-  | None -> Error Preference_scope_not_reserved_for_record
-  | Some entry when entry.reservation != reservation ->
-    Error Preference_scope_not_reserved_for_record
+  | None -> ()
+  | Some entry when entry.reservation <> reservation -> ()
   | Some { preference = Some (current_candidate, current_ordinal); _ }
-    when compare_success_ordinal ordinal current_ordinal <= 0 ->
-    Ok (Preference_superseded { current_candidate; current_ordinal })
-  | Some entry ->
-    entry.preference <- Some (candidate, ordinal);
-    Ok Preference_installed
+    when compare_success_ordinal ordinal current_ordinal <= 0 -> ignore current_candidate
+  | Some entry -> entry.preference <- Some (candidate, ordinal)
 ;;
 
-let settle_domain_rejected_once_with_publication_hook
-      ~after_failed_cas
-      settlement
-      preferences
-  =
-  if Atomic.compare_and_set settlement Pending Settled
-  then Ok ()
-  else (
-    after_failed_cas ();
-    with_preference_lock preferences (fun () -> ());
-    Error Already_settled)
+let same_disposition left right =
+  match left, right with
+  | Valid, Valid | Rejected, Rejected -> true
+  | Valid, Rejected | Rejected, Valid -> false
 ;;
 
-let settle_domain_rejected_once settlement preferences =
-  settle_domain_rejected_once_with_publication_hook
-    ~after_failed_cas:ignore
-    settlement
-    preferences
+let same_receipt left right =
+  left.settlement_id = right.settlement_id
+  && same_disposition left.disposition right.disposition
 ;;
 
-let settle_domain_valid_once_with_publication_hook
-      ~after_publishing
+let begin_domain_settlement settlement preferences requested =
+  with_preference_lock preferences (fun () ->
+    match Atomic.get settlement with
+    | Pending ->
+      Atomic.set settlement (Publishing requested);
+      Domain_settlement_claimed
+    | Settled receipt ->
+      if same_receipt receipt requested
+      then Domain_settlement_replayed receipt
+      else Domain_settlement_conflict
+    | Publishing receipt ->
+      if same_receipt receipt requested
+      then Domain_settlement_in_progress
+      else Domain_settlement_conflict)
+;;
+
+let abort_domain_settlement settlement preferences requested =
+  with_preference_lock preferences (fun () ->
+    match Atomic.get settlement with
+    | Publishing receipt when same_receipt receipt requested ->
+      Atomic.set settlement Pending
+    | Pending | Publishing _ | Settled _ -> ())
+;;
+
+let finish_domain_settlement
       settlement
       preferences
       ~scope
       ~reservation
       ~candidate
       ~ordinal
+      requested
   =
   with_preference_lock preferences (fun () ->
-    if not (Atomic.compare_and_set settlement Pending Publishing)
-    then Error Already_settled
-    else
-      Fun.protect
-        ~finally:(fun () -> Atomic.set settlement Settled)
-        (fun () ->
-           after_publishing ();
-           match
-             record_preference_locked preferences ~scope ~reservation ~candidate ~ordinal
-           with
-           | Ok installation -> Ok installation
-           | Error Preference_scope_not_reserved_for_record ->
-             Error Preference_scope_released))
+    match Atomic.get settlement with
+    | Publishing receipt when same_receipt receipt requested ->
+      (match requested.disposition with
+       | Rejected -> ()
+       | Valid ->
+         record_preference_locked preferences ~scope ~reservation ~candidate ~ordinal);
+      Atomic.set settlement (Settled requested);
+      Ok requested
+    | Settled receipt when same_receipt receipt requested -> Ok receipt
+    | Pending | Publishing _ | Settled _ -> Error Domain_settlement_apply_conflict)
 ;;
 
-let settle_domain_valid_once
-      settlement
-      preferences
-      ~scope
-      ~reservation
-      ~candidate
-      ~ordinal
-  =
-  settle_domain_valid_once_with_publication_hook
-    ~after_publishing:ignore
-    settlement
-    preferences
-    ~scope
-    ~reservation
-    ~candidate
-    ~ordinal
+let max_int64 left right = if Int64.compare left right >= 0 then left else right
+
+let install_recovered_preference_locked recovery ~scope ~reservation ~candidate ~ordinal =
+  match Hashtbl.find_opt recovery.entries scope with
+  | None ->
+    Hashtbl.add
+      recovery.entries
+      scope
+      { reservation; preference = Some (candidate, ordinal) }
+  | Some entry ->
+    let current = preference_reservation_to_int64 entry.reservation in
+    let incoming = preference_reservation_to_int64 reservation in
+    if Int64.compare incoming current > 0
+    then (
+      entry.reservation <- reservation;
+      entry.preference <- Some (candidate, ordinal))
+    else if Int64.equal incoming current
+    then (
+      match entry.preference with
+      | Some (_, current_ordinal)
+        when compare_success_ordinal ordinal current_ordinal <= 0 -> ()
+      | None | Some _ -> entry.preference <- Some (candidate, ordinal))
 ;;
 
-let%test "domain-valid publication blocks a rejected loser and its immediate snapshot" =
-  match create_preference_store ~capacity:1 with
-  | Error _ -> false
-  | Ok preferences ->
-    let scope = "valid-wins" in
-    (match reserve_preference_scope preferences ~scope with
-     | Error _ | Ok (_, Some _) -> false
-     | Ok (reservation, None) ->
-       (match allocate_success_ordinal preferences with
-        | Error _ -> false
-        | Ok ordinal ->
-          let settlement = create_domain_settlement () in
-          let publishing = Atomic.make false in
-          let release_publication = Atomic.make false in
-          let rejected_cas_lost = Atomic.make false in
-          let loser_finished = Atomic.make false in
-          let winner =
-            Domain.spawn (fun () ->
-              settle_domain_valid_once_with_publication_hook
-                ~after_publishing:(fun () ->
-                  Atomic.set publishing true;
-                  while not (Atomic.get release_publication) do
-                    Domain.cpu_relax ()
-                  done)
-                settlement
-                preferences
-                ~scope
-                ~reservation
-                ~candidate:"winner"
-                ~ordinal)
-          in
-          while not (Atomic.get publishing) do
-            Domain.cpu_relax ()
-          done;
-          let loser =
-            Domain.spawn (fun () ->
-              let result =
-                settle_domain_rejected_once_with_publication_hook
-                  ~after_failed_cas:(fun () -> Atomic.set rejected_cas_lost true)
-                  settlement
-                  preferences
-              in
-              let snapshot = reserve_preference_scope preferences ~scope in
-              Atomic.set loser_finished true;
-              result, snapshot)
-          in
-          while not (Atomic.get rejected_cas_lost) do
-            Domain.cpu_relax ()
-          done;
-          let returned_before_publication = Atomic.get loser_finished in
-          Atomic.set release_publication true;
-          let winner_result = Domain.join winner in
-          let loser_result, snapshot = Domain.join loser in
-          (not returned_before_publication)
-          &&
-            (match winner_result, loser_result, snapshot with
-            | ( Ok Preference_installed
-              , Error Already_settled
-              , Ok (_, Some (candidate, installed_ordinal)) ) ->
-              candidate = "winner"
-              && Int64.equal
-                   (success_ordinal_to_int64 ordinal)
-                   (success_ordinal_to_int64 installed_ordinal)
-            | _ -> false)))
-;;
-
-let%test "domain rejection can deterministically win against domain valid" =
-  match create_preference_store ~capacity:1 with
-  | Error _ -> false
-  | Ok preferences ->
-    let scope = "rejected-wins" in
-    (match reserve_preference_scope preferences ~scope with
-     | Error _ | Ok (_, Some _) -> false
-     | Ok (reservation, None) ->
-       (match allocate_success_ordinal preferences with
-        | Error _ -> false
-        | Ok ordinal ->
-          let settlement = create_domain_settlement () in
-          let start = Atomic.make false in
-          let rejection_committed = Atomic.make false in
-          let rejected =
-            Domain.spawn (fun () ->
-              while not (Atomic.get start) do
-                Domain.cpu_relax ()
-              done;
-              let result = settle_domain_rejected_once settlement preferences in
-              Atomic.set rejection_committed true;
-              result)
-          in
-          let valid =
-            Domain.spawn (fun () ->
-              while not (Atomic.get start) do
-                Domain.cpu_relax ()
-              done;
-              while not (Atomic.get rejection_committed) do
-                Domain.cpu_relax ()
-              done;
-              settle_domain_valid_once
-                settlement
-                preferences
-                ~scope
-                ~reservation
-                ~candidate:"loser"
-                ~ordinal)
-          in
-          Atomic.set start true;
-          let rejected_result = Domain.join rejected in
-          let valid_result = Domain.join valid in
-          let snapshot = reserve_preference_scope preferences ~scope in
-          (match rejected_result, valid_result, snapshot with
-           | Ok (), Error Already_settled, Ok (_, None) -> true
-           | _ -> false)))
-;;
-
-let%test "two concurrent domain rejections have exactly one winner" =
-  match create_preference_store ~capacity:1 with
-  | Error _ -> false
-  | Ok preferences ->
-    let settlement = create_domain_settlement () in
-    let ready = Atomic.make 0 in
-    let start = Atomic.make false in
-    let reject () =
-      ignore (Atomic.fetch_and_add ready 1);
-      while not (Atomic.get start) do
-        Domain.cpu_relax ()
-      done;
-      settle_domain_rejected_once settlement preferences
-    in
-    let left = Domain.spawn reject in
-    let right = Domain.spawn reject in
-    while Atomic.get ready <> 2 do
-      Domain.cpu_relax ()
-    done;
-    Atomic.set start true;
-    (match Domain.join left, Domain.join right with
-     | Ok (), Error Already_settled | Error Already_settled, Ok () -> true
-     | _ -> false)
-;;
-
-let%test "exception after Publishing terminalizes settlement before store unlock" =
-  let exception Injected_after_publishing in
-  match create_preference_store ~capacity:1 with
-  | Error _ -> false
-  | Ok preferences ->
-    let scope = "publishing-exception" in
-    (match reserve_preference_scope preferences ~scope with
-     | Error _ | Ok (_, Some _) -> false
-     | Ok (reservation, None) ->
-       (match allocate_success_ordinal preferences with
-        | Error _ -> false
-        | Ok ordinal ->
-          let settlement = create_domain_settlement () in
-          let raised =
-            try
-              ignore
-                (settle_domain_valid_once_with_publication_hook
-                   ~after_publishing:(fun () -> raise Injected_after_publishing)
-                   settlement
-                   preferences
-                   ~scope
-                   ~reservation
-                   ~candidate:"never-installed"
-                   ~ordinal);
-              false
-            with
-            | Injected_after_publishing -> true
-          in
-          let duplicate = settle_domain_rejected_once settlement preferences in
-          let snapshot = reserve_preference_scope preferences ~scope in
-          raised
-          &&
-            (match duplicate, snapshot with
-            | Error Already_settled, Ok (_, None) -> true
-            | _ -> false)))
+let resume_committed_domain recovery ~scope ~reservation ~candidate ~ordinal receipt =
+  with_preference_lock recovery (fun () ->
+    match recovery.lifecycle with
+    | Active -> Error Preference_recovery_finished
+    | Recovering ->
+      (match Hashtbl.find_opt recovery.recovered_domains receipt.settlement_id with
+       | Some disposition when same_disposition disposition receipt.disposition ->
+         Ok receipt
+       | Some _ -> Error Recovered_domain_conflict
+       | None
+         when receipt.disposition = Valid
+              && (not (Hashtbl.mem recovery.entries scope))
+              && Hashtbl.length recovery.entries >= recovery.capacity ->
+         Error (Preference_recovery_capacity_exhausted { capacity = recovery.capacity })
+       | None ->
+         recovery.last_reservation_ordinal
+         <- max_int64
+              recovery.last_reservation_ordinal
+              (preference_reservation_to_int64 reservation);
+         recovery.last_success_ordinal
+         <- max_int64 recovery.last_success_ordinal (success_ordinal_to_int64 ordinal);
+         (match receipt.disposition with
+          | Rejected -> ()
+          | Valid ->
+            install_recovered_preference_locked
+              recovery
+              ~scope
+              ~reservation
+              ~candidate
+              ~ordinal);
+         Hashtbl.add recovery.recovered_domains receipt.settlement_id receipt.disposition;
+         Ok receipt))
 ;;
 
 let record_admission progress admission =

@@ -8,7 +8,17 @@ type flow_candidate_identity =
   ; target_identity : Resolver.target_identity
   }
 
-type flow_preference_store = (string, flow_candidate_identity) Flow_state.preference_store
+type flow_preference_identity =
+  { candidate_id : string
+  ; binding_sha256 : string
+  }
+
+type flow_preference_store =
+  (string, flow_preference_identity) Flow_state.preference_store
+
+type flow_preference_recovery =
+  (string, flow_preference_identity) Flow_state.preference_recovery
+
 type flow_scope = Flow_scope of string
 type flow_preference_reservation = Flow_state.preference_reservation
 type flow_success_ordinal = Flow_state.success_ordinal
@@ -16,6 +26,9 @@ type flow_preference_store_error = Invalid_flow_preference_capacity of int
 
 type flow_preference_reservation_error =
   | Preference_capacity_exhausted of { capacity : int }
+  | Preference_reservation_space_exhausted
+
+type flow_preference_recovery_error = Flow_preference_recovery_already_finished
 
 type flow_preference_scope_removal =
   | Flow_preference_scope_removed
@@ -30,11 +43,11 @@ type flow_preference_not_applied_reason =
 type flow_preference_observation =
   | No_preference_recorded
   | Preference_applied of
-      { candidate : flow_candidate_identity
+      { candidate : flow_preference_identity
       ; success_ordinal : flow_success_ordinal
       }
   | Preference_not_applied of
-      { candidate : flow_candidate_identity
+      { candidate : flow_preference_identity
       ; success_ordinal : flow_success_ordinal
       ; reason : flow_preference_not_applied_reason
       }
@@ -45,26 +58,38 @@ type domain_disposition =
   | Domain_valid
   | Domain_rejected
 
+type domain_settlement_id = Domain_settlement_id of string
+
 type domain_settlement_receipt =
-  | Domain_rejected_recorded
-  | Domain_valid_preference_installed of
-      { candidate : flow_candidate_identity
-      ; success_ordinal : flow_success_ordinal
-      }
-  | Domain_valid_preference_superseded of
-      { current_candidate : flow_candidate_identity
-      ; current_success_ordinal : flow_success_ordinal
-      }
+  { settlement_id : domain_settlement_id
+  ; disposition : domain_disposition
+  }
 
-type domain_settlement_error =
-  | Domain_already_settled
-  | Domain_preference_scope_released
+type domain_settlement_begin =
+  | Domain_settlement_claimed
+  | Domain_settlement_replayed of domain_settlement_receipt
+  | Domain_settlement_in_progress
+  | Domain_settlement_conflict
 
-let create_flow_preference_store ~capacity =
-  match Flow_state.create_preference_store ~capacity with
-  | Ok store -> Ok store
+type domain_settlement_apply_error = Domain_settlement_apply_conflict
+
+type domain_settlement_recovery_error =
+  | Domain_preference_recovery_finished
+  | Preference_recovery_capacity_exhausted of { capacity : int }
+  | Domain_settlement_recovery_conflict
+
+let begin_flow_preference_recovery ~capacity =
+  match Flow_state.start_preference_recovery ~capacity with
+  | Ok recovery -> Ok recovery
   | Error (Flow_state.Invalid_preference_capacity capacity) ->
     Error (Invalid_flow_preference_capacity capacity)
+;;
+
+let finish_flow_preference_recovery recovery =
+  match Flow_state.finish_preference_recovery recovery with
+  | Ok store -> Ok store
+  | Error Flow_state.Preference_recovery_already_finished ->
+    Error Flow_preference_recovery_already_finished
 ;;
 
 let make_flow_scope ~id =
@@ -73,7 +98,21 @@ let make_flow_scope ~id =
 ;;
 
 let flow_scope_equal (Flow_scope left) (Flow_scope right) = String.equal left right
+let flow_scope_to_string (Flow_scope scope) = scope
+let flow_preference_reservation_to_int64 = Flow_state.preference_reservation_to_int64
+let flow_preference_reservation_of_int64 = Flow_state.preference_reservation_of_int64
 let flow_success_ordinal_to_int64 = Flow_state.success_ordinal_to_int64
+let flow_success_ordinal_of_int64 = Flow_state.success_ordinal_of_int64
+
+let flow_preference_identity_of_candidate (candidate : flow_candidate_identity) =
+  { candidate_id = candidate.candidate_id
+  ; binding_sha256 = Resolver.target_identity_fingerprint candidate.target_identity
+  }
+;;
+
+let make_flow_preference_identity ~candidate_id ~binding_sha256 =
+  { candidate_id; binding_sha256 }
+;;
 
 let remove_flow_preference_scope preferences (Flow_scope scope) =
   match Flow_state.remove_preference_scope preferences ~scope with
@@ -87,16 +126,23 @@ let allocate_flow_success_ordinal preferences =
   | Error Flow_state.Success_ordinal_exhausted -> Error Success_ordinal_space_exhausted
 ;;
 
-let target_binding_equal left right =
+let target_binding_equal recorded current =
   String.equal
-    (Resolver.target_identity_fingerprint left.target_identity)
-    (Resolver.target_identity_fingerprint right.target_identity)
+    recorded.binding_sha256
+    (Resolver.target_identity_fingerprint current.target_identity)
 ;;
 
-let prefer_last_good preferences (Flow_scope scope) ~candidate_identity candidates =
+let prefer_last_good
+      preferences
+      (Flow_scope scope)
+      ~(candidate_identity : _ -> flow_candidate_identity)
+      candidates
+  =
   match Flow_state.reserve_preference_scope preferences ~scope with
   | Error (Flow_state.Preference_capacity_exhausted { capacity }) ->
     Error (Preference_capacity_exhausted { capacity })
+  | Error Flow_state.Preference_reservation_exhausted ->
+    Error Preference_reservation_space_exhausted
   | Ok (reservation, None) -> Ok (candidates, No_preference_recorded, reservation)
   | Ok (reservation, Some (recorded, success_ordinal)) ->
     (match
@@ -135,37 +181,87 @@ let prefer_last_good preferences (Flow_scope scope) ~candidate_identity candidat
          , reservation ))
 ;;
 
-let settle_domain
+let domain_settlement_id_to_string (Domain_settlement_id id) = id
+let domain_settlement_id_of_string id = Domain_settlement_id id
+
+let make_domain_settlement_receipt ~settlement_id ~disposition =
+  { settlement_id; disposition }
+;;
+
+let domain_settlement_receipt_id receipt = receipt.settlement_id
+let domain_settlement_receipt_disposition receipt = receipt.disposition
+
+let flow_disposition = function
+  | Domain_valid -> Flow_state.Valid
+  | Domain_rejected -> Flow_state.Rejected
+;;
+
+let flow_receipt receipt : Flow_state.domain_settlement_receipt =
+  { settlement_id = domain_settlement_id_to_string receipt.settlement_id
+  ; disposition = flow_disposition receipt.disposition
+  }
+;;
+
+let begin_domain_settlement settlement preferences receipt =
+  match
+    Flow_state.begin_domain_settlement settlement preferences (flow_receipt receipt)
+  with
+  | Flow_state.Domain_settlement_claimed -> Domain_settlement_claimed
+  | Flow_state.Domain_settlement_replayed _ -> Domain_settlement_replayed receipt
+  | Flow_state.Domain_settlement_in_progress -> Domain_settlement_in_progress
+  | Flow_state.Domain_settlement_conflict -> Domain_settlement_conflict
+;;
+
+let abort_domain_settlement settlement preferences receipt =
+  Flow_state.abort_domain_settlement settlement preferences (flow_receipt receipt)
+;;
+
+let finish_domain_settlement
       settlement
       preferences
       (Flow_scope scope)
       ~reservation
       ~candidate
       ~success_ordinal
-      disposition
+      receipt
   =
-  let result =
-    match disposition with
-    | Domain_rejected ->
-      Flow_state.settle_domain_rejected_once settlement preferences
-      |> Result.map (fun () -> Domain_rejected_recorded)
-    | Domain_valid ->
-      Flow_state.settle_domain_valid_once
-        settlement
-        preferences
-        ~scope
-        ~reservation
-        ~candidate
-        ~ordinal:success_ordinal
-      |> Result.map (function
-        | Flow_state.Preference_installed ->
-          Domain_valid_preference_installed { candidate; success_ordinal }
-        | Flow_state.Preference_superseded { current_candidate; current_ordinal } ->
-          Domain_valid_preference_superseded
-            { current_candidate; current_success_ordinal = current_ordinal })
-  in
-  match result with
-  | Error Flow_state.Already_settled -> Error Domain_already_settled
-  | Error Flow_state.Preference_scope_released -> Error Domain_preference_scope_released
-  | Ok receipt -> Ok receipt
+  match
+    Flow_state.finish_domain_settlement
+      settlement
+      preferences
+      ~scope
+      ~reservation
+      ~candidate:(flow_preference_identity_of_candidate candidate)
+      ~ordinal:success_ordinal
+      (flow_receipt receipt)
+  with
+  | Ok _ -> Ok receipt
+  | Error Flow_state.Domain_settlement_apply_conflict ->
+    Error Domain_settlement_apply_conflict
+;;
+
+let resume_committed_domain
+      recovery
+      (Flow_scope scope)
+      ~reservation
+      ~candidate
+      ~success_ordinal
+      receipt
+  =
+  match
+    Flow_state.resume_committed_domain
+      recovery
+      ~scope
+      ~reservation
+      ~candidate
+      ~ordinal:success_ordinal
+      (flow_receipt receipt)
+  with
+  | Ok _ -> Ok receipt
+  | Error Flow_state.Preference_recovery_finished ->
+    Error Domain_preference_recovery_finished
+  | Error (Flow_state.Preference_recovery_capacity_exhausted { capacity }) ->
+    Error (Preference_recovery_capacity_exhausted { capacity })
+  | Error Flow_state.Recovered_domain_conflict ->
+    Error Domain_settlement_recovery_conflict
 ;;
