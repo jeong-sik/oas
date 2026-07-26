@@ -1,6 +1,7 @@
 module Domain_settlement = Exact_output_domain_settlement
 module Flow_contract = Exact_output_flow_contract
 module Scope_retirement = Exact_output_scope_retirement
+module Int64_map = Map.Make (Int64)
 module String_map = Map.Make (String)
 module String_set = Set.Make (String)
 
@@ -66,32 +67,46 @@ let collect evidence =
     evidence
 ;;
 
-let latest_retirements (retirements : retirement_item String_map.t) =
+let group_retirements (retirements : retirement_item String_map.t) =
   String_map.fold
     (fun _ (item : retirement_item) accumulated ->
-       let* (by_scope : retirement_item String_map.t) = accumulated in
+       let* (by_scope : retirement_item Int64_map.t String_map.t) = accumulated in
        let scope = Flow_contract.flow_scope_to_string item.evidence.scope in
-       match String_map.find_opt scope by_scope with
-       | None -> Ok (String_map.add scope item by_scope)
-       | Some (current : retirement_item) ->
-         let incoming =
-           Flow_contract.flow_preference_reservation_to_int64 item.evidence.reservation
-         in
-         let existing =
-           Flow_contract.flow_preference_reservation_to_int64 current.evidence.reservation
-         in
-         if Int64.compare incoming existing > 0
-         then Ok (String_map.add scope item by_scope)
-         else if Int64.compare incoming existing < 0
-         then Ok by_scope
-         else if
-           String.equal
-             (Scope_retirement.id_to_string item.evidence.retirement_id)
-             (Scope_retirement.id_to_string current.evidence.retirement_id)
-         then Ok by_scope
-         else Error (Conflicting_scope_retirement_evidence item.evidence.retirement_id))
+       let reservation =
+         Flow_contract.flow_preference_reservation_to_int64 item.evidence.reservation
+       in
+       let by_reservation =
+         match String_map.find_opt scope by_scope with
+         | None -> (Int64_map.empty : retirement_item Int64_map.t)
+         | Some by_reservation -> by_reservation
+       in
+       match Int64_map.find_opt reservation by_reservation with
+       | None ->
+         Ok
+           (String_map.add
+              scope
+              (Int64_map.add reservation item by_reservation)
+              by_scope)
+       | Some (current : retirement_item)
+         when String.equal
+                (Scope_retirement.id_to_string item.evidence.retirement_id)
+                (Scope_retirement.id_to_string current.evidence.retirement_id) -> Ok by_scope
+       | Some _ ->
+         Error (Conflicting_scope_retirement_evidence item.evidence.retirement_id))
     retirements
-    (Ok (String_map.empty : retirement_item String_map.t))
+    (Ok (String_map.empty : retirement_item Int64_map.t String_map.t))
+;;
+
+let latest_retirements (retirements : retirement_item String_map.t) =
+  let* grouped = group_retirements retirements in
+  Ok
+    (String_map.fold
+       (fun scope by_reservation by_scope ->
+          match Int64_map.max_binding_opt by_reservation with
+          | None -> by_scope
+          | Some (_, item) -> String_map.add scope item by_scope)
+       grouped
+       (String_map.empty : retirement_item String_map.t))
 ;;
 
 let settlement_survives_retirement

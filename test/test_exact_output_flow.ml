@@ -1539,6 +1539,102 @@ let test_retirement_recovery_blocks_stale_and_allows_newer_reservation () =
   check bool "retirement codec preserves deterministic id" true retirement_roundtrip
 ;;
 
+let test_recovery_rejects_superseded_retirement_conflicts_regardless_order () =
+  let every_order_conflicted, posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"retirement-conflict" ~base_url ~native:true ~json:true () ]
+    @@ fun snapshot ->
+    let scope = flow_scope "/runtime/retirement-conflict-order" in
+    let other_scope = flow_scope "/runtime/retirement-conflict-high-water" in
+    let advance preferences scope =
+      let success =
+        match
+          frozen_flow ~preferences ~scope snapshot [ "retirement-conflict" ]
+          |> start_flow
+          |> execute_ok ~net
+        with
+        | Ok success -> success
+        | Error _ -> fail "retirement conflict fixture did not succeed"
+      in
+      match
+        EO.commit_and_settle_flow_domain
+          ~commit:(fun _ -> Error ())
+          success
+          EO.Domain_valid
+      with
+      | Error (EO.Domain_commit_failed ()) -> ()
+      | Ok _
+      | Error EO.Domain_settlement_in_progress
+      | Error EO.Domain_settlement_conflict ->
+        fail "retirement conflict fixture unexpectedly settled"
+    in
+    let retire preferences =
+      let encoded = ref None in
+      (match
+         EO.commit_and_retire_flow_preference_scope
+           ~commit:(fun intent ->
+             encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
+             Ok ())
+           preferences
+           scope
+       with
+       | Ok _ -> ()
+       | Error _ -> fail "retirement conflict fixture did not retire");
+      match !encoded with
+      | None -> fail "retirement conflict fixture emitted no intent"
+      | Some encoded ->
+        (match EO.flow_preference_retirement_intent_of_string encoded with
+         | Ok intent -> intent
+         | Error _ -> fail "retirement conflict intent did not decode")
+    in
+    let first_preferences = preference_store ~capacity:2 () in
+    advance first_preferences scope;
+    let first = retire first_preferences in
+    let conflicting_preferences = preference_store ~capacity:2 () in
+    advance conflicting_preferences scope;
+    advance conflicting_preferences other_scope;
+    let conflicting = retire conflicting_preferences in
+    let newer_preferences = preference_store ~capacity:2 () in
+    advance newer_preferences scope;
+    advance newer_preferences scope;
+    let newer = retire newer_preferences in
+    let retirement_id intent =
+      EO.flow_preference_retirement_intent_id intent
+      |> EO.flow_preference_retirement_id_to_string
+    in
+    if String.equal (retirement_id first) (retirement_id conflicting)
+    then fail "retirement conflict fixture produced identical older intents";
+    [ [ first; conflicting; newer ]
+    ; [ first; newer; conflicting ]
+    ; [ conflicting; first; newer ]
+    ; [ conflicting; newer; first ]
+    ; [ newer; first; conflicting ]
+    ; [ newer; conflicting; first ]
+    ]
+    |> List.for_all (fun ordered ->
+      match
+        EO.recover_flow_preferences
+          ~concurrent_scope_budget:0
+          ~evidence:
+            (List.map
+               (fun intent -> EO.Scope_retirement_evidence intent)
+               ordered)
+      with
+      | Error (EO.Conflicting_scope_retirement_evidence _) -> true
+      | Ok _
+      | Error (EO.Invalid_concurrent_scope_budget _)
+      | Error (EO.Conflicting_domain_settlement_evidence _) -> false)
+  in
+  check int "superseded retirement conflict fixture dispatches five times" 5 posts;
+  check
+    bool
+    "superseded equal-reservation retirements always conflict"
+    true
+    every_order_conflicted
+;;
+
 let test_rejected_only_recovery_restores_high_water_without_active_scope () =
   let (zero_active, reservation_advanced, ordinal_advanced), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
@@ -4687,6 +4783,10 @@ let () =
             "retirement blocks stale and newer reservation reactivates"
             `Quick
             test_retirement_recovery_blocks_stale_and_allows_newer_reservation
+        ; test_case
+            "recovery rejects superseded retirement conflicts regardless order"
+            `Quick
+            test_recovery_rejects_superseded_retirement_conflicts_regardless_order
         ; test_case
             "rejected-only recovery restores high-water without active scope"
             `Quick
