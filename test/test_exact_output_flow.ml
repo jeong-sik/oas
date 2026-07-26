@@ -1405,10 +1405,10 @@ let test_recovery_capacity_failure_is_typed_unmutated_and_retryable () =
     with_catalog [ catalog_entry ~id:"capacity-a" ~base_url ~native:true ~json:true () ]
     @@ fun snapshot ->
     let live_preferences = preference_store ~capacity:2 () in
-      let capture preferences scope =
-        let success =
+    let capture preferences scope =
+      let success =
         frozen_flow ~preferences ~scope snapshot [ "capacity-a" ]
-          |> start_flow
+        |> start_flow
         |> execute_ok ~net
       in
       let success =
