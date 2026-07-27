@@ -824,8 +824,8 @@ require_code_pattern \
   "canonical facade no longer re-exports the private resolver" \
   'include[[:space:]]+Exact_output_resolver' \
   "$exact_output_source"
-require_code_pattern \
-  "canonical facade no longer re-exports the private preference lifecycle facade" \
+scan_code \
+  "canonical facade re-exported the retired preference lifecycle facade" \
   'include[[:space:]]+Preference_lifecycle_facade' \
   "$exact_output_source"
 scan_code \
@@ -1056,7 +1056,7 @@ require_code_sequence \
   "$exact_output_interface"
 require_code_sequence \
   "execution receipt no longer stores the immutable visit" \
-  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*private[[:space:]]*\{[^}]*scope[[:space:]]*:[[:space:]]*flow_scope[^}]*visit[[:space:]]*:[[:space:]]*flow_candidate_visit' \
+  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*private[[:space:]]*\{[^}]*visit[[:space:]]*:[[:space:]]*flow_candidate_visit[^}]*receipt[[:space:]]*:[[:space:]]*receipt' \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact flow start stopped failing closed on identity allocation" \
@@ -1094,7 +1094,12 @@ require_code_sequence \
   "$exact_output_interface"
 require_code_sequence \
   "validated exact flow lost its single declared-flow entrypoint" \
-  'val[[:space:]]+execute_flow_once_validated.*validate:[[:space:]]*\(flow_success[[:space:]]*->[[:space:]]*([^[:space:]]+[[:space:]]*,[[:space:]]*[^[:space:]]+)[[:space:]]+semantic_verdict\)' \
+  'val[[:space:]]+execute_flow_once.*validate:[[:space:]]*\(flow_success[[:space:]]*->[[:space:]]*([^[:space:]]+[[:space:]]*,[[:space:]]*[^[:space:]]+)[[:space:]]+semantic_verdict\)' \
+  "$exact_output_interface"
+scan_code \
+  "validated exact flow regained a parallel or compatibility entrypoint" \
+  'execute_flow_once_validated|Compatibility entrypoint|always-\[Accept\]' \
+  "$exact_output_source" \
   "$exact_output_interface"
 scan_code \
   "declared exact flow regained preference ordering or domain settlement" \

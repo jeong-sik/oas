@@ -482,9 +482,9 @@ val generation_receipt_snapshot_target_identity
   :  generation_receipt_snapshot
   -> target_identity
 
-(** One immutable outer-flow binding. [scope], opaque candidate identity, and
-    the one-shot execution receipt travel together; consumers do not rebuild
-    that join from coordinator or target strings. *)
+(** One immutable outer-flow binding. The opaque candidate identity and one-shot
+    execution receipt travel together; consumers do not rebuild that join from
+    coordinator or target strings. *)
 type flow_attempt_receipt = private
   { visit : flow_candidate_visit
   ; receipt : receipt
@@ -688,7 +688,7 @@ val flow_attempt_evidence : flow_attempt -> flow_evidence
     Every candidate performs at most one generation POST. A final semantic
     rejection returns a typed nonempty exhaustion trace. OAS performs no domain
     commit, settlement, retirement, recovery, or preference update. *)
-val execute_flow_once_validated
+val execute_flow_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
   -> before_measurement_dispatch:
@@ -704,19 +704,3 @@ val execute_flow_once_validated
   -> ( ('accepted, 'rejection) validated_flow_success
        , ('callback_error, 'rejection) validated_flow_error )
        result
-
-(** Compatibility entrypoint with no preference or settlement semantics. It is
-    exactly [execute_flow_once_validated] with an always-[Accept] validator. *)
-val execute_flow_once
-  :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> ?clock:_ Eio.Time.clock
-  -> before_measurement_dispatch:
-       (flow_measurement_receipt -> (unit, 'callback_error) result)
-  -> on_measurement_terminal:(flow_measurement_receipt -> (unit, 'callback_error) result)
-  -> before_dispatch:(flow_attempt_receipt -> (unit, 'callback_error) result)
-  -> before_advance:
-       (failed:flow_candidate_failure
-        -> next:flow_candidate_visit
-        -> (unit, 'callback_error) result)
-  -> flow_attempt
-  -> (flow_success, 'callback_error flow_execution_error) result

@@ -402,8 +402,50 @@ let attempt_for evidence id =
   | None -> failf "missing attempt evidence for %s" id
 ;;
 
-let execute_ok ~net flow =
+type no_semantic_rejection = |
+
+let accepting_test_validator success
+  : (EO.flow_success, no_semantic_rejection) EO.semantic_verdict
+  =
+  EO.Accept success
+;;
+
+let transport_test_result
+      (result :
+        ( (EO.flow_success, no_semantic_rejection) EO.validated_flow_success
+          , ('callback_error, no_semantic_rejection) EO.validated_flow_error )
+          result)
+  : (EO.flow_success, 'callback_error EO.flow_execution_error) result
+  =
+  match result with
+  | Ok success -> Ok success.transport_success
+  | Error (EO.Flow_execution_terminal { cause; _ }) -> Error cause
+  | Error (EO.Flow_semantic_candidates_exhausted _) -> .
+;;
+
+let execute_with_accepting_test_validator
+      ~net
+      ?clock
+      ~before_measurement_dispatch
+      ~on_measurement_terminal
+      ~before_dispatch
+      ~before_advance
+      flow
+  =
   EO.execute_flow_once
+    ~net
+    ?clock
+    ~before_measurement_dispatch
+    ~on_measurement_terminal
+    ~before_dispatch
+    ~before_advance
+    ~validate:accepting_test_validator
+    flow
+  |> transport_test_result
+;;
+
+let execute_ok ~net flow =
+  execute_with_accepting_test_validator
     ~net
     ~on_measurement_terminal:(fun _ -> Ok ())
     ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -412,8 +454,8 @@ let execute_ok ~net flow =
     flow
 ;;
 
-let execute_validated ~net ~before_advance ~validate flow =
-  EO.execute_flow_once_validated
+let execute_with_validator ~net ~before_advance ~validate flow =
+  EO.execute_flow_once
     ~net
     ~on_measurement_terminal:(fun _ -> Ok ())
     ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -576,7 +618,7 @@ let test_later_missing_credential_does_not_block_current_success () =
     @@ fun snapshot ->
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -631,7 +673,7 @@ let test_json_syntax_uses_strict_text_fallback () =
     @@ fun snapshot ->
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -705,7 +747,7 @@ let test_fenced_text_json_advances_to_frozen_successor () =
     let observed_advance = ref None in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -765,7 +807,7 @@ let test_provider_schema_still_requires_native_capability () =
         (frozen_candidates ~requirement [ flow_candidate snapshot "no-native-schema" ])
     in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ ->
           fail "provider-schema rejection reached measurement terminal")
@@ -827,7 +869,7 @@ let test_missing_current_credential_advances_after_durable_settlement () =
     let bound = ref [] in
     let next_visit = ref None in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -941,7 +983,7 @@ let test_read_failed_current_credential_advances_to_good_successor () =
     @@ fun snapshot ->
     let advances = ref [] in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -1017,7 +1059,7 @@ let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
            [ "credential-missing"; "credential-invalid"; "credential-read-failed" ])
     in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -1111,7 +1153,7 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
     let transitions = ref [] in
     let bound = ref [] in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -1213,7 +1255,7 @@ let test_request_body_capacity_advances_only_after_durable_settlement () =
     @@ fun snapshot ->
     let transition = ref None in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -1307,7 +1349,7 @@ let test_measured_token_and_body_capacity_are_independent () =
              (frozen_flow ~messages:[ msg large_input ] snapshot [ "measured-capacity" ])
          in
          let result =
-           EO.execute_flow_once
+           execute_with_accepting_test_validator
              ~net
              ~on_measurement_terminal:(fun _ -> Ok ())
              ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -1405,7 +1447,7 @@ let test_measurement_receipt_codec_and_transition () =
     let intent = ref None in
     let terminal = ref None in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun measurement ->
           intent := Some (EO.flow_measurement_receipt_snapshot measurement);
@@ -1774,7 +1816,7 @@ let test_measurement_fence_rejection_is_terminal_without_wire () =
     let terminal_callbacks = ref 0 in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun measurement ->
           incr terminal_callbacks;
@@ -1896,7 +1938,7 @@ let test_measurement_fence_nested_http_does_not_mark_outer_dispatch () =
     @@ fun snapshot ->
     let flow = start_flow (frozen_flow snapshot [ "measurement-nested-journal" ]) in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun measurement ->
           let before = EO.flow_measurement_receipt_snapshot measurement in
@@ -1987,7 +2029,7 @@ let test_measurement_terminal_callback_failure_blocks_generation () =
     let terminal_callbacks = ref 0 in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun measurement ->
           let snapshot = EO.flow_measurement_receipt_snapshot measurement in
@@ -2073,7 +2115,7 @@ let test_measurement_predispatch_failure_records_zero_dispatch () =
     let intent_callbacks = ref 0 in
     let terminal_callbacks = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun measurement ->
           incr intent_callbacks;
@@ -2184,7 +2226,7 @@ let test_measurement_cancellation_terminalizes_receipt () =
       try
         ignore
           (Eio.Time.with_timeout_exn clock 0.01 (fun () ->
-             EO.execute_flow_once
+             execute_with_accepting_test_validator
                ~net
                ~on_measurement_terminal:(fun measurement ->
                  incr terminal_callbacks;
@@ -2386,7 +2428,7 @@ let test_predispatch_measurement_failure_advances_without_wire () =
     in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -2478,7 +2520,7 @@ let test_postdispatch_measurement_failures_do_not_advance () =
          let advances = ref 0 in
          let terminal_callbacks = ref 0 in
          let result =
-           EO.execute_flow_once
+           execute_with_accepting_test_validator
              ~net
              ~on_measurement_terminal:(fun measurement ->
                incr terminal_callbacks;
@@ -2714,7 +2756,7 @@ let test_all_candidate_rejections_return_typed_zero_dispatch_terminal () =
     let transitions = ref [] in
     let flow = start_flow (frozen_flow snapshot [ "rejected-a"; "rejected-b" ]) in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -2826,7 +2868,7 @@ let test_exception_after_durable_rejection_stops_before_successor () =
          let raised =
            try
              ignore
-               (EO.execute_flow_once
+               (execute_with_accepting_test_validator
                   ~net
                   ~on_measurement_terminal:(fun _ -> Ok ())
                   ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -2914,7 +2956,7 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
     let advanced = ref [] in
     let events = ref [] in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -3023,7 +3065,7 @@ let test_exception_after_durable_advance_stops_before_successor () =
          let raised =
            try
              ignore
-               (EO.execute_flow_once
+               (execute_with_accepting_test_validator
                   ~net
                   ~on_measurement_terminal:(fun _ -> Ok ())
                   ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -3162,7 +3204,7 @@ let test_callback_failures_are_terminal () =
       ; catalog_entry ~id:"bind-b" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    EO.execute_flow_once
+    execute_with_accepting_test_validator
       ~net
       ~on_measurement_terminal:(fun _ -> Ok ())
       ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -3210,7 +3252,7 @@ let test_callback_failures_are_terminal () =
       ; catalog_entry ~id:"advance-b" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    EO.execute_flow_once
+    execute_with_accepting_test_validator
       ~net
       ~on_measurement_terminal:(fun _ -> Ok ())
       ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -3251,7 +3293,7 @@ let assert_typed_capacity_refusal_advances_once ~label ~first_response ~assert_c
     let advances = ref 0 in
     let observed_advance = ref None in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -3365,7 +3407,7 @@ let test_generic_400_remains_terminal_without_advance () =
     let flow = start_flow (frozen_flow snapshot [ "generic-400-a"; "generic-400-b" ]) in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -3400,7 +3442,7 @@ let test_postdispatch_and_structural_outcomes_never_advance () =
       @@ fun snapshot ->
       let advances = ref 0 in
       let result =
-        EO.execute_flow_once
+        execute_with_accepting_test_validator
           ~net
           ~on_measurement_terminal:(fun _ -> Ok ())
           ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -3476,7 +3518,7 @@ let test_semantic_rejection_advances_to_declared_successor () =
     let validated_ids = ref [] in
     let advances = ref 0 in
     let result =
-      execute_validated
+      execute_with_validator
         ~net
         ~before_advance:(fun ~failed:_ ~next:_ ->
           incr advances;
@@ -3526,7 +3568,7 @@ let test_all_semantic_rejections_return_nonempty_ordered_exhaustion () =
     @@ fun snapshot ->
     let advances = ref 0 in
     let result =
-      execute_validated
+      execute_with_validator
         ~net
         ~before_advance:(fun ~failed:_ ~next:_ ->
           incr advances;
@@ -3581,7 +3623,7 @@ let test_admission_and_semantic_rejections_share_one_declared_walk () =
     let transitions = ref [] in
     let validated_ids = ref [] in
     let result =
-      execute_validated
+      execute_with_validator
         ~net
         ~before_advance:(fun ~failed ~next ->
           transitions
@@ -3635,7 +3677,7 @@ let test_prior_semantic_rejection_survives_later_transport_terminal () =
     @@ fun snapshot ->
     let advances = ref 0 in
     let result =
-      execute_validated
+      execute_with_validator
         ~net
         ~before_advance:(fun ~failed:_ ~next:_ ->
           incr advances;
@@ -3698,7 +3740,7 @@ let test_gemini_structural_sibling_rejects_before_outer_dispatch () =
       start_flow (frozen_candidates ~requirement [ flow_candidate snapshot id ])
     in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun _ ->
           fail "schema rejection reached measurement intent")
@@ -3771,7 +3813,7 @@ let test_structural_predispatch_failure_does_not_advance () =
     let terminals = ref 0 in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun _ ->
           incr intents;
@@ -3832,7 +3874,7 @@ let test_concurrent_duplicate_flow_does_not_double_dispatch () =
     @@ fun snapshot ->
     let flow = start_flow (frozen_flow snapshot [ "concurrent-flow" ]) in
     let execute () : (EO.flow_success, string EO.flow_execution_error) result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())

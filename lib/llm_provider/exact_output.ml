@@ -871,7 +871,7 @@ let advanceable_flow_failure = function
   | Flow_step_before_dispatch_callback_failed _ -> None
 ;;
 
-let execute_flow_once_validated
+let execute_flow_once
       ~net
       ?clock
       ~before_measurement_dispatch
@@ -943,30 +943,4 @@ let execute_flow_once_validated
         Flow_exact_execution_failed { candidate; cause; evidence }
     in
     terminal prior_rejections cause
-;;
-
-let execute_flow_once
-      ~net
-      ?clock
-      ~before_measurement_dispatch
-      ~on_measurement_terminal
-      ~before_dispatch
-      ~before_advance
-      flow
-  =
-  match
-    execute_flow_once_validated
-      ~net
-      ?clock
-      ~before_measurement_dispatch
-      ~on_measurement_terminal
-      ~before_dispatch
-      ~before_advance
-      ~validate:(fun success -> Accept success)
-      flow
-  with
-  | Ok success -> Ok success.accepted
-  | Error (Flow_execution_terminal { cause; _ }) -> Error cause
-  | Error (Flow_semantic_candidates_exhausted _) ->
-    invalid_arg "Exact_output: accepting validator rejected a flow success"
 ;;
