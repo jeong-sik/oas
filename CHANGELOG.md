@@ -8,6 +8,21 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.228.0](https://github.com/jeong-sik/oas/compare/v0.227.1...v0.228.0) (2026-07-27)
+
+### Breaking Changes
+
+`Exact_output.execution_error_cause` adds the provider-neutral
+`Input_capacity_refused` variant. Exhaustive consumers must handle explicit
+context-window and serialized-request refusals.
+
+### Bug Fixes
+
+* **exact-output:** follow the runtime's frozen successor after a typed
+  pre-generation input-capacity refusal
+  ([#2828](https://github.com/jeong-sik/oas/issues/2828))
+  ([15644b9](https://github.com/jeong-sik/oas/commit/15644b9f20080c113fa6095e272e8c6522a147a4))
+
 ## [0.227.1](https://github.com/jeong-sik/oas/compare/v0.227.0...v0.227.1) (2026-07-27)
 
 ### Bug Fixes
