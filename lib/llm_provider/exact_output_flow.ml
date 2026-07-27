@@ -112,10 +112,24 @@ type recovery_retirement_error =
   | Preference_retirement_recovery_finished
   | Recovered_retirement_conflict
 
-type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome =
+type ('accepted, 'rejection) semantic_verdict =
+  | Accept of 'accepted
+  | Reject_and_advance of 'rejection
+
+type ('candidate
+     , 'accepted
+     , 'execution_error
+     , 'advanceable_error
+     , 'semantic_rejection
+     , 'callback_error)
+     outcome =
   | Succeeded of
-      { candidate : 'candidate
-      ; success : 'success
+      { accepted : 'accepted
+      ; prior_rejections : 'semantic_rejection list
+      }
+  | Semantic_candidates_exhausted of
+      { first_rejection : 'semantic_rejection
+      ; rest_rejections : 'semantic_rejection list
       }
   | Attempt_already_started
   | Before_advance_callback_failed of
@@ -123,10 +137,12 @@ type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_erro
       ; failure : 'advanceable_error
       ; next_candidate : 'candidate
       ; cause : 'callback_error
+      ; prior_rejections : 'semantic_rejection list
       }
   | Execution_failed of
       { candidate : 'candidate
       ; cause : 'execution_error
+      ; prior_rejections : 'semantic_rejection list
       }
 
 let create () = Atomic.make Not_started
@@ -558,33 +574,53 @@ let promote_candidate ~equal ~key ~preferred candidates =
     selected @ remaining
 ;;
 
-let execute_once state ~candidates ~execute ~advanceable ~before_advance =
+let execute_once state ~candidates ~execute ~validate ~advanceable ~before_advance =
   if not (Atomic.compare_and_set state Not_started Running)
   then Attempt_already_started
   else
     Fun.protect
       ~finally:(fun () -> Atomic.set state Terminal)
       (fun () ->
-         let rec execute_candidates = function
+         let rec execute_candidates prior_rejections_rev = function
            | [] -> invalid_arg "Exact_output_flow: empty candidate snapshot"
            | candidate :: rest ->
              (match execute candidate with
-              | Ok success -> Succeeded { candidate; success }
+              | Ok success ->
+                (match validate candidate success with
+                 | Accept accepted ->
+                   Succeeded
+                     { accepted; prior_rejections = List.rev prior_rejections_rev }
+                 | Reject_and_advance rejection ->
+                   let prior_rejections_rev = rejection :: prior_rejections_rev in
+                   (match rest with
+                    | _ :: _ -> execute_candidates prior_rejections_rev rest
+                    | [] ->
+                      (match List.rev prior_rejections_rev with
+                       | first_rejection :: rest_rejections ->
+                         Semantic_candidates_exhausted
+                           { first_rejection; rest_rejections }
+                       | [] -> assert false)))
               | Error failure ->
                 (match rest, advanceable failure with
                  | next :: _, Some advanceable_failure ->
                    (match
                       before_advance ~failed:candidate ~failure:advanceable_failure ~next
                     with
-                    | Ok () -> execute_candidates rest
+                    | Ok () -> execute_candidates prior_rejections_rev rest
                     | Error cause ->
                       Before_advance_callback_failed
                         { failed_candidate = candidate
                         ; failure = advanceable_failure
                         ; next_candidate = next
                         ; cause
+                        ; prior_rejections = List.rev prior_rejections_rev
                         })
-                 | [], _ | _ :: _, None -> Execution_failed { candidate; cause = failure }))
+                 | [], _ | _ :: _, None ->
+                   Execution_failed
+                     { candidate
+                     ; cause = failure
+                     ; prior_rejections = List.rev prior_rejections_rev
+                     }))
          in
-         execute_candidates candidates)
+         execute_candidates [] candidates)
 ;;

@@ -1076,176 +1076,30 @@ require_opaque_type \
   "outer exact flow lost typed candidate-rejection receipts" \
   "$exact_output_interface" \
   candidate_rejection_receipt
-require_code_sequence \
-  "outer exact flow lost explicit scope-local preference ownership" \
-  'type[[:space:]]+flow_preference_store.*type[[:space:]]+flow_scope' \
+scan_code \
+  "retired exact-flow preference or domain lifecycle returned to the public surface" \
+  'flow_preference|flow_scope|flow_success_ordinal|preference_observation|domain_settlement|commit_and_settle|commit_and_retire|recover_flow_preferences' \
   "$exact_output_interface"
 require_code_sequence \
-  "outer exact-flow preference recovery lost evidence-owned admission" \
-  'val[[:space:]]+recover_flow_preferences[[:space:]]*:[[:space:]]*concurrent_scope_budget:int[[:space:]]*->[[:space:]]*evidence:flow_preference_recovery_evidence[[:space:]]+list[[:space:]]*->[[:space:]]*\(flow_preference_store,[[:space:]]*flow_preference_recovery_error\)[[:space:]]*result' \
+  "outer exact flow stopped freezing caller-declared order directly" \
+  'val[[:space:]]+snapshot_flow[[:space:]]*:[[:space:]]*first:flow_candidate[[:space:]]*->[[:space:]]*rest:flow_candidate[[:space:]]+list[[:space:]]*->[[:space:]]*messages:Types[.]message[[:space:]]+list' \
   "$exact_output_interface"
 require_code_sequence \
-  "outer exact-flow snapshot lost typed capacity exhaustion" \
-  'type[[:space:]]+flow_snapshot_error.*Flow_preference_capacity_exhausted[[:space:]]+of[[:space:]]*\{[[:space:]]*capacity[[:space:]]*:[[:space:]]*int' \
+  "outer exact-flow evidence lost its sole declared candidate snapshot" \
+  'type[[:space:]]+flow_evidence[[:space:]]*=[[:space:]]*private.*flow_id[[:space:]]*:.*declared_candidate_snapshot.*candidate_visit_count.*measurements.*admissions.*attempts' \
   "$exact_output_interface"
 require_code_sequence \
-  "outer exact-flow preference lost durable scope retirement" \
-  'type[[:space:]]+flow_preference_retirement_id.*type[[:space:]]+flow_preference_retirement_intent.*val[[:space:]]+commit_and_retire_flow_preference_scope' \
+  "validated exact flow lost its parametric semantic verdict or nonempty trace" \
+  'type[[:space:]]+([^[:space:]]+[[:space:]]*,[[:space:]]*[^[:space:]]+)[[:space:]]+semantic_verdict[[:space:]]*=.*Accept.*Reject_and_advance.*type[[:space:]]+[^[:space:]]+[[:space:]]+semantic_rejection_trace[[:space:]]*=[[:space:]]*private.*first.*rest' \
+  "$exact_output_interface"
+require_code_sequence \
+  "validated exact flow lost its single declared-flow entrypoint" \
+  'val[[:space:]]+execute_flow_once_validated.*validate:[[:space:]]*\(flow_success[[:space:]]*->[[:space:]]*([^[:space:]]+[[:space:]]*,[[:space:]]*[^[:space:]]+)[[:space:]]+semantic_verdict\)' \
   "$exact_output_interface"
 scan_code \
-  "legacy process-local preference recovery or removal returned" \
-  'val[[:space:]]+(begin_flow_preference_recovery|finish_flow_preference_recovery|resume_committed_flow_domain|remove_flow_preference_scope)' \
-  "$exact_output_interface"
-require_code_sequence \
-  "outer exact-flow attempt receipt lost its opaque scope binding" \
-  'type[[:space:]]+flow_attempt_receipt[[:space:]]*=[[:space:]]*private.*scope[[:space:]]*:.*flow_scope.*visit.*receipt' \
-  "$exact_output_interface"
-require_code_sequence \
-  "outer exact-flow evidence lost its opaque scope binding" \
-  'type[[:space:]]+flow_evidence[[:space:]]*=[[:space:]]*private.*flow_id[[:space:]]*:.*scope[[:space:]]*:.*flow_scope.*declared_candidate_snapshot.*candidate_snapshot.*preference_observation' \
-  "$exact_output_interface"
-require_code_sequence \
-  "outer exact flow lost its closed preference observation" \
-  'type[[:space:]]+flow_preference_observation.*No_preference_recorded.*Preference_applied.*Preference_not_applied' \
-  "$exact_output_interface"
-require_named_function_pattern \
-  "scope-local preference stopped requiring opaque target binding equality" \
-  'target_identity_fingerprint' \
-  "$exact_output_flow_contract_source" \
-  "target_binding_equal"
-require_code_sequence \
-  "candidate rejection lost its opaque scope projection" \
-  'val[[:space:]]+candidate_rejection_scope[[:space:]]*:' \
-  "$exact_output_interface"
-require_code_sequence \
-  "outer exact flow lost durable domain settlement" \
-  'type[[:space:]]+domain_disposition.*type[[:space:]]+domain_settlement_id.*type[[:space:]]+domain_settlement_intent.*type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private.*val[[:space:]]+commit_and_settle_flow_domain.*val[[:space:]]+recover_flow_preferences' \
-  "$exact_output_interface"
-require_code_sequence \
-  "private exact-flow contract exposed forgeable domain settlement receipts" \
-  'type[[:space:]]+domain_settlement_receipt[[:space:]]*=[[:space:]]*private' \
-  "$module_dir/exact_output_flow_contract.mli"
-scan_code \
-  "legacy in-memory domain settlement surface returned" \
-  'val[[:space:]]+settle_flow_domain|Domain_already_settled|Domain_valid_preference_installed|Domain_valid_preference_superseded' \
-  "$exact_output_interface" \
-  "$module_dir/exact_output_flow_contract.mli"
-scan_code \
-  "domain-valid settlement regained caller-forgeable freshness" \
-  'Domain_valid[[:space:]]+of|success_time_unix_s|current_success_time_unix_s' \
-  "$exact_output_source" \
-  "$exact_output_interface" \
-  "$exact_output_flow_source" \
-  "$module_dir/exact_output_flow.mli" \
-  "$exact_output_flow_contract_source" \
-  "$module_dir/exact_output_flow_contract.mli"
-require_code_sequence \
-  "outer exact-flow structural success lost its opaque OAS-owned ordinal" \
-  'type[[:space:]]+flow_success_ordinal.*val[[:space:]]+flow_success_ordinal[[:space:]]*:[[:space:]]*flow_success[[:space:]]*->[[:space:]]*flow_success_ordinal' \
-  "$exact_output_interface"
-require_named_function_pattern \
-  "outer exact-flow structural success stopped allocating its OAS-owned ordinal" \
-  'allocate_flow_success_ordinal[[:space:]]+flow[.]preferences' \
-  "$exact_output_source" \
-  "execute_flow_once"
-scan_code \
-  "outer exact flow exposed forgeable structural success settlement state" \
-  'type[[:space:]]+flow_success[[:space:]]*=' \
-  "$exact_output_interface"
-require_code_sequence \
-  "scope-local preference can be overwritten by an older success ordinal" \
-  'compare_success_ordinal[[:space:]]+ordinal[[:space:]]+current_ordinal[[:space:]]*<=[[:space:]]*0' \
-  "$exact_output_flow_source"
-require_named_function_pattern \
-  "scope-local preference lost snapshot reservation generation validation" \
-  'Hashtbl[.]find_opt[[:space:]]+store[.]entries[[:space:]]+scope.*Some[[:space:]]+entry[[:space:]]+when[[:space:]]+entry[.]reservation[[:space:]]*<>[[:space:]]*reservation[[:space:]]*->[[:space:]]*\(\)' \
-  "$exact_output_flow_source" \
-  "record_preference_locked"
-require_code_sequence \
-  "scope-local preference stopped failing closed on ordinal exhaustion" \
-  'let[[:space:]]+allocate_success_ordinal.*Int64[.]max_int.*Int64[.]succ' \
-  "$exact_output_flow_source"
-require_code_sequence \
-  "domain settlement lost its closed atomic publication states" \
-  'type[[:space:]]+settlement_state[[:space:]]*=[[:space:]]*.*Pending.*Publishing.*Settled.*type[[:space:]]+domain_settlement[[:space:]]*=[[:space:]]*settlement_state[[:space:]]+Atomic[.]t' \
-  "$exact_output_flow_source"
-scan_code_sequence \
-  "domain settlement regained a per-settlement mutex" \
-  'type[[:space:]]+domain_settlement[[:space:]]*=[[:space:]]*\{[^}]*Mutex[.]t' \
-  "$exact_output_flow_source"
-scan_named_functions \
-  "domain settlement acquired a second mutex, blocking wait, or busy wait" \
-  'Mutex[.](lock|unlock)|settlement[.][[:alnum:]_]*mutex|Condition[.]wait|Domain[.]cpu_relax' \
-  "$exact_output_flow_source" \
-  "begin_domain_settlement abort_domain_settlement finish_domain_settlement"
-require_named_function_pattern \
-  "domain settlement lost store-lock-first publishing claim" \
-  'with_preference_lock[[:space:]]+preferences.*Atomic[.]get[[:space:]]+settlement.*Pending[[:space:]]*->.*Atomic[.]set[[:space:]]+settlement[[:space:]]+\(Publishing[[:space:]]+requested\).*Domain_settlement_claimed' \
-  "$exact_output_flow_source" \
-  "begin_domain_settlement"
-require_named_function_pattern \
-  "domain settlement lost replay, nonblocking in-progress, or conflict convergence" \
-  'Settled[[:space:]]+receipt[[:space:]]*->.*same_receipt[[:space:]]+receipt[[:space:]]+requested.*Domain_settlement_replayed[[:space:]]+receipt.*Domain_settlement_conflict.*Publishing[[:space:]]+receipt[[:space:]]*->.*same_receipt[[:space:]]+receipt[[:space:]]+requested.*Domain_settlement_in_progress.*Domain_settlement_conflict' \
-  "$exact_output_flow_source" \
-  "begin_domain_settlement"
-require_named_function_pattern \
-  "aborted domain settlement stopped releasing its publishing claim" \
-  'with_preference_lock[[:space:]]+preferences.*Atomic[.]get[[:space:]]+settlement.*Publishing[[:space:]]+receipt[[:space:]]+when[[:space:]]+same_receipt[[:space:]]+receipt[[:space:]]+requested[[:space:]]*->.*Atomic[.]set[[:space:]]+settlement[[:space:]]+Pending' \
-  "$exact_output_flow_source" \
-  "abort_domain_settlement"
-require_named_function_pattern \
-  "domain settlement lost locked disposition publication" \
-  'with_preference_lock[[:space:]]+preferences.*Atomic[.]get[[:space:]]+settlement.*Publishing[[:space:]]+receipt[[:space:]]+when[[:space:]]+same_receipt[[:space:]]+receipt[[:space:]]+requested.*requested[.]disposition.*Rejected[[:space:]]*->[[:space:]]*\(\).*Valid[[:space:]]*->.*record_preference_locked[[:space:]]+preferences[[:space:]]+~scope[[:space:]]+~reservation[[:space:]]+~candidate[[:space:]]+~ordinal.*Atomic[.]set[[:space:]]+settlement[[:space:]]+\(Settled[[:space:]]+requested\).*Ok[[:space:]]+requested.*Settled[[:space:]]+receipt[[:space:]]+when[[:space:]]+same_receipt[[:space:]]+receipt[[:space:]]+requested[[:space:]]*->[[:space:]]+Ok[[:space:]]+receipt.*Domain_settlement_apply_conflict' \
-  "$exact_output_flow_source" \
-  "finish_domain_settlement"
-require_code_occurrence_count \
-  "locked preference recorder reference set changed" \
-  'record_preference_locked' \
-  2 \
-  "$exact_output_flow_source"
-scan_outside_named_functions \
-  "locked preference recorder escaped its definition or canonical publication path" \
-  'record_preference_locked' \
-  "$exact_output_flow_source" \
-  "record_preference_locked finish_domain_settlement"
-require_code_occurrence_count \
-  "recovered preference installer reference set changed" \
-  'install_recovered_preference_locked' \
-  2 \
-  "$exact_output_flow_source"
-scan_outside_named_functions \
-  "recovered preference installer escaped its definition or locked recovery path" \
-  'install_recovered_preference_locked' \
-  "$exact_output_flow_source" \
-  "install_recovered_preference_locked resume_committed_domain"
-require_named_function_pattern \
-  "recovered preference installation escaped the recovery lock" \
-  'with_preference_lock[[:space:]]+recovery.*install_recovered_preference_locked[[:space:]]+recovery' \
-  "$exact_output_flow_source" \
-  "resume_committed_domain"
-scan_code \
-  "locked preference recorder escaped through the private interface" \
-  'record_preference_locked' \
-  "$module_dir/exact_output_flow.mli"
-scan_named_functions \
-  "durable settlement orchestration acquired a store lock or raw atomic transition" \
-  'with_preference_lock|Mutex[.](lock|unlock)|Atomic[.](get|set|compare_and_set)' \
-  "$exact_output_domain_settlement_source" \
-  "commit_and_settle"
-require_named_function_pattern \
-  "durable settlement lost claim-commit-finish ordering or abort cleanup" \
-  'Flow_contract[.]begin_domain_settlement[[:space:]]+domain_settlement[[:space:]]+preferences[[:space:]]+receipt.*Domain_settlement_replayed.*Domain_settlement_in_progress.*Domain_settlement_conflict.*Domain_settlement_claimed.*Fun[.]protect.*Flow_contract[.]abort_domain_settlement[[:space:]]+domain_settlement[[:space:]]+preferences[[:space:]]+receipt.*match[[:space:]]+commit[[:space:]]+intent[[:space:]]+with.*Domain_commit_failed.*Flow_contract[.]finish_domain_settlement[[:space:]]+domain_settlement[[:space:]]+preferences.*finished[[:space:]]*:=[[:space:]]*true.*Ok[[:space:]]+receipt' \
-  "$exact_output_domain_settlement_source" \
-  "commit_and_settle"
-require_code_sequence \
-  "public durable settlement lost its typed nonblocking publication outcome" \
-  'type[[:space:]]+[^[:space:]]+[[:space:]]+domain_commit_error.*Domain_commit_failed.*Domain_settlement_in_progress.*Domain_settlement_conflict' \
-  "$exact_output_interface"
-require_named_function_pattern \
-  "preference capacity check and reservation add are no longer atomic" \
-  'with_preference_lock[[:space:]]+store.*Hashtbl[.]length[[:space:]]+store[.]entries.*Hashtbl[.]add[[:space:]]+store[.]entries' \
-  "$exact_output_flow_source" \
-  "reserve_preference_scope"
+  "declared exact flow regained preference ordering or domain settlement" \
+  'prefer_last_good|allocate_flow_success_ordinal|commit_and_settle_flow_domain|create_domain_settlement' \
+  "$exact_output_source"
 scan_code \
   "outer exact flow revived a legacy attempt or admission alias" \
   'candidate_attempt_count|admission_rejection|ready_flow|admit_flow' \

@@ -66,10 +66,24 @@ type ('admission, 'attempt, 'measurement) progress_snapshot =
   ; measurements : 'measurement list
   }
 
-type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome =
+type ('accepted, 'rejection) semantic_verdict =
+  | Accept of 'accepted
+  | Reject_and_advance of 'rejection
+
+type ('candidate
+     , 'accepted
+     , 'execution_error
+     , 'advanceable_error
+     , 'semantic_rejection
+     , 'callback_error)
+     outcome =
   | Succeeded of
-      { candidate : 'candidate
-      ; success : 'success
+      { accepted : 'accepted
+      ; prior_rejections : 'semantic_rejection list
+      }
+  | Semantic_candidates_exhausted of
+      { first_rejection : 'semantic_rejection
+      ; rest_rejections : 'semantic_rejection list
       }
   | Attempt_already_started
   | Before_advance_callback_failed of
@@ -77,10 +91,12 @@ type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_erro
       ; failure : 'advanceable_error
       ; next_candidate : 'candidate
       ; cause : 'callback_error
+      ; prior_rejections : 'semantic_rejection list
       }
   | Execution_failed of
       { candidate : 'candidate
       ; cause : 'execution_error
+      ; prior_rejections : 'semantic_rejection list
       }
 
 val create : unit -> t
@@ -226,14 +242,13 @@ val promote_candidate
   -> 'candidate list
   -> 'candidate list
 
-(** Execute an immutable, nonempty candidate snapshot once.
+(** Execute one immutable, nonempty candidate snapshot in its declared order.
 
-    [execute] owns preparation, durable pre-dispatch binding, and one-shot
-    execution for the current candidate. [before_advance] receives the
-    already-selected successor and can only confirm or reject its durable
-    transition; it cannot replace or reorder that successor. [advanceable]
-    refines an execution error into the only error type accepted by
-    [before_advance]; terminal errors cannot reach that callback.
+    Each candidate is passed to [execute] at most once. A successful transport
+    result is passed exactly once to the pure [validate] callback. [Accept]
+    terminates the flow; [Reject_and_advance] records opaque evidence and moves
+    directly to the predetermined successor without invoking [before_advance].
+    [before_advance] remains reserved for OAS-classified execution failures.
 
     The outer attempt is affine. A duplicate or concurrent invocation returns
     [Attempt_already_started]. Any exception, including Eio cancellation,
@@ -242,10 +257,18 @@ val execute_once
   :  t
   -> candidates:'candidate list
   -> execute:('candidate -> ('success, 'execution_error) result)
+  -> validate:
+       ('candidate -> 'success -> ('accepted, 'semantic_rejection) semantic_verdict)
   -> advanceable:('execution_error -> 'advanceable_error option)
   -> before_advance:
        (failed:'candidate
         -> failure:'advanceable_error
         -> next:'candidate
         -> (unit, 'callback_error) result)
-  -> ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome
+  -> ( 'candidate
+       , 'accepted
+       , 'execution_error
+       , 'advanceable_error
+       , 'semantic_rejection
+       , 'callback_error )
+       outcome
