@@ -3193,6 +3193,16 @@ let test_measurement_receipt_codec_and_transition () =
     (EO.measurement_operation_id_to_string
        (EO.measurement_receipt_operation_id decoded_terminal));
   check
+    string
+    "catalog generation survives durable round trip"
+    (EO.measurement_receipt_catalog_generation_fingerprint intent)
+    (EO.measurement_receipt_catalog_generation_fingerprint decoded_terminal);
+  check
+    string
+    "catalog evidence survives durable round trip"
+    (EO.measurement_receipt_catalog_evidence_sha256 intent)
+    (EO.measurement_receipt_catalog_evidence_sha256 decoded_terminal);
+  check
     bool
     "first callback is dispatch intent"
     true
@@ -3258,6 +3268,33 @@ let test_measurement_receipt_codec_and_transition () =
       |> Yojson.Safe.to_string
     | _ -> fail "encoded measurement receipt was not an object"
   in
+  let remove_field encoded name =
+    match Yojson.Safe.from_string encoded with
+    | `Assoc fields ->
+      `Assoc (List.filter (fun (field, _) -> not (String.equal field name)) fields)
+      |> Yojson.Safe.to_string
+    | _ -> fail "encoded measurement receipt was not an object"
+  in
+  let add_field encoded name value =
+    match Yojson.Safe.from_string encoded with
+    | `Assoc fields -> `Assoc (fields @ [ name, value ]) |> Yojson.Safe.to_string
+    | _ -> fail "encoded measurement receipt was not an object"
+  in
+  (match EO.measurement_receipt_snapshot_of_string "{" with
+   | Error (EO.Measurement_receipt_snapshot_malformed_json _) -> ()
+   | Ok _ | Error _ -> fail "malformed receipt did not fail typed decode");
+  (match
+     remove_field intent_encoded "catalog_evidence_sha256"
+     |> EO.measurement_receipt_snapshot_of_string
+   with
+   | Error EO.Measurement_receipt_snapshot_invalid_fields -> ()
+   | Ok _ | Error _ -> fail "missing receipt field did not fail exact schema");
+  (match
+     add_field intent_encoded "unexpected" (`Bool true)
+     |> EO.measurement_receipt_snapshot_of_string
+   with
+   | Error EO.Measurement_receipt_snapshot_invalid_fields -> ()
+   | Ok _ | Error _ -> fail "extra receipt field did not fail exact schema");
   let tampered = rewrite_field terminal_encoded "outcome" (`String "cancelled") in
   (match EO.measurement_receipt_snapshot_of_string tampered with
    | Error EO.Measurement_receipt_snapshot_integrity_mismatch -> ()
@@ -3297,6 +3334,12 @@ let test_measurement_receipt_codec_and_transition () =
       |> Yojson.Safe.to_string
     | _ -> fail "encoded measurement receipt was not an object"
   in
+  let inconsistent =
+    rewrite_with_integrity terminal_encoded "phase" (`String "fence_committed")
+  in
+  (match EO.measurement_receipt_snapshot_of_string inconsistent with
+   | Error (EO.Measurement_receipt_snapshot_invalid_field "receipt_state") -> ()
+   | Ok _ | Error _ -> fail "internally inconsistent receipt did not fail closed");
   let other_operation =
     rewrite_with_integrity intent_encoded "operation_id" (`String "other-operation")
     |> decode "other operation"
@@ -3330,6 +3373,93 @@ let test_measurement_receipt_codec_and_transition () =
      with
      | EO.Measurement_transition_conflict EO.Measurement_operation_binding_mismatch ->
        true
+     | _ -> false);
+  let check_catalog_binding_conflict label field replacement =
+    let incoming =
+      rewrite_with_integrity intent_encoded field (`String replacement) |> decode label
+    in
+    check
+      bool
+      label
+      true
+      (match
+         EO.classify_measurement_receipt_transition ~previous:(Some intent) ~incoming
+       with
+       | EO.Measurement_transition_conflict EO.Measurement_operation_binding_mismatch ->
+         true
+       | _ -> false)
+  in
+  check_catalog_binding_conflict
+    "catalog generation mismatch is binding conflict"
+    "catalog_generation_fingerprint"
+    (String.make 64 'b');
+  check_catalog_binding_conflict
+    "catalog evidence mismatch is binding conflict"
+    "catalog_evidence_sha256"
+    (String.make 64 'c');
+  let wire_started =
+    intent_encoded
+    |> fun encoded ->
+    rewrite_with_integrity encoded "phase" (`String "wire_started")
+    |> fun encoded ->
+    rewrite_with_integrity encoded "dispatch" (`String "dispatch_started")
+    |> decode "wire started"
+  in
+  let no_dispatch_intent =
+    rewrite_with_integrity intent_encoded "dispatch" (`String "no_dispatch")
+    |> decode "no-dispatch fence"
+  in
+  let check_invalid_previous label previous expected_phase expected_dispatch =
+    check
+      bool
+      label
+      true
+      (match
+         EO.classify_measurement_receipt_transition
+           ~previous:(Some previous)
+           ~incoming:terminal
+       with
+       | EO.Measurement_transition_conflict
+           (EO.Measurement_invalid_previous_boundary { phase; dispatch; outcome = None })
+         -> phase = expected_phase && dispatch = expected_dispatch
+       | _ -> false)
+  in
+  check_invalid_previous
+    "wire-started previous boundary fails closed"
+    wire_started
+    EO.Measurement_wire_started
+    EO.Measurement_dispatch_started;
+  check_invalid_previous
+    "no-dispatch fence previous boundary fails closed"
+    no_dispatch_intent
+    EO.Measurement_fence_committed
+    EO.No_measurement_dispatch;
+  check
+    bool
+    "wire-started incoming snapshot is not a durable commit"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:(Some intent)
+         ~incoming:wire_started
+     with
+     | EO.Measurement_transition_conflict
+         (EO.Measurement_invalid_commit_phase EO.Measurement_wire_started) -> true
+     | _ -> false);
+  let conflicting_terminal =
+    rewrite_with_integrity terminal_encoded "outcome" (`String "cancelled")
+    |> decode "conflicting terminal"
+  in
+  check
+    bool
+    "terminal evidence conflict fails closed"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:(Some terminal)
+         ~incoming:conflicting_terminal
+     with
+     | EO.Measurement_transition_conflict EO.Measurement_evidence_conflict -> true
      | _ -> false);
   let conflicting_intent =
     rewrite_with_integrity intent_encoded "dispatch" (`String "no_dispatch")

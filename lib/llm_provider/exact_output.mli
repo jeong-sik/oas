@@ -278,6 +278,8 @@ type measurement_receipt_snapshot = private
   ; visit_ordinal : flow_visit_ordinal
   ; candidate_id : string
   ; candidate_binding_sha256 : string
+  ; catalog_generation_fingerprint : string
+  ; catalog_evidence_sha256 : string
   ; request_body_sha256 : string
   ; phase : measurement_receipt_phase
   ; dispatch : measurement_dispatch_fact
@@ -296,6 +298,11 @@ type measurement_receipt_transition_conflict =
   | Measurement_operation_mismatch
   | Measurement_operation_binding_mismatch
   | Measurement_invalid_commit_phase of measurement_receipt_phase
+  | Measurement_invalid_previous_boundary of
+      { phase : measurement_receipt_phase
+      ; dispatch : measurement_dispatch_fact
+      ; outcome : measurement_outcome option
+      }
   | Measurement_phase_regression of
       { previous_phase : measurement_receipt_phase
       ; incoming_phase : measurement_receipt_phase
@@ -549,6 +556,12 @@ val measurement_receipt_flow_id : measurement_receipt_snapshot -> flow_id
 val measurement_receipt_visit_ordinal : measurement_receipt_snapshot -> flow_visit_ordinal
 val measurement_receipt_candidate_id : measurement_receipt_snapshot -> string
 val measurement_receipt_candidate_binding_sha256 : measurement_receipt_snapshot -> string
+
+val measurement_receipt_catalog_generation_fingerprint
+  :  measurement_receipt_snapshot
+  -> string
+
+val measurement_receipt_catalog_evidence_sha256 : measurement_receipt_snapshot -> string
 val measurement_receipt_request_body_sha256 : measurement_receipt_snapshot -> string
 val measurement_receipt_phase : measurement_receipt_snapshot -> measurement_receipt_phase
 

@@ -36,6 +36,8 @@ type measurement_receipt_snapshot =
   ; visit_ordinal : flow_visit_ordinal
   ; candidate_id : string
   ; candidate_binding_sha256 : string
+  ; catalog_generation_fingerprint : string
+  ; catalog_evidence_sha256 : string
   ; request_body_sha256 : string
   ; phase : measurement_receipt_phase
   ; dispatch : measurement_dispatch_fact
@@ -54,6 +56,11 @@ type measurement_receipt_transition_conflict =
   | Measurement_operation_mismatch
   | Measurement_operation_binding_mismatch
   | Measurement_invalid_commit_phase of measurement_receipt_phase
+  | Measurement_invalid_previous_boundary of
+      { phase : measurement_receipt_phase
+      ; dispatch : measurement_dispatch_fact
+      ; outcome : measurement_outcome option
+      }
   | Measurement_phase_regression of
       { previous_phase : measurement_receipt_phase
       ; incoming_phase : measurement_receipt_phase
@@ -77,6 +84,8 @@ let create_measurement_receipt_snapshot
       ~visit_ordinal
       ~candidate_id
       ~candidate_binding_sha256
+      ~catalog_generation_fingerprint
+      ~catalog_evidence_sha256
       ~request_body_sha256
       ~phase
       ~dispatch
@@ -87,6 +96,8 @@ let create_measurement_receipt_snapshot
   ; visit_ordinal
   ; candidate_id
   ; candidate_binding_sha256
+  ; catalog_generation_fingerprint
+  ; catalog_evidence_sha256
   ; request_body_sha256
   ; phase
   ; dispatch
@@ -101,6 +112,14 @@ let measurement_receipt_candidate_id snapshot = snapshot.candidate_id
 
 let measurement_receipt_candidate_binding_sha256 snapshot =
   snapshot.candidate_binding_sha256
+;;
+
+let measurement_receipt_catalog_generation_fingerprint snapshot =
+  snapshot.catalog_generation_fingerprint
+;;
+
+let measurement_receipt_catalog_evidence_sha256 snapshot =
+  snapshot.catalog_evidence_sha256
 ;;
 
 let measurement_receipt_request_body_sha256 snapshot = snapshot.request_body_sha256
@@ -168,6 +187,8 @@ let payload_fields snapshot =
   ; "visit_ordinal", `Int (flow_visit_ordinal_to_int snapshot.visit_ordinal)
   ; "candidate_id", `String snapshot.candidate_id
   ; "candidate_binding_sha256", `String snapshot.candidate_binding_sha256
+  ; "catalog_generation_fingerprint", `String snapshot.catalog_generation_fingerprint
+  ; "catalog_evidence_sha256", `String snapshot.catalog_evidence_sha256
   ; "request_body_sha256", `String snapshot.request_body_sha256
   ; "phase", `String (phase_to_string snapshot.phase)
   ; "dispatch", `String (dispatch_to_string snapshot.dispatch)
@@ -193,6 +214,8 @@ let expected_fields =
   ; "visit_ordinal"
   ; "candidate_id"
   ; "candidate_binding_sha256"
+  ; "catalog_generation_fingerprint"
+  ; "catalog_evidence_sha256"
   ; "request_body_sha256"
   ; "phase"
   ; "dispatch"
@@ -272,6 +295,10 @@ let measurement_receipt_snapshot_of_string encoded =
         in
         let* candidate_id = string_field fields "candidate_id" in
         let* candidate_binding_sha256 = string_field fields "candidate_binding_sha256" in
+        let* catalog_generation_fingerprint =
+          string_field fields "catalog_generation_fingerprint"
+        in
+        let* catalog_evidence_sha256 = string_field fields "catalog_evidence_sha256" in
         let* request_body_sha256 = string_field fields "request_body_sha256" in
         let* phase = enum_field fields "phase" phase_of_string in
         let* dispatch = enum_field fields "dispatch" dispatch_of_string in
@@ -299,6 +326,8 @@ let measurement_receipt_snapshot_of_string encoded =
         let* () =
           if
             is_sha256 candidate_binding_sha256
+            && is_sha256 catalog_generation_fingerprint
+            && is_sha256 catalog_evidence_sha256
             && is_sha256 request_body_sha256
             && is_sha256 integrity_sha256
           then Ok ()
@@ -311,6 +340,8 @@ let measurement_receipt_snapshot_of_string encoded =
             ~visit_ordinal:(Flow_visit_ordinal visit_ordinal)
             ~candidate_id
             ~candidate_binding_sha256
+            ~catalog_generation_fingerprint
+            ~catalog_evidence_sha256
             ~request_body_sha256
             ~phase
             ~dispatch
@@ -352,6 +383,8 @@ let same_snapshot left right =
      = flow_visit_ordinal_to_int right.visit_ordinal
   && String.equal left.candidate_id right.candidate_id
   && String.equal left.candidate_binding_sha256 right.candidate_binding_sha256
+  && String.equal left.catalog_generation_fingerprint right.catalog_generation_fingerprint
+  && String.equal left.catalog_evidence_sha256 right.catalog_evidence_sha256
   && String.equal left.request_body_sha256 right.request_body_sha256
   && left.phase = right.phase
   && left.dispatch = right.dispatch
@@ -370,6 +403,8 @@ let same_binding left right =
      = flow_visit_ordinal_to_int right.visit_ordinal
   && String.equal left.candidate_id right.candidate_id
   && String.equal left.candidate_binding_sha256 right.candidate_binding_sha256
+  && String.equal left.catalog_generation_fingerprint right.catalog_generation_fingerprint
+  && String.equal left.catalog_evidence_sha256 right.catalog_evidence_sha256
   && String.equal left.request_body_sha256 right.request_body_sha256
 ;;
 
@@ -385,6 +420,14 @@ let phase_rank = function
   | Measurement_terminal -> 2
 ;;
 
+let is_terminal_boundary snapshot =
+  snapshot.phase = Measurement_terminal && Option.is_some snapshot.outcome
+;;
+
+let is_durable_boundary snapshot =
+  is_dispatch_intent snapshot || is_terminal_boundary snapshot
+;;
+
 let classify_measurement_receipt_transition ~previous ~incoming =
   match previous with
   | None ->
@@ -394,7 +437,15 @@ let classify_measurement_receipt_transition ~previous ~incoming =
     then Measurement_transition_conflict (Measurement_invalid_commit_phase incoming.phase)
     else Measurement_transition_conflict Measurement_evidence_conflict
   | Some previous ->
-    if not (measurement_receipt_same_operation previous incoming)
+    if not (is_durable_boundary previous)
+    then
+      Measurement_transition_conflict
+        (Measurement_invalid_previous_boundary
+           { phase = previous.phase
+           ; dispatch = previous.dispatch
+           ; outcome = previous.outcome
+           })
+    else if not (measurement_receipt_same_operation previous incoming)
     then Measurement_transition_conflict Measurement_operation_mismatch
     else if not (same_binding previous incoming)
     then Measurement_transition_conflict Measurement_operation_binding_mismatch
@@ -406,7 +457,7 @@ let classify_measurement_receipt_transition ~previous ~incoming =
         (Measurement_phase_regression
            { previous_phase = previous.phase; incoming_phase = incoming.phase })
     else if
-      previous.phase <> Measurement_terminal
+      is_dispatch_intent previous
       && incoming.phase = Measurement_terminal
       && Option.is_some incoming.outcome
     then Measurement_terminal_advance

@@ -457,6 +457,10 @@ let flow_measurement_receipt_snapshot (measurement : flow_measurement_receipt) =
     ~visit_ordinal:measurement.visit.ordinal
     ~candidate_id:candidate.candidate_id
     ~candidate_binding_sha256:candidate.binding_sha256
+    ~catalog_generation_fingerprint:
+      (catalog_generation_fingerprint measurement.visit.identity.catalog_generation)
+    ~catalog_evidence_sha256:
+      (catalog_evidence_sha256 measurement.visit.identity.catalog_evidence)
     ~request_body_sha256:snapshot.request_body_sha256
     ~phase:snapshot.phase
     ~dispatch:snapshot.dispatch
