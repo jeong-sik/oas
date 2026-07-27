@@ -1,5 +1,6 @@
 open Alcotest
 module Capabilities = Llm_provider.Capabilities
+module Capability_vocab = Llm_provider.Capability_vocab
 module Model_catalog = Llm_provider.Model_catalog
 module Serving_constraint = Llm_provider.Serving_constraint
 
@@ -28,6 +29,75 @@ let test_load_default_catalog () =
       (Model_catalog.model_entries expected = Model_catalog.model_entries catalog
        && Model_catalog.provider_entries expected = Model_catalog.provider_entries catalog
       )
+;;
+
+let test_ollama_cloud_v1_vendor_rows_preserve_probe_truth () =
+  let catalog =
+    Model_catalog_test_support.load_repo_model_catalog
+      ~suite:"Ollama Cloud v1 vendor rows"
+  in
+  let entries = Model_catalog.model_entries catalog in
+  List.iter
+    (fun model_id ->
+       let matches =
+         List.filter
+           (fun (entry : Model_catalog.model_entry) ->
+              entry.id_prefix = model_id
+              && entry.provider_name = Some "ollama_cloud")
+           entries
+       in
+       match matches with
+       | [ entry ] ->
+         check
+           (option string)
+           (model_id ^ " capability base")
+           (Some "ollama_cloud")
+           entry.base_label;
+         check
+           (option int)
+           (model_id ^ " context")
+           (Some 262_144)
+           entry.max_context_tokens;
+         check (option bool) (model_id ^ " tools") (Some true) entry.supports_tools;
+         check
+           (option bool)
+           (model_id ^ " reasoning")
+           (Some true)
+           entry.supports_reasoning;
+         check
+           (option bool)
+           (model_id ^ " no reasoning budget control")
+           (Some false)
+           entry.supports_reasoning_budget;
+         check
+           bool
+           (model_id ^ " inherent thinking has no request control")
+           true
+           (entry.thinking_control_format
+            = Some Capability_vocab.No_thinking_control);
+         check
+           (option bool)
+           (model_id ^ " json mode")
+           (Some true)
+           entry.supports_response_format_json;
+         check
+           (option bool)
+           (model_id ^ " no native schema guarantee")
+           (Some false)
+           entry.supports_structured_output;
+         check
+           (option bool)
+           (model_id ^ " image input")
+           (Some true)
+           entry.supports_image_input;
+         check
+           (option bool)
+           (model_id ^ " native streaming")
+           (Some true)
+           entry.supports_native_streaming
+       | [] -> failf "missing ollama_cloud/%s catalog row" model_id
+       | _ -> failf "duplicate ollama_cloud/%s catalog rows" model_id)
+    [ "qwen3.5:cloud"; "gemma4:31b-cloud" ]
 ;;
 
 let test_in_memory_catalog_rejects_invalid_generated_input () =
@@ -184,6 +254,10 @@ let () =
     "model catalog default"
     [ ( "embedded catalog"
       , [ test_case "load_default" `Quick test_load_default_catalog
+        ; test_case
+            "Ollama Cloud v1 vendor rows preserve probe truth"
+            `Quick
+            test_ollama_cloud_v1_vendor_rows_preserve_probe_truth
         ; test_case
             "invalid generated input fails closed"
             `Quick

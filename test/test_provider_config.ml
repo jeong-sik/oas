@@ -1436,6 +1436,44 @@ let test_validate_output_schema_ollama_cloud_catalog_minimax_rejected () =
     | Ok () -> Alcotest.fail "expected Ollama Cloud minimax-m3 capability rejection")
 ;;
 
+let test_ollama_cloud_v1_vendor_models_admit_json_mode_only () =
+  with_repository_model_catalog (fun () ->
+    List.iter
+      (fun model_id ->
+         let make ?output_schema () =
+           Provider_config.make
+             ~kind:OpenAI_compat
+             ~provider_id:"ollama_cloud"
+             ~model_id
+             ~base_url:"https://ollama.com/v1"
+             ~request_path:"/chat/completions"
+             ~response_format_json:true
+             ?output_schema
+             ()
+         in
+         let json_mode = make () in
+         check_bool
+           (model_id ^ " keeps json_object mode")
+           true
+           (json_mode.response_format = Types.JsonMode);
+         check_bool
+           (model_id ^ " admits json_object without a schema")
+           true
+           (Result.is_ok (Provider_config.validate_output_schema_request json_mode));
+         let json_schema = make ~output_schema:(`Assoc [ "type", `String "object" ]) () in
+         match Provider_config.validate_output_schema_request json_schema with
+         | Error msg ->
+           check_string
+             (model_id ^ " rejects native json_schema")
+             (Printf.sprintf
+                "model %s advertises JSON mode (json_object) only; native json_schema \
+                 output is not supported by its declared capability"
+                model_id)
+             msg
+         | Ok () -> Alcotest.failf "%s must reject native json_schema" model_id)
+      [ "qwen3.5:cloud"; "gemma4:31b-cloud" ])
+;;
+
 let test_validate_output_schema_ollama_cloud_catalog_rejects_model_without_so () =
   with_repository_model_catalog (fun () ->
     let cfg =
@@ -2327,6 +2365,10 @@ let () =
             "ollama cloud catalog minimax rejected"
             `Quick
             test_validate_output_schema_ollama_cloud_catalog_minimax_rejected
+        ; Alcotest.test_case
+            "ollama cloud v1 vendor models admit json mode only"
+            `Quick
+            test_ollama_cloud_v1_vendor_models_admit_json_mode_only
         ; Alcotest.test_case
             "ollama cloud catalog rejects model without SO"
             `Quick

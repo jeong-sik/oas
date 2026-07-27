@@ -608,6 +608,26 @@ modality_priority = "visual_first"
 supports_native_streaming = true
 
 [[models]]
+id_prefix = "gemma4:31b-cloud"
+provider_name = "ollama_cloud"
+base = "ollama_cloud"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = false
+# Authenticated 2026-07-27 /api/show and /v1/chat/completions probes:
+# thinking is inherent on the OpenAI-compatible wire, not an /api/chat think toggle.
+thinking_control_format = "none"
+supports_response_format_json = true
+supports_structured_output = false
+supports_multimodal_inputs = true
+supports_image_input = true
+modality_priority = "visual_first"
+supports_native_streaming = true
+
+[[models]]
 id_prefix = "gemma4:31b"
 provider_name = "ollama_cloud"
 base = "ollama_cloud"
@@ -997,6 +1017,26 @@ supports_reasoning_budget = false
 thinking_control_format = "none"
 supports_multimodal_inputs = false
 supports_image_input = false
+supports_native_streaming = true
+
+[[models]]
+id_prefix = "qwen3.5:cloud"
+provider_name = "ollama_cloud"
+base = "ollama_cloud"
+max_context_tokens = 262144
+supports_tools = true
+supports_tool_choice = false
+supports_reasoning = true
+supports_extended_thinking = true
+supports_reasoning_budget = false
+# Authenticated 2026-07-27 /api/show and /v1/chat/completions probes:
+# json_object returned bare JSON; json_schema returned fenced, unconstrained JSON.
+thinking_control_format = "none"
+supports_response_format_json = true
+supports_structured_output = false
+supports_multimodal_inputs = true
+supports_image_input = true
+modality_priority = "visual_first"
 supports_native_streaming = true
 
 [[models]]
