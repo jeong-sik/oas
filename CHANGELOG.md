@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.228.1](https://github.com/jeong-sik/oas/compare/v0.228.0...v0.228.1) (2026-07-27)
+
+
+### Features
+
+* **exact-output:** validate declared Runtime failover ([#2831](https://github.com/jeong-sik/oas/issues/2831)) ([12e1a8c](https://github.com/jeong-sik/oas/commit/12e1a8cd6b9eed5c5d4f1aefc7568f0c2784b0a0))
+
 ## [0.228.0](https://github.com/jeong-sik/oas/compare/v0.227.1...v0.228.0) (2026-07-27)
 
 ### Breaking Changes
