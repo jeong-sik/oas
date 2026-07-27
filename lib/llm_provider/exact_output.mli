@@ -202,11 +202,16 @@ type raw_response =
   ; body_sha256 : string
   }
 
+type input_capacity_refusal =
+  | Context_window_refused of { limit_tokens : int option }
+  | Serialized_request_refused of { http_status : int }
+
 type execution_error_cause =
   | Attempt_already_started
   | Clock_required_for_timeout
   | Frozen_request_mismatch
   | Completion_failed
+  | Input_capacity_refused of input_capacity_refusal
   | Incomplete_output
   | Missing_output
   | Ambiguous_output of int

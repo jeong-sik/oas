@@ -85,11 +85,16 @@ type raw_response = Trace.raw_response =
   ; body_sha256 : string
   }
 
+type input_capacity_refusal =
+  | Context_window_refused of { limit_tokens : int option }
+  | Serialized_request_refused of { http_status : int }
+
 type execution_error_cause =
   | Attempt_already_started
   | Clock_required_for_timeout
   | Frozen_request_mismatch
   | Completion_failed
+  | Input_capacity_refused of input_capacity_refusal
   | Incomplete_output
   | Missing_output
   | Ambiguous_output of int
@@ -670,9 +675,32 @@ let synchronize_receipt = Generation_receipt.synchronize
 let raw_response = Trace.raw_response
 let record_provider_trace = Generation_receipt.record_provider_trace
 
+let input_capacity_refusal_of_http_error ~code ~body ~retry_after_header =
+  match Retry.classify_error ~retry_after_header ~status:code ~body with
+  | Retry.ContextOverflow { limit; _ } ->
+    Some (Context_window_refused { limit_tokens = limit })
+  | Retry.InvalidRequest { reason = Retry.Request_body_refused_by_provider { status }; _ }
+    -> Some (Serialized_request_refused { http_status = status })
+  | Retry.RateLimited _
+  | Retry.Overloaded _
+  | Retry.ServerError _
+  | Retry.AuthError _
+  | Retry.AuthorizationError _
+  | Retry.PaymentRequired _
+  | Retry.InvalidRequest _
+  | Retry.NotFound _
+  | Retry.InputCapacity _
+  | Retry.NetworkError _
+  | Retry.Timeout _ -> None
+;;
+
 let execution_error_cause = function
   | Exec.Clock_required_for_timeout -> Clock_required_for_timeout
   | Exec.Frozen_request_mismatch -> Frozen_request_mismatch
+  | Exec.Provider_error (Http_client.HttpError { code; body; retry_after_header }) ->
+    (match input_capacity_refusal_of_http_error ~code ~body ~retry_after_header with
+     | Some refusal -> Input_capacity_refused refusal
+     | None -> Completion_failed)
   | Exec.Provider_error _ -> Completion_failed
   | Exec.Output_normalization_failed (Exec.Incomplete_structured_response _) ->
     Incomplete_output
@@ -757,7 +785,13 @@ let execute_once ~net ?clock attempt =
 let execution_failure_may_advance (error : execution_error) =
   match error.cause, receipt_phase error.receipt with
   | Completion_failed, Before_dispatch -> receipt_dispatch_count error.receipt = 0
+  | Input_capacity_refused _, Response_received ->
+    (* The response contract proves that the provider rejected this input before
+       generation. Keep the honest one-dispatch receipt, but allow the frozen
+       lane to try its predetermined successor. *)
+    receipt_dispatch_count error.receipt = 1
   | Completion_failed, (Not_started | Dispatch_started | Response_received | Terminal)
+  | Input_capacity_refused _, (Not_started | Before_dispatch | Dispatch_started | Terminal)
   | ( ( Attempt_already_started
       | Clock_required_for_timeout
       | Frozen_request_mismatch

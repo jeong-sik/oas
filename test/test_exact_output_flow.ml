@@ -300,7 +300,14 @@ let tool_response =
   {|{"id":"resp-tool","model":"flow","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call-1","type":"function","function":{"name":"forbidden","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}|}
 ;;
 
-let with_server ?response_delay_s ?(status = `OK) ?(abort_completion = false) ~response f =
+let with_server
+      ?response_delay_s
+      ?(status = `OK)
+      ?first_response
+      ?(abort_completion = false)
+      ~response
+      f
+  =
   let completion_posts = Atomic.make 0 in
   let result =
     Eio_main.run
@@ -312,10 +319,15 @@ let with_server ?response_delay_s ?(status = `OK) ?(abort_completion = false) ~r
     let port = fresh_port () in
     let handler _conn _request body =
       ignore (Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) : string);
-      Atomic.incr completion_posts;
+      let post_index = Atomic.fetch_and_add completion_posts 1 in
       if abort_completion then raise Exit;
       Option.iter (Eio.Time.sleep clock) response_delay_s;
-      Cohttp_eio.Server.respond_string ~status ~body:response ()
+      let response_status, response_body =
+        match first_response, post_index with
+        | Some first, 0 -> first
+        | Some _, _ | None, _ -> status, response
+      in
+      Cohttp_eio.Server.respond_string ~status:response_status ~body:response_body ()
     in
     let socket =
       Eio.Net.listen
@@ -4969,6 +4981,160 @@ let test_callback_failures_are_terminal () =
   | Ok _ | Error _ -> fail "failed advance did not return typed terminal evidence"
 ;;
 
+let assert_typed_capacity_refusal_advances_once ~label ~first_response ~assert_cause =
+  let refused_id = label ^ "-refused" in
+  let successor_id = label ^ "-successor" in
+  let ( (result, replay, advances, evidence, observed_advance, dispatches_before_replay)
+      , posts )
+    =
+    with_server ~first_response ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:refused_id ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:successor_id ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let flow = start_flow (frozen_flow snapshot [ refused_id; successor_id ]) in
+    let advances = ref 0 in
+    let observed_advance = ref None in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
+        ~before_measurement_dispatch:(fun _ -> Ok ())
+        ~before_dispatch:(fun _ -> Ok ())
+        ~before_advance:(fun ~failed ~next ->
+          let failed_candidate, failure = flow_execution_failure failed in
+          observed_advance
+          := Some
+               ( candidate_id failed_candidate
+               , next.identity.candidate_id
+               , failure.EO.cause
+               , EO.receipt_phase failure.receipt
+               , EO.receipt_dispatch_count failure.receipt );
+          incr advances;
+          Ok ())
+        flow
+    in
+    let evidence = EO.flow_attempt_evidence flow in
+    let dispatches_before_replay =
+      List.fold_left
+        (fun total (attempt : EO.flow_attempt_snapshot) ->
+           total + EO.generation_receipt_snapshot_dispatch_count attempt.receipt)
+        0
+        evidence.attempts
+    in
+    ( result
+    , execute_ok ~net flow
+    , !advances
+    , evidence
+    , !observed_advance
+    , dispatches_before_replay )
+  in
+  (match observed_advance with
+   | Some (failed, next, cause, phase, dispatch_count) ->
+     check string (label ^ " typed capacity failure candidate") refused_id failed;
+     check string (label ^ " typed capacity predetermined successor") successor_id next;
+     assert_cause cause;
+     check
+       bool
+       (label ^ " typed capacity refusal records response receipt")
+       true
+       (phase = EO.Response_received);
+     check int (label ^ " typed capacity refusal records one dispatch") 1 dispatch_count
+   | None -> fail (label ^ " capacity refusal did not request advance"));
+  check int (label ^ " flow performs two total POSTs") 2 posts;
+  check int (label ^ " typed capacity requests one successor advance") 1 advances;
+  check
+    int
+    (label ^ " typed capacity retains two attempts")
+    2
+    (List.length evidence.attempts);
+  let refused_attempt = attempt_for evidence refused_id in
+  check
+    int
+    (refused_id ^ " dispatch count")
+    1
+    (EO.generation_receipt_snapshot_dispatch_count refused_attempt.receipt);
+  let successor_attempt = attempt_for evidence successor_id in
+  check
+    int
+    (successor_id ^ " dispatch count")
+    1
+    (EO.generation_receipt_snapshot_dispatch_count successor_attempt.receipt);
+  check int (label ^ " replay adds zero POSTs") 0 (posts - dispatches_before_replay);
+  (match replay with
+   | Error (EO.Flow_attempt_already_started _) -> ()
+   | Ok _ | Error _ -> fail (label ^ " capacity flow replay dispatched again"));
+  match result with
+  | Ok success ->
+    check
+      string
+      (label ^ " typed capacity successor succeeds")
+      successor_id
+      (candidate_id (EO.flow_success_candidate success))
+  | Error _ -> fail (label ^ " typed capacity refusal did not advance")
+;;
+
+let test_context_window_400_refusal_advances_once_to_successor () =
+  assert_typed_capacity_refusal_advances_once
+    ~label:"context-window"
+    ~first_response:
+      ( `Bad_request
+      , {|{"error":"The prompt is too long: 1400014, model maximum context length: 1048576 (ref: 8519ccf3-5d45-4686-9ac1-64d159f75ec1)"}|}
+      )
+    ~assert_cause:(function
+    | EO.Input_capacity_refused
+        (EO.Context_window_refused { limit_tokens = Some 1048576 }) -> ()
+    | _ -> fail "context-window 400 lost its typed capacity cause")
+;;
+
+let test_serialized_request_413_refusal_advances_once_to_successor () =
+  assert_typed_capacity_refusal_advances_once
+    ~label:"serialized-request"
+    ~first_response:
+      (Cohttp.Code.status_of_code 413, {|{"error":"request body too large"}|})
+    ~assert_cause:(function
+      | EO.Input_capacity_refused (EO.Serialized_request_refused { http_status = 413 }) ->
+        ()
+      | _ -> fail "HTTP 413 lost its typed serialized-request cause")
+;;
+
+let test_generic_400_remains_terminal_without_advance () =
+  let (result, advances, evidence), posts =
+    with_server ~status:`Bad_request ~response:{|{"error":"generic request rejection"}|}
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"generic-400-a" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"generic-400-b" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let flow = start_flow (frozen_flow snapshot [ "generic-400-a"; "generic-400-b" ]) in
+    let advances = ref 0 in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
+        ~before_measurement_dispatch:(fun _ -> Ok ())
+        ~before_dispatch:(fun _ -> Ok ())
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          incr advances;
+          Ok ())
+        flow
+    in
+    result, !advances, EO.flow_attempt_evidence flow
+  in
+  check int "generic 400 dispatches once" 1 posts;
+  check int "generic 400 requests no advance" 0 advances;
+  check int "generic 400 leaves successor unprepared" 1 (List.length evidence.attempts);
+  match result with
+  | Error
+      (EO.Flow_exact_execution_failed
+         { candidate; cause = { cause = EO.Completion_failed; _ }; _ }) ->
+    check string "generic 400 terminal candidate" "generic-400-a" (candidate_id candidate)
+  | Ok _ | Error _ -> fail "generic 400 did not remain a completion failure"
+;;
+
 let test_postdispatch_and_structural_outcomes_never_advance () =
   let run ?(status = `OK) ?(abort_completion = false) label response =
     let (result, advances), posts =
@@ -5468,6 +5634,18 @@ let () =
             "callback failures are terminal"
             `Quick
             test_callback_failures_are_terminal
+        ; test_case
+            "context-window 400 advances with one dispatch per candidate"
+            `Quick
+            test_context_window_400_refusal_advances_once_to_successor
+        ; test_case
+            "HTTP 413 serialized request advances with one dispatch per candidate"
+            `Quick
+            test_serialized_request_413_refusal_advances_once_to_successor
+        ; test_case
+            "generic 400 remains terminal"
+            `Quick
+            test_generic_400_remains_terminal_without_advance
         ; test_case
             "postdispatch and structural outcomes stop"
             `Quick
