@@ -8,6 +8,28 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.229.0](https://github.com/jeong-sik/oas/compare/v0.228.0...v0.229.0) (2026-07-27)
+
+### Breaking Changes
+
+`Exact_output` removes flow preference, domain settlement, scope retirement,
+and recovery stores. `snapshot_flow` freezes only the caller-declared candidate
+order, and the sole `execute_flow_once` entry point now requires a semantic
+validator. Exhaustive consumers must handle typed semantic rejection traces.
+
+### Features
+
+* **exact-output:** validate each candidate result and advance through the
+  frozen Runtime order without a second lifecycle authority
+  ([#2831](https://github.com/jeong-sik/oas/pull/2831))
+* **exact-output:** admit ordinary text Runtimes for JSON-syntax requests using
+  a strict OAS-owned instruction and exact JSON parsing; native provider schema
+  remains capability-gated
+  ([#2831](https://github.com/jeong-sik/oas/pull/2831))
+* **catalog:** add provider-scoped Ollama Cloud Qwen 3.5 and Gemma 4 31B JSON
+  mode capabilities without claiming native JSON Schema support
+  ([#2831](https://github.com/jeong-sik/oas/pull/2831))
+
 ## [0.228.0](https://github.com/jeong-sik/oas/compare/v0.227.1...v0.228.0) (2026-07-27)
 
 ### Breaking Changes
