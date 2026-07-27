@@ -6,7 +6,6 @@ OCaml 5.x + Eio 기반 에이전트 SDK. 버전 SSOT: `lib/sdk_version.ml` (실�
 
 ```
 lib/        →  agent_sdk       (Layer 1: Agent Runtime)
-bin/        →  oas_cli, oas_runtime
 test/       →  alcotest 기반 단위/통합 테스트
 examples/   →  사용 예제
 ```
@@ -63,8 +62,14 @@ Probes local llama-server instances via OpenAI-compatible API:
 - `GET /slots` — per-slot busy/idle status
 
 ```ocaml
-let statuses = Discovery.discover ~sw ~net
-  ~endpoints:(Discovery.endpoints_from_env ())
+let endpoints =
+  Llm_provider.Discovery.parse_llm_endpoints_env ()
+  |> List.map
+       (Llm_provider.Discovery.endpoint
+          ~protocol:Llm_provider.Discovery.Openai_compatible
+          ~capabilities:Llm_provider.Capabilities.default_capabilities)
+in
+let statuses = Llm_provider.Discovery.discover ~sw ~net ~endpoints
 ```
 
 Configure via `LLM_ENDPOINTS` env var (comma-separated, default `http://127.0.0.1:8085`).
