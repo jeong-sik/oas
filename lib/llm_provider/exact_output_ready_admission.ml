@@ -99,7 +99,6 @@ type wire_admission_error =
 
 type admission_error =
   | Provider_schema_unavailable
-  | Json_syntax_unavailable
   | Unsupported_schema_keyword of string
   | Unsupported_schema_type of string
   | Invalid_schema
@@ -183,7 +182,29 @@ let response_format (target : Resolver.selected_target) requirement =
   | Caps.Json_object_only, Json_syntax -> Ok (Types.JsonMode, Json_syntax_only, None)
   | Caps.Json_object_only, Provider_schema -> Error Provider_schema_unavailable
   | Caps.No_structured_output, Provider_schema -> Error Provider_schema_unavailable
-  | Caps.No_structured_output, Json_syntax -> Error Json_syntax_unavailable
+  | Caps.No_structured_output, Json_syntax -> Ok (Types.Off, Json_syntax_only, None)
+;;
+
+let text_json_instruction (Domain_schema schema) : Types.message =
+  let schema = canonical_json schema |> Yojson.Safe.to_string in
+  { role = Types.User
+  ; content =
+      [ Types.Text
+          (Printf.sprintf
+             "Return exactly one JSON value matching this JSON Schema. Do not use \
+              Markdown code fences or include any explanation. JSON Schema: %s"
+             schema)
+      ]
+  ; name = None
+  ; tool_call_id = None
+  ; metadata = []
+  }
+;;
+
+let messages_for_response_format requirement response_format messages =
+  match response_format with
+  | Types.Off -> messages @ [ text_json_instruction requirement.schema ]
+  | Types.JsonMode | Types.JsonSchema _ -> messages
 ;;
 
 let exact_config (target : Resolver.selected_target) response_format =
@@ -315,6 +336,7 @@ let admit ~target ~messages requirement =
   let* response_format, actual_assurance, effective_schema_fingerprint =
     admission_contract ~target requirement
   in
+  let messages = messages_for_response_format requirement response_format messages in
   let* preflight =
     Plan.preflight
       ~config:(exact_config target response_format)
@@ -365,6 +387,7 @@ let admit_candidate_request
           ; outcome = Flow_admission.Measurement_local_invalid
           } ))
   in
+  let messages = messages_for_response_format requirement response_format messages in
   let* preflight =
     Plan.preflight
       ~config:(exact_config target response_format)

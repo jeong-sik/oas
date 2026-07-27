@@ -50,9 +50,6 @@ type receipt
 type call_id
 type schema_fingerprint
 type flow_candidate
-type flow_preference_store
-type flow_scope
-type flow_success_ordinal
 type flow_snapshot
 type flow_attempt
 type flow_success
@@ -244,30 +241,9 @@ type flow_candidate_identity =
   ; target_identity : target_identity
   }
 
-type flow_preference_identity = private
-  { candidate_id : string
-  ; binding_sha256 : string
-  }
-
 type flow_id
 type flow_visit_ordinal
 type candidate_visit_count
-
-type flow_preference_not_applied_reason =
-  | Preference_candidate_absent
-  | Preference_candidate_binding_changed
-
-type flow_preference_observation =
-  | No_preference_recorded
-  | Preference_applied of
-      { candidate : flow_preference_identity
-      ; success_ordinal : flow_success_ordinal
-      }
-  | Preference_not_applied of
-      { candidate : flow_preference_identity
-      ; success_ordinal : flow_success_ordinal
-      ; reason : flow_preference_not_applied_reason
-      }
 
 type flow_candidate_visit = private
   { flow_id : flow_id
@@ -335,7 +311,6 @@ type candidate_admission =
   | Candidate_rejected of candidate_rejection_receipt
 
 type flow_candidate_error = Blank_flow_candidate_id
-type flow_scope_error = Blank_flow_scope_id
 
 type flow_snapshot_error =
   | Duplicate_flow_candidate_id of
@@ -343,16 +318,11 @@ type flow_snapshot_error =
       ; first_position : int
       ; duplicate_position : int
       }
-  | Flow_preference_capacity_exhausted of { capacity : int }
-  | Flow_preference_reservation_exhausted
 
 (** Construct one provider-neutral candidate from a catalog-admitted target.
     Credential selection remains frozen but unresolved until this candidate is
-    reached by {!execute_flow_once}. The trimmed caller identity must be
-    nonempty. It is an opaque caller slot identity: a domain-valid preference
-    may reorder a future snapshot only when both this exact slot identity and
-    the opaque target-identity fingerprint remain unchanged. OAS does not parse
-    provider, model, tier, or coordinator meaning from it. *)
+    reached by the declared-order flow. The trimmed caller identity must be
+    nonempty and is otherwise opaque to OAS. *)
 val make_flow_candidate
   :  id:string
   -> admitted_target:admitted_target
@@ -360,31 +330,13 @@ val make_flow_candidate
 
 val flow_candidate_identity : flow_candidate -> flow_candidate_identity
 
-(** Brand one opaque caller scope. OAS compares the trimmed nonempty identity
-    exactly; it does not parse coordinator, tenant, provider, or model fields. *)
-val make_flow_scope : id:string -> (flow_scope, flow_scope_error) result
-
-val flow_scope_equal : flow_scope -> flow_scope -> bool
-val flow_success_ordinal_to_int64 : flow_success_ordinal -> int64
-
-(** Freeze one nonempty ordered candidate snapshot and its immutable domain
-    input. This validates only flow topology. Credential selection and exact
-    request admission are deferred to the current candidate during
-    {!execute_flow_once}; later candidates are neither selected, prepared, nor
-    assigned attempts speculatively.
-
-    The snapshot atomically reserves [scope] in [preferences]. A new scope fails
-    with [Flow_preference_capacity_exhausted] when the store is full. A
-    domain-valid last-good candidate recorded for the scope is moved to the
-    front only when the same caller slot and opaque target binding are both
-    present. An absent slot or changed target binding is retained as a typed
-    non-applied observation. The remaining candidates retain their declared
-    relative order. This lookup happens exactly once: existing snapshots never
-    change, and preferences from another scope cannot affect this snapshot. *)
+(** Freeze one nonempty caller-declared candidate order and its immutable
+    domain input. This validates only flow topology. Credential selection and
+    exact request admission are deferred until each candidate is reached.
+    No preference store, provider ranking, or future observation may reorder the
+    snapshot. *)
 val snapshot_flow
-  :  preferences:flow_preference_store
-  -> scope:flow_scope
-  -> first:flow_candidate
+  :  first:flow_candidate
   -> rest:flow_candidate list
   -> messages:Types.message list
   -> output_requirement
@@ -530,19 +482,17 @@ val generation_receipt_snapshot_target_identity
   :  generation_receipt_snapshot
   -> target_identity
 
-(** One immutable outer-flow binding. [scope], opaque candidate identity, and
-    the one-shot execution receipt travel together; consumers do not rebuild
-    that join from coordinator or target strings. *)
+(** One immutable outer-flow binding. The opaque candidate identity and one-shot
+    execution receipt travel together; consumers do not rebuild that join from
+    coordinator or target strings. *)
 type flow_attempt_receipt = private
-  { scope : flow_scope
-  ; visit : flow_candidate_visit
+  { visit : flow_candidate_visit
   ; receipt : receipt
   }
 
 (** Immutable evidence copy of one generation attempt. *)
 type flow_attempt_snapshot = private
-  { scope : flow_scope
-  ; visit : flow_candidate_visit
+  { visit : flow_candidate_visit
   ; receipt : generation_receipt_snapshot
   }
 
@@ -607,7 +557,6 @@ val target_selection_error_disposition
 
 val admission_error_disposition : admission_error -> candidate_rejection_disposition
 val candidate_rejection_identity : candidate_rejection_receipt -> flow_candidate_identity
-val candidate_rejection_scope : candidate_rejection_receipt -> flow_scope
 val candidate_rejection_visit : candidate_rejection_receipt -> flow_candidate_visit
 
 val candidate_rejection_measurement_dispatch_fact
@@ -624,10 +573,7 @@ val candidate_rejection_disposition
 
 type flow_evidence = private
   { flow_id : flow_id
-  ; scope : flow_scope
   ; declared_candidate_snapshot : flow_candidate_identity list
-  ; candidate_snapshot : flow_candidate_identity list
-  ; preference_observation : flow_preference_observation
   ; candidate_visit_count : candidate_visit_count
   ; measurements : measurement_receipt_snapshot list
   ; admissions : candidate_admission list
@@ -637,131 +583,26 @@ type flow_evidence = private
 val flow_success_candidate : flow_success -> flow_attempt_receipt
 val flow_success_output : flow_success -> success
 val flow_success_evidence : flow_success -> flow_evidence
-val flow_success_ordinal : flow_success -> flow_success_ordinal
 
-type domain_disposition =
-  | Domain_valid
-  | Domain_rejected
+type ('accepted, 'rejection) semantic_verdict =
+  | Accept of 'accepted
+  | Reject_and_advance of 'rejection
 
-type domain_settlement_id
-type domain_settlement_intent
-type flow_preference_retirement_id
-type flow_preference_retirement_intent
-
-type domain_settlement_receipt = private
-  { settlement_id : domain_settlement_id
-  ; disposition : domain_disposition
+type 'rejection semantic_rejection_receipt = private
+  { transport_success : flow_success
+  ; rejection : 'rejection
   }
 
-type domain_settlement_intent_decode_error =
-  | Domain_settlement_intent_malformed_json of string
-  | Domain_settlement_intent_invalid_fields
-  | Domain_settlement_intent_unknown_format of string
-  | Domain_settlement_intent_unsupported_version of int
-  | Domain_settlement_intent_invalid_field of string
-  | Domain_settlement_intent_integrity_mismatch
+type 'rejection semantic_rejection_trace = private
+  { first : 'rejection semantic_rejection_receipt
+  ; rest : 'rejection semantic_rejection_receipt list
+  }
 
-type 'commit_error domain_commit_error =
-  | Domain_commit_failed of 'commit_error
-  | Domain_settlement_in_progress
-  | Domain_settlement_conflict
-
-type flow_preference_retirement_receipt
-
-type flow_preference_retirement_intent_decode_error =
-  | Flow_preference_retirement_intent_malformed_json of string
-  | Flow_preference_retirement_intent_invalid_fields
-  | Flow_preference_retirement_intent_unknown_format of string
-  | Flow_preference_retirement_intent_unsupported_version of int
-  | Flow_preference_retirement_intent_invalid_field of string
-  | Flow_preference_retirement_intent_integrity_mismatch
-
-type 'commit_error flow_preference_retirement_commit_error =
-  | Flow_preference_retirement_commit_failed of 'commit_error
-  | Flow_preference_retirement_in_progress
-  | Flow_preference_retirement_conflict
-  | Flow_preference_scope_not_reserved
-
-type flow_preference_recovery_evidence =
-  | Domain_settlement_evidence of domain_settlement_intent
-  | Scope_retirement_evidence of flow_preference_retirement_intent
-
-type flow_preference_recovery_error =
-  | Invalid_concurrent_scope_budget of int
-  | Conflicting_domain_settlement_evidence of domain_settlement_id
-  | Conflicting_scope_retirement_evidence of flow_preference_retirement_id
-
-val domain_settlement_id_to_string : domain_settlement_id -> string
-val domain_settlement_intent_id : domain_settlement_intent -> domain_settlement_id
-val domain_settlement_intent_disposition : domain_settlement_intent -> domain_disposition
-val domain_settlement_intent_to_string : domain_settlement_intent -> string
-
-val domain_settlement_intent_of_string
-  :  string
-  -> (domain_settlement_intent, domain_settlement_intent_decode_error) result
-
-val domain_settlement_receipt_id : domain_settlement_receipt -> domain_settlement_id
-
-val domain_settlement_receipt_disposition
-  :  domain_settlement_receipt
-  -> domain_disposition
-
-(** Fence caller-owned domain validation behind a durable content commit.
-    [commit] receives the only current-schema, provider-neutral replay intent
-    and must store it in authenticated durable state before returning [Ok].
-    No callback runs while the preference mutex is held. A concurrent same-ID,
-    same-disposition publisher receives [Domain_settlement_in_progress] without
-    blocking; a later replay returns the same deterministic receipt. A
-    different disposition is a typed conflict.
-
-    This is logical idempotent replay, not a claim that arbitrary external
-    storage performs a physical effect exactly once. If [commit] raises after
-    its durable effect, restart must decode and resume that committed intent. *)
-val commit_and_settle_flow_domain
-  :  commit:(domain_settlement_intent -> (unit, 'commit_error) result)
-  -> flow_success
-  -> domain_disposition
-  -> (domain_settlement_receipt, 'commit_error domain_commit_error) result
-
-(** Return the stable digest identity of one current-schema retirement. *)
-val flow_preference_retirement_id_to_string : flow_preference_retirement_id -> string
-
-val flow_preference_retirement_intent_id
-  :  flow_preference_retirement_intent
-  -> flow_preference_retirement_id
-
-val flow_preference_retirement_intent_to_string
-  :  flow_preference_retirement_intent
-  -> string
-
-val flow_preference_retirement_intent_of_string
-  :  string
-  -> ( flow_preference_retirement_intent
-       , flow_preference_retirement_intent_decode_error )
-       result
-
-val flow_preference_retirement_receipt_id
-  :  flow_preference_retirement_receipt
-  -> flow_preference_retirement_id
-
-(** Commit the current-schema retirement intent before freeing one reserved
-    opaque scope. Commit failure or cancellation leaves the active store
-    unchanged; same-intent replay is idempotent. *)
-val commit_and_retire_flow_preference_scope
-  :  commit:(flow_preference_retirement_intent -> (unit, 'commit_error) result)
-  -> flow_preference_store
-  -> flow_scope
-  -> ( flow_preference_retirement_receipt
-       , 'commit_error flow_preference_retirement_commit_error )
-       result
-
-(** Validate the complete caller-authenticated evidence set before constructing
-    an active store. Capacity is the larger of [concurrent_scope_budget] and
-    the distinct active valid scopes. No partial store escapes on error. *)
-val recover_flow_preferences
-  :  concurrent_scope_budget:int
-  -> evidence:flow_preference_recovery_evidence list
-  -> (flow_preference_store, flow_preference_recovery_error) result
+type ('accepted, 'rejection) validated_flow_success = private
+  { accepted : 'accepted
+  ; transport_success : flow_success
+  ; prior_rejections : 'rejection semantic_rejection_receipt list
+  }
 
 type flow_candidate_failure =
   | Flow_candidate_rejected of candidate_rejection_receipt
@@ -776,7 +617,6 @@ type generation_dispatch_fact =
 
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
-  | Flow_success_ordinal_exhausted of flow_evidence
   | Flow_attempt_start_failed of
       { candidate : flow_candidate_visit
       ; cause : start_attempt_error
@@ -818,6 +658,16 @@ type 'callback_error flow_execution_error =
       ; evidence : flow_evidence
       }
 
+type ('callback_error, 'rejection) validated_flow_error =
+  | Flow_execution_terminal of
+      { cause : 'callback_error flow_execution_error
+      ; prior_rejections : 'rejection semantic_rejection_receipt list
+      }
+  | Flow_semantic_candidates_exhausted of
+      { rejections : 'rejection semantic_rejection_trace
+      ; evidence : flow_evidence
+      }
+
 (** Closed fact for the invocation returning the error: whether its one outward
     completion dispatch began. This does not claim provider acceptance, response
     receipt, billing, retryability, failover eligibility, or any Pricing
@@ -826,84 +676,18 @@ val flow_execution_error_generation_dispatch
   :  'callback_error flow_execution_error
   -> generation_dispatch_fact
 
-(** Point-in-time aggregate evidence. [scope] is the exact opaque flow scope,
-    [declared_candidate_snapshot] is the caller-declared order, and
-    [candidate_snapshot] is the frozen effective order.
-    [preference_observation] is the single scope lookup frozen when the snapshot
-    was created; it distinguishes no record, an applied binding, an absent
-    recorded slot, and a changed target binding.
-    [candidate_visit_count], [measurements], [admissions], and [attempts]
-    contain only
-    candidates reached so far. Attempts are allocated only after
-    current-candidate target selection and request admission succeed. This
-    remains queryable after cancellation escapes. The affine executor is the
-    sole writer, and every call reads one Atomic immutable progress publication,
-    so measurement receipt snapshots, admissions, and attempt receipt snapshots
-    always describe the same publication epoch. *)
+(** Point-in-time evidence for one affine declared-order flow. The candidate
+    snapshot is frozen exactly as supplied by the caller. Progress contains only
+    candidates reached so far and remains queryable after cancellation. *)
 val flow_attempt_evidence : flow_attempt -> flow_evidence
 
-(** Execute the frozen request once. The attempt is single-use: duplicate or
-    concurrent invocation of the same attempt is rejected before a second dispatch.
-    Obtain {!attempt_receipt} before entering a cancellation scope; its phase is
-    monotonic and remains queryable if cancellation escapes this function. The
-    sole invocation performs at most one outward completion HTTP POST. It calls
-    the direct one-dispatch transport rather than a provider SDK or the generic
-    retry layer; internal model rotation and requested server-side fallback are
-    disabled. This is a generation-dispatch guarantee, not a claim about opaque
-    physical execution inside a provider service. *)
-val execute_once
-  :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> ?clock:_ Eio.Time.clock
-  -> attempt
-  -> (success, execution_error) result
-
-(** Execute one affine outer flow.
-
-    OAS resolves credentials and prepares the request only for the current
-    frozen candidate. A successful preparation receives one fresh attempt
-    identity, then [before_dispatch] must durably bind that attempt before its
-    sole {!execute_once} call. When provider-native measurement is required,
-    [before_measurement_dispatch] first receives an opaque operation receipt
-    and must durably journal it as a may-dispatch intent. Only after the callback
-    returns [Ok] can the count-token POST start. The receipt is already visible
-    in [flow_attempt_evidence.measurements] while the callback runs.
-
-    The callback receives a committed receipt whose dispatch fact is already
-    [Measurement_dispatch_unknown], never [No_measurement_dispatch]. A committed
-    receipt without a terminal outcome is dispatch-ambiguous and reports
-    [Measurement_dispatch_unknown]. OAS then establishes the connection and a
-    private one-shot capability atomically advances the receipt to
-    [Measurement_dispatch_started] immediately before the sole count-token POST;
-    no user callback runs between that transition and submission. Token
-    measurement is a read-only operation and may be replayed only after the
-    caller reconciles and records the prior unclosed intent. OAS neither retries
-    it automatically nor claims that an unclosed committed receipt did not
-    dispatch.
-
-    [on_measurement_terminal] receives the same opaque receipt after its terminal
-    measurement outcome is installed. OAS allocates no generation attempt,
-    dispatches no generation request, and advances to no successor until this
-    terminal record is durably accepted. Callback rejection returns a typed
-    terminal flow error.
-
-    A typed target-selection or request-admission rejection receives a real
-    [candidate_rejection_receipt] with explicit measurement evidence, but no
-    generation plan, generation call ID, or generation execution receipt.
-
-    [before_advance] receives the settled typed failure and the predetermined
-    next candidate visit. OAS may call it only for a candidate rejection or an
-    execution receipt that is exactly [Before_dispatch] with zero dispatch. The
-    callback can stop but cannot select, replace, skip, or reorder the successor.
-
-    A final candidate rejection returns [Flow_candidates_exhausted]. Callback
-    errors, replay, identity-allocation failure, missing execution prerequisites,
-    frozen-request corruption, cancellation, every post-dispatch outcome, and
-    success are terminal. Cancellation is re-raised after the flow is
-    terminalized; inspect {!flow_attempt_evidence} for monotonic progress.
-    Domain validation occurs after an OAS success through
-    {!commit_and_settle_flow_domain}; either disposition remains terminal and is never
-    failover eligible. Only a domain-valid settlement can affect a future
-    snapshot in the same explicit scope. *)
+(** Execute one affine declared-order flow with caller-owned pure semantic
+    validation. OAS invokes [validate] exactly once after each successful
+    candidate transport. [Reject_and_advance] preserves the opaque evidence and
+    moves directly to the predetermined successor without using [before_advance].
+    Every candidate performs at most one generation POST. A final semantic
+    rejection returns a typed nonempty exhaustion trace. OAS performs no domain
+    commit, settlement, retirement, recovery, or preference update. *)
 val execute_flow_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock
@@ -915,5 +699,8 @@ val execute_flow_once
        (failed:flow_candidate_failure
         -> next:flow_candidate_visit
         -> (unit, 'callback_error) result)
+  -> validate:(flow_success -> ('accepted, 'rejection) semantic_verdict)
   -> flow_attempt
-  -> (flow_success, 'callback_error flow_execution_error) result
+  -> ( ('accepted, 'rejection) validated_flow_success
+       , ('callback_error, 'rejection) validated_flow_error )
+       result

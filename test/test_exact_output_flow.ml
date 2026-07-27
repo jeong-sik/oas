@@ -190,83 +190,25 @@ let credential_getenv = function
   | _ -> Ok None
 ;;
 
-let flow_scope id =
-  match EO.make_flow_scope ~id with
-  | Ok scope -> scope
-  | Error EO.Blank_flow_scope_id -> fail "fixture flow scope was blank"
-;;
-
-let preference_store ?(capacity = 16) () =
-  match EO.recover_flow_preferences ~concurrent_scope_budget:capacity ~evidence:[] with
-  | Ok preferences -> preferences
-  | Error (EO.Invalid_concurrent_scope_budget invalid) ->
-    failf "fixture concurrent scope budget was invalid: %d" invalid
-  | Error (EO.Conflicting_domain_settlement_evidence _)
-  | Error (EO.Conflicting_scope_retirement_evidence _) ->
-    fail "empty preference evidence conflicted"
-;;
-
-let settle success disposition =
-  EO.commit_and_settle_flow_domain ~commit:(fun _ -> Ok ()) success disposition
-;;
-
-let settlement_id receipt =
-  EO.domain_settlement_receipt_id receipt |> EO.domain_settlement_id_to_string
-;;
-
-let check_settlement_disposition label expected receipt =
-  check
-    bool
-    label
-    true
-    (match expected, EO.domain_settlement_receipt_disposition receipt with
-     | EO.Domain_valid, EO.Domain_valid | EO.Domain_rejected, EO.Domain_rejected -> true
-     | EO.Domain_valid, EO.Domain_rejected | EO.Domain_rejected, EO.Domain_valid -> false)
-;;
-
-let retire_scope preferences scope =
-  match
-    EO.commit_and_retire_flow_preference_scope ~commit:(fun _ -> Ok ()) preferences scope
-  with
-  | Ok receipt -> receipt
-  | Error (EO.Flow_preference_retirement_commit_failed _) ->
-    fail "infallible retirement commit failed"
-  | Error EO.Flow_preference_retirement_in_progress ->
-    fail "single retirement was in progress"
-  | Error EO.Flow_preference_retirement_conflict -> fail "single retirement conflicted"
-  | Error EO.Flow_preference_scope_not_reserved ->
-    fail "reserved fixture scope was absent"
-;;
-
 let snapshot_candidates
       ?(messages = [ msg "return one exact object" ])
       ?(requirement =
         EO.make_output_requirement ~schema ~minimum_guarantee:EO.Json_syntax)
-      ~preferences
-      ~scope
       candidates
   =
   match candidates with
   | [] -> fail "flow fixture must be nonempty"
-  | first :: rest ->
-    EO.snapshot_flow ~preferences ~scope ~first ~rest ~messages requirement
+  | first :: rest -> EO.snapshot_flow ~first ~rest ~messages requirement
 ;;
 
-let frozen_candidates
-      ?(preferences = preference_store ())
-      ?(scope = flow_scope "test-default")
-      ?messages
-      ?requirement
-      candidates
-  =
-  match snapshot_candidates ?messages ?requirement ~preferences ~scope candidates with
+let frozen_candidates ?messages ?requirement candidates =
+  match snapshot_candidates ?messages ?requirement candidates with
   | Ok ready -> ready
   | Error _ -> fail "flow fixture did not admit"
 ;;
 
-let frozen_flow ?preferences ?scope ?messages snapshot ids =
-  List.map (flow_candidate snapshot) ids
-  |> frozen_candidates ?preferences ?scope ?messages
+let frozen_flow ?messages snapshot ids =
+  List.map (flow_candidate snapshot) ids |> frozen_candidates ?messages
 ;;
 
 let start_flow ready =
@@ -460,14 +402,71 @@ let attempt_for evidence id =
   | None -> failf "missing attempt evidence for %s" id
 ;;
 
-let execute_ok ~net flow =
+type no_semantic_rejection = |
+
+let accepting_test_validator success
+  : (EO.flow_success, no_semantic_rejection) EO.semantic_verdict
+  =
+  EO.Accept success
+;;
+
+let transport_test_result
+      (result :
+        ( (EO.flow_success, no_semantic_rejection) EO.validated_flow_success
+          , ('callback_error, no_semantic_rejection) EO.validated_flow_error )
+          result)
+  : (EO.flow_success, 'callback_error EO.flow_execution_error) result
+  =
+  match result with
+  | Ok success -> Ok success.transport_success
+  | Error (EO.Flow_execution_terminal { cause; _ }) -> Error cause
+  | Error (EO.Flow_semantic_candidates_exhausted _) -> .
+;;
+
+let execute_with_accepting_test_validator
+      ~net
+      ?clock
+      ~before_measurement_dispatch
+      ~on_measurement_terminal
+      ~before_dispatch
+      ~before_advance
+      flow
+  =
   EO.execute_flow_once
+    ~net
+    ?clock
+    ~before_measurement_dispatch
+    ~on_measurement_terminal
+    ~before_dispatch
+    ~before_advance
+    ~validate:accepting_test_validator
+    flow
+  |> transport_test_result
+;;
+
+let execute_ok ~net flow =
+  execute_with_accepting_test_validator
     ~net
     ~on_measurement_terminal:(fun _ -> Ok ())
     ~before_measurement_dispatch:(fun _ -> Ok ())
     ~before_dispatch:(fun _ -> Ok ())
     ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
     flow
+;;
+
+let execute_with_validator ~net ~before_advance ~validate flow =
+  EO.execute_flow_once
+    ~net
+    ~on_measurement_terminal:(fun _ -> Ok ())
+    ~before_measurement_dispatch:(fun _ -> Ok ())
+    ~before_dispatch:(fun _ -> Ok ())
+    ~before_advance
+    ~validate
+    flow
+;;
+
+let semantic_rejection_candidate_id (rejection : _ EO.semantic_rejection_receipt) =
+  rejection.EO.transport_success |> EO.flow_success_candidate |> candidate_id
 ;;
 
 let candidate_ids identities =
@@ -480,1824 +479,7 @@ let flow_snapshot_evidence ready = EO.flow_attempt_evidence (start_flow ready)
 
 let flow_snapshot_ids ready =
   flow_snapshot_evidence ready
-  |> fun evidence -> candidate_ids evidence.candidate_snapshot
-;;
-
-let test_scope_local_domain_valid_preference_changes_only_future_snapshots () =
-  let (success_id, existing_order, future_order, other_scope_order), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"preferred-a" ~base_url ~native:true ~json:true ()
-      ; catalog_entry ~id:"preferred-b" ~base_url ~native:true ~json:true ()
-      ]
-    @@ fun snapshot ->
-    let preferences = preference_store () in
-    let primary_scope = flow_scope "/runtime/keeper-primary" in
-    let other_scope = flow_scope "/runtime/keeper-other" in
-    let existing =
-      frozen_flow
-        ~preferences
-        ~scope:primary_scope
-        snapshot
-        [ "preferred-a"; "preferred-b" ]
-    in
-    let successful =
-      frozen_flow
-        ~preferences
-        ~scope:primary_scope
-        snapshot
-        [ "preferred-b"; "preferred-a" ]
-      |> start_flow
-      |> execute_ok ~net
-    in
-    match successful with
-    | Error _ -> fail "last-good fixture did not structurally succeed"
-    | Ok success ->
-      let candidate = EO.flow_success_candidate success in
-      let evidence = EO.flow_success_evidence success in
-      let success_ordinal = EO.flow_success_ordinal success in
-      check
-        bool
-        "success receipt carries primary scope"
-        true
-        (EO.flow_scope_equal primary_scope candidate.scope);
-      check
-        bool
-        "success evidence carries primary scope"
-        true
-        (EO.flow_scope_equal primary_scope evidence.scope);
-      let success_id = candidate_id candidate in
-      let settlement = settle success EO.Domain_valid in
-      (match settlement with
-       | Ok receipt ->
-         check_settlement_disposition
-           "domain-valid receipt disposition"
-           EO.Domain_valid
-           receipt;
-         check bool "settlement id is nonempty" true (settlement_id receipt <> "")
-       | Error _ -> fail "domain-valid content commit was not settled");
-      let future =
-        frozen_flow
-          ~preferences
-          ~scope:primary_scope
-          snapshot
-          [ "preferred-a"; "preferred-b" ]
-      in
-      let other_scope =
-        frozen_flow
-          ~preferences
-          ~scope:other_scope
-          snapshot
-          [ "preferred-a"; "preferred-b" ]
-      in
-      let existing_evidence = flow_snapshot_evidence existing in
-      let future_evidence = flow_snapshot_evidence future in
-      let other_scope_evidence = flow_snapshot_evidence other_scope in
-      check
-        (list string)
-        "future evidence preserves declared order"
-        [ "preferred-a"; "preferred-b" ]
-        (candidate_ids future_evidence.declared_candidate_snapshot);
-      (match existing_evidence.preference_observation with
-       | EO.No_preference_recorded -> ()
-       | EO.Preference_applied _ | EO.Preference_not_applied _ ->
-         fail "pre-existing snapshot observed a later preference");
-      (match future_evidence.preference_observation with
-       | EO.Preference_applied { candidate; success_ordinal = observed_ordinal } ->
-         check string "applied observation candidate" "preferred-b" candidate.candidate_id;
-         check
-           bool
-           "applied observation freezes the successful ordinal"
-           true
-           (Int64.equal
-              (EO.flow_success_ordinal_to_int64 success_ordinal)
-              (EO.flow_success_ordinal_to_int64 observed_ordinal))
-       | EO.No_preference_recorded | EO.Preference_not_applied _ ->
-         fail "future snapshot did not freeze the applied preference");
-      (match other_scope_evidence.preference_observation with
-       | EO.No_preference_recorded -> ()
-       | EO.Preference_applied _ | EO.Preference_not_applied _ ->
-         fail "other scope observed the primary preference");
-      ( success_id
-      , candidate_ids existing_evidence.candidate_snapshot
-      , candidate_ids future_evidence.candidate_snapshot
-      , candidate_ids other_scope_evidence.candidate_snapshot )
-  in
-  check int "preference proof dispatches once" 1 posts;
-  check string "domain-valid candidate" "preferred-b" success_id;
-  check
-    (list string)
-    "existing immutable snapshot keeps declared order"
-    [ "preferred-a"; "preferred-b" ]
-    existing_order;
-  check
-    (list string)
-    "future same-scope snapshot prefers last-good"
-    [ "preferred-b"; "preferred-a" ]
-    future_order;
-  check
-    (list string)
-    "other scope is isolated"
-    [ "preferred-a"; "preferred-b" ]
-    other_scope_order
-;;
-
-let test_concurrent_flow_scopes_isolate_attempts_and_future_preferences () =
-  let call_ids_differ, future_a, future_b, posts =
-    let result, posts =
-      with_server ~response:(openai_response {|{"name":"accepted"}|})
-      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-      with_catalog
-        [ catalog_entry ~id:"scope-a" ~base_url ~native:true ~json:true ()
-        ; catalog_entry ~id:"scope-b" ~base_url ~native:true ~json:true ()
-        ]
-      @@ fun snapshot ->
-      let preferences = preference_store () in
-      let scope_a = flow_scope "/runtime/concurrent-a" in
-      let scope_b = flow_scope "/runtime/concurrent-b" in
-      let flow_a =
-        frozen_flow ~preferences ~scope:scope_a snapshot [ "scope-a"; "scope-b" ]
-        |> start_flow
-      in
-      let flow_b =
-        frozen_flow ~preferences ~scope:scope_b snapshot [ "scope-b"; "scope-a" ]
-        |> start_flow
-      in
-      let promise_a, resolver_a = Eio.Promise.create () in
-      let promise_b, resolver_b = Eio.Promise.create () in
-      Eio.Fiber.both
-        (fun () -> Eio.Promise.resolve resolver_a (execute_ok ~net flow_a))
-        (fun () -> Eio.Promise.resolve resolver_b (execute_ok ~net flow_b));
-      let require_success label = function
-        | Ok success -> success
-        | Error _ -> failf "%s concurrent scope did not succeed" label
-      in
-      let success_a = Eio.Promise.await promise_a |> require_success "first" in
-      let success_b = Eio.Promise.await promise_b |> require_success "second" in
-      let candidate_a = EO.flow_success_candidate success_a in
-      let candidate_b = EO.flow_success_candidate success_b in
-      check
-        bool
-        "first attempt stays in first scope"
-        true
-        (EO.flow_scope_equal scope_a candidate_a.scope);
-      check
-        bool
-        "second attempt stays in second scope"
-        true
-        (EO.flow_scope_equal scope_b candidate_b.scope);
-      let settle success =
-        match settle success EO.Domain_valid with
-        | Ok receipt ->
-          check_settlement_disposition "fresh scoped settlement" EO.Domain_valid receipt
-        | Error _ -> fail "fresh scoped success could not settle"
-      in
-      Eio.Fiber.both (fun () -> settle success_a) (fun () -> settle success_b);
-      (* Annotated because [flow_attempt_snapshot] now also carries a [receipt]
-         field, and it is defined after [flow_attempt_receipt]
-         (exact_output.mli:517-528). Without a type here OCaml disambiguates the
-         field to the later definition, whose [receipt] is already a
-         [generation_receipt_snapshot], and the snapshot call below then receives
-         the wrong type. The annotation states which join this helper reads instead
-         of depending on declaration order. *)
-      let call_id (candidate : EO.flow_attempt_receipt) =
-        EO.generation_receipt_snapshot candidate.EO.receipt
-        |> EO.generation_receipt_snapshot_call_id
-        |> EO.call_id_to_string
-      in
-      ( not (String.equal (call_id candidate_a) (call_id candidate_b))
-      , frozen_flow ~preferences ~scope:scope_a snapshot [ "scope-b"; "scope-a" ]
-        |> flow_snapshot_ids
-      , frozen_flow ~preferences ~scope:scope_b snapshot [ "scope-a"; "scope-b" ]
-        |> flow_snapshot_ids )
-    in
-    let call_ids_differ, future_a, future_b = result in
-    call_ids_differ, future_a, future_b, posts
-  in
-  check int "two concurrent scopes dispatch independently" 2 posts;
-  check bool "concurrent scopes do not share attempt identity" true call_ids_differ;
-  check
-    (list string)
-    "first scope keeps only its last-good"
-    [ "scope-a"; "scope-b" ]
-    future_a;
-  check
-    (list string)
-    "second scope keeps only its last-good"
-    [ "scope-b"; "scope-a" ]
-    future_b
-;;
-
-let test_domain_rejection_never_updates_preference_and_settlement_is_affine () =
-  let before_settlement, first_settlement, duplicate_settlement, after_settlement, posts =
-    let result, posts =
-      with_server ~response:(openai_response {|{"name":"rejected"}|})
-      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-      with_catalog
-        [ catalog_entry ~id:"rejected-a" ~base_url ~native:true ~json:true ()
-        ; catalog_entry ~id:"declared-b" ~base_url ~native:true ~json:true ()
-        ]
-      @@ fun snapshot ->
-      let preferences = preference_store () in
-      let scope = flow_scope "/runtime/domain-rejected" in
-      match
-        frozen_flow ~preferences ~scope snapshot [ "rejected-a"; "declared-b" ]
-        |> start_flow
-        |> execute_ok ~net
-      with
-      | Error _ -> fail "domain-rejection fixture did not structurally succeed"
-      | Ok success ->
-        let before_settlement =
-          frozen_flow ~preferences ~scope snapshot [ "declared-b"; "rejected-a" ]
-          |> flow_snapshot_ids
-        in
-        let first_settlement = settle success EO.Domain_rejected in
-        let duplicate_settlement = settle success EO.Domain_valid in
-        let after_settlement =
-          frozen_flow ~preferences ~scope snapshot [ "declared-b"; "rejected-a" ]
-          |> flow_snapshot_ids
-        in
-        before_settlement, first_settlement, duplicate_settlement, after_settlement
-    in
-    let before, first, duplicate, after = result in
-    before, first, duplicate, after, posts
-  in
-  check
-    (list string)
-    "structural success alone does not update last-good"
-    [ "declared-b"; "rejected-a" ]
-    before_settlement;
-  check
-    bool
-    "domain rejection returns a typed receipt"
-    true
-    (match first_settlement with
-     | Ok receipt -> EO.domain_settlement_receipt_disposition receipt = EO.Domain_rejected
-     | Error _ -> false);
-  check
-    bool
-    "conflicting settlement is typed"
-    true
-    (match duplicate_settlement with
-     | Error EO.Domain_settlement_conflict -> true
-     | Error EO.Domain_settlement_in_progress | Error (EO.Domain_commit_failed _) | Ok _
-       -> false);
-  check
-    (list string)
-    "domain rejection records no preference"
-    [ "declared-b"; "rejected-a" ]
-    after_settlement;
-  check int "domain-rejection proof dispatches once" 1 posts
-;;
-
-let test_concurrent_domain_settlement_has_one_winner () =
-  let first, in_progress, replay, future_order, commits, posts =
-    let result, posts =
-      with_server ~response:(openai_response {|{"name":"accepted"}|})
-      @@ fun ~sw ~net ~clock:_ ~base_url ->
-      with_catalog
-        [ catalog_entry ~id:"winner-a" ~base_url ~native:true ~json:true ()
-        ; catalog_entry ~id:"declared-b" ~base_url ~native:true ~json:true ()
-        ]
-      @@ fun snapshot ->
-      let preferences = preference_store () in
-      let scope = flow_scope "/runtime/concurrent-settlement" in
-      match
-        frozen_flow ~preferences ~scope snapshot [ "winner-a"; "declared-b" ]
-        |> start_flow
-        |> execute_ok ~net
-      with
-      | Error _ -> fail "concurrent-settlement fixture did not succeed"
-      | Ok success ->
-        let commits = Atomic.make 0 in
-        let commit_entered, commit_entered_resolver = Eio.Promise.create () in
-        let release_commit, release_commit_resolver = Eio.Promise.create () in
-        let first_result, first_result_resolver = Eio.Promise.create () in
-        Eio.Fiber.fork ~sw (fun () ->
-          let result =
-            EO.commit_and_settle_flow_domain
-              ~commit:(fun _ ->
-                Atomic.incr commits;
-                Eio.Promise.resolve commit_entered_resolver ();
-                Eio.Promise.await release_commit;
-                Ok ())
-              success
-              EO.Domain_valid
-          in
-          Eio.Promise.resolve first_result_resolver result);
-        Eio.Promise.await commit_entered;
-        let in_progress =
-          EO.commit_and_settle_flow_domain
-            ~commit:(fun _ -> fail "in-progress settlement ran a second commit")
-            success
-            EO.Domain_valid
-        in
-        Eio.Promise.resolve release_commit_resolver ();
-        let first = Eio.Promise.await first_result in
-        let replay =
-          EO.commit_and_settle_flow_domain
-            ~commit:(fun _ -> fail "settled replay ran another commit")
-            success
-            EO.Domain_valid
-        in
-        let future_order =
-          frozen_flow ~preferences ~scope snapshot [ "declared-b"; "winner-a" ]
-          |> flow_snapshot_ids
-        in
-        first, in_progress, replay, future_order, Atomic.get commits
-    in
-    let first, in_progress, replay, future_order, commits = result in
-    first, in_progress, replay, future_order, commits, posts
-  in
-  (match in_progress with
-   | Error EO.Domain_settlement_in_progress -> ()
-   | Error (EO.Domain_commit_failed _) | Error EO.Domain_settlement_conflict | Ok _ ->
-     fail "same-domain concurrent settlement did not return in-progress");
-  let receipt label = function
-    | Ok receipt -> receipt
-    | Error (EO.Domain_commit_failed _)
-    | Error EO.Domain_settlement_in_progress
-    | Error EO.Domain_settlement_conflict ->
-      failf "%s idempotent settlement returned an error" label
-  in
-  let first_receipt = receipt "first" first in
-  let replay_receipt = receipt "replay" replay in
-  check
-    string
-    "later replay returns first receipt"
-    (settlement_id first_receipt)
-    (settlement_id replay_receipt);
-  check int "durable commit callback runs once" 1 commits;
-  check
-    (list string)
-    "winning settlement updates future snapshot once"
-    [ "winner-a"; "declared-b" ]
-    future_order;
-  check int "concurrent-settlement proof dispatches once" 1 posts
-;;
-
-let test_older_success_cannot_overwrite_newer_after_reversed_domain_settlement () =
-  let (future_order, newer_receipt, older_receipt, older_ordinal, newer_ordinal), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"older-a" ~base_url ~native:true ~json:true ()
-      ; catalog_entry ~id:"newer-b" ~base_url ~native:true ~json:true ()
-      ]
-    @@ fun snapshot ->
-    let preferences = preference_store () in
-    let scope = flow_scope "/runtime/out-of-order-success" in
-    let older_flow =
-      frozen_flow ~preferences ~scope snapshot [ "older-a"; "newer-b" ] |> start_flow
-    in
-    let newer_flow =
-      frozen_flow ~preferences ~scope snapshot [ "newer-b"; "older-a" ] |> start_flow
-    in
-    let execute flow =
-      match execute_ok ~net flow with
-      | Error _ -> fail "out-of-order settlement fixture did not succeed"
-      | Ok success -> success
-    in
-    let older_success = execute older_flow in
-    let newer_success = execute newer_flow in
-    let older_ordinal = EO.flow_success_ordinal older_success in
-    let newer_ordinal = EO.flow_success_ordinal newer_success in
-    let ready = Atomic.make 0 in
-    let start = Atomic.make false in
-    let newer_settled = Atomic.make false in
-    let await_start () =
-      ignore (Atomic.fetch_and_add ready 1);
-      while not (Atomic.get start) do
-        Domain.cpu_relax ()
-      done
-    in
-    let newer_domain =
-      Domain.spawn (fun () ->
-        await_start ();
-        let receipt = settle newer_success EO.Domain_valid in
-        Atomic.set newer_settled true;
-        receipt)
-    in
-    let older_domain =
-      Domain.spawn (fun () ->
-        await_start ();
-        while not (Atomic.get newer_settled) do
-          Domain.cpu_relax ()
-        done;
-        settle older_success EO.Domain_valid)
-    in
-    while Atomic.get ready <> 2 do
-      Domain.cpu_relax ()
-    done;
-    Atomic.set start true;
-    let newer_receipt = Domain.join newer_domain in
-    let older_receipt = Domain.join older_domain in
-    ( frozen_flow ~preferences ~scope snapshot [ "older-a"; "newer-b" ]
-      |> flow_snapshot_ids
-    , newer_receipt
-    , older_receipt
-    , older_ordinal
-    , newer_ordinal )
-  in
-  check int "out-of-order settlement proof dispatches twice" 2 posts;
-  check
-    bool
-    "structural success allocates strictly increasing OAS ordinals"
-    true
-    (Int64.compare
-       (EO.flow_success_ordinal_to_int64 older_ordinal)
-       (EO.flow_success_ordinal_to_int64 newer_ordinal)
-     < 0);
-  check
-    (list string)
-    "later structural success survives reversed cross-domain settlement"
-    [ "newer-b"; "older-a" ]
-    future_order;
-  let require_valid = function
-    | Ok receipt ->
-      check_settlement_disposition
-        "settlement remains domain-valid"
-        EO.Domain_valid
-        receipt;
-      receipt
-    | Error _ -> fail "domain-valid settlement failed"
-  in
-  let newer_receipt = require_valid newer_receipt in
-  let older_receipt = require_valid older_receipt in
-  check
-    bool
-    "distinct successes retain distinct settlement ids"
-    true
-    (not (String.equal (settlement_id newer_receipt) (settlement_id older_receipt)))
-;;
-
-let test_rebound_preference_is_not_promoted_and_observation_is_typed () =
-  let (success_ordinal, rebound_evidence, absent_evidence), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"binding-a" ~base_url ~native:true ~json:true ()
-      ; catalog_entry ~id:"binding-b" ~base_url ~native:true ~json:true ()
-      ]
-    @@ fun snapshot ->
-    let preferences = preference_store () in
-    let scope = flow_scope "/runtime/rebound-preference" in
-    let successful =
-      flow_candidate_as snapshot ~id:"stable-slot" ~target_ref:"binding-a"
-      |> fun candidate ->
-      frozen_candidates ~preferences ~scope [ candidate ] |> start_flow |> execute_ok ~net
-    in
-    let success =
-      match successful with
-      | Ok success -> success
-      | Error _ -> fail "binding fixture did not structurally succeed"
-    in
-    (match settle success EO.Domain_valid with
-     | Ok _ -> ()
-     | Error _ -> fail "binding fixture did not install its preference");
-    let success_ordinal = EO.flow_success_ordinal success in
-    let fallback = flow_candidate_as snapshot ~id:"fallback" ~target_ref:"binding-a" in
-    let rebound = flow_candidate_as snapshot ~id:"stable-slot" ~target_ref:"binding-b" in
-    let rebound_evidence =
-      frozen_candidates ~preferences ~scope [ fallback; rebound ]
-      |> flow_snapshot_evidence
-    in
-    let absent_evidence =
-      frozen_candidates ~preferences ~scope [ fallback ] |> flow_snapshot_evidence
-    in
-    success_ordinal, rebound_evidence, absent_evidence
-  in
-  check int "binding observation proof dispatches once" 1 posts;
-  check
-    (list string)
-    "rebound evidence preserves declared order"
-    [ "fallback"; "stable-slot" ]
-    (candidate_ids rebound_evidence.declared_candidate_snapshot);
-  check
-    (list string)
-    "rebound target is not promoted"
-    [ "fallback"; "stable-slot" ]
-    (candidate_ids rebound_evidence.candidate_snapshot);
-  (match rebound_evidence.preference_observation with
-   | EO.Preference_not_applied
-       { candidate
-       ; success_ordinal = rebound_ordinal
-       ; reason = EO.Preference_candidate_binding_changed
-       } ->
-     check string "binding-changed observation slot" "stable-slot" candidate.candidate_id;
-     check
-       bool
-       "binding-changed observation keeps successful ordinal"
-       true
-       (Int64.equal
-          (EO.flow_success_ordinal_to_int64 success_ordinal)
-          (EO.flow_success_ordinal_to_int64 rebound_ordinal))
-   | EO.No_preference_recorded | EO.Preference_applied _ | EO.Preference_not_applied _ ->
-     fail "rebound target did not produce binding-changed evidence");
-  match absent_evidence.preference_observation with
-  | EO.Preference_not_applied
-      { candidate
-      ; success_ordinal = absent_ordinal
-      ; reason = EO.Preference_candidate_absent
-      } ->
-    check string "absent observation slot" "stable-slot" candidate.candidate_id;
-    check
-      bool
-      "absent observation keeps successful ordinal"
-      true
-      (Int64.equal
-         (EO.flow_success_ordinal_to_int64 success_ordinal)
-         (EO.flow_success_ordinal_to_int64 absent_ordinal))
-  | EO.No_preference_recorded | EO.Preference_applied _ | EO.Preference_not_applied _ ->
-    fail "absent target did not produce typed evidence"
-;;
-
-let test_blank_flow_scope_is_rejected () =
-  match EO.make_flow_scope ~id:" \n\t " with
-  | Error EO.Blank_flow_scope_id -> ()
-  | Ok _ -> fail "blank flow scope was accepted"
-;;
-
-let test_preference_store_capacity_is_typed_and_reusable_after_removal () =
-  with_catalog
-    [ catalog_entry
-        ~id:"capacity-candidate"
-        ~base_url:"http://127.0.0.1:1"
-        ~native:true
-        ~json:true
-        ()
-    ]
-  @@ fun snapshot ->
-  let zero = preference_store ~capacity:0 () in
-  let zero_scope = flow_scope "/runtime/capacity-zero" in
-  let zero_candidates = [ flow_candidate snapshot "capacity-candidate" ] in
-  (match snapshot_candidates ~preferences:zero ~scope:zero_scope zero_candidates with
-   | Error (EO.Flow_preference_capacity_exhausted { capacity = 0 }) -> ()
-   | Ok _ | Error _ -> fail "zero-capacity store did not reject snapshot admission");
-  let preferences = preference_store ~capacity:1 () in
-  let scope_a = flow_scope "/runtime/capacity-a" in
-  let scope_b = flow_scope "/runtime/capacity-b" in
-  let candidates = [ flow_candidate snapshot "capacity-candidate" ] in
-  let ready = Atomic.make 0 in
-  let start = Atomic.make false in
-  let reserve scope () =
-    ignore (Atomic.fetch_and_add ready 1);
-    while not (Atomic.get start) do
-      Domain.cpu_relax ()
-    done;
-    snapshot_candidates ~preferences ~scope candidates
-  in
-  let left_domain = Domain.spawn (reserve scope_a) in
-  let right_domain = Domain.spawn (reserve scope_b) in
-  while Atomic.get ready <> 2 do
-    Domain.cpu_relax ()
-  done;
-  Atomic.set start true;
-  let left = Domain.join left_domain in
-  let right = Domain.join right_domain in
-  let classify = function
-    | Ok _ -> `Reserved
-    | Error (EO.Flow_preference_capacity_exhausted { capacity = 1 }) -> `Exhausted
-    | Error (EO.Flow_preference_capacity_exhausted { capacity }) ->
-      failf "capacity exhaustion reported the wrong bound: %d" capacity
-    | Error EO.Flow_preference_reservation_exhausted ->
-      fail "capacity exhaustion was reported as reservation exhaustion"
-    | Error (EO.Duplicate_flow_candidate_id _) ->
-      fail "capacity exhaustion was reported as a duplicate candidate"
-  in
-  let reserved_scope, exhausted_scope =
-    match classify left, classify right with
-    | `Reserved, `Exhausted -> scope_a, scope_b
-    | `Exhausted, `Reserved -> scope_b, scope_a
-    | `Reserved, `Reserved -> fail "concurrent scopes exceeded hard capacity"
-    | `Exhausted, `Exhausted -> fail "concurrent reservation admitted no scope"
-  in
-  (match
-     EO.commit_and_retire_flow_preference_scope
-       ~commit:(fun _ -> Ok ())
-       preferences
-       exhausted_scope
-   with
-   | Error EO.Flow_preference_scope_not_reserved -> ()
-   | Ok _ | Error _ -> fail "capacity-exhausted scope was nevertheless reserved");
-  let first_retirement = retire_scope preferences reserved_scope in
-  let replayed_retirement = retire_scope preferences reserved_scope in
-  check
-    string
-    "retirement replay returns the same receipt"
-    (EO.flow_preference_retirement_receipt_id first_retirement
-     |> EO.flow_preference_retirement_id_to_string)
-    (EO.flow_preference_retirement_receipt_id replayed_retirement
-     |> EO.flow_preference_retirement_id_to_string);
-  match snapshot_candidates ~preferences ~scope:exhausted_scope candidates with
-  | Ok _ -> ()
-  | Error _ -> fail "released capacity was not reusable by a new scope"
-;;
-
-let test_removed_scope_consumes_domain_valid_settlement_as_typed_failure () =
-  let settlement, duplicate, replacement_order, posts =
-    let result, posts =
-      with_server ~response:(openai_response {|{"name":"accepted"}|})
-      @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-      with_catalog
-        [ catalog_entry ~id:"released-a" ~base_url ~native:true ~json:true ()
-        ; catalog_entry ~id:"replacement-b" ~base_url ~native:true ~json:true ()
-        ]
-      @@ fun snapshot ->
-      let preferences = preference_store ~capacity:1 () in
-      let released_scope = flow_scope "/runtime/released" in
-      let success =
-        match
-          frozen_flow
-            ~preferences
-            ~scope:released_scope
-            snapshot
-            [ "released-a"; "replacement-b" ]
-          |> start_flow
-          |> execute_ok ~net
-        with
-        | Ok success -> success
-        | Error _ -> fail "released-scope fixture did not structurally succeed"
-      in
-      ignore (retire_scope preferences released_scope);
-      let _replacement_generation =
-        frozen_flow
-          ~preferences
-          ~scope:released_scope
-          snapshot
-          [ "replacement-b"; "released-a" ]
-      in
-      let settlement = settle success EO.Domain_valid in
-      let duplicate = settle success EO.Domain_valid in
-      let after_stale_settlement =
-        frozen_flow
-          ~preferences
-          ~scope:released_scope
-          snapshot
-          [ "replacement-b"; "released-a" ]
-      in
-      settlement, duplicate, flow_snapshot_ids after_stale_settlement
-    in
-    let settlement, duplicate, replacement_order = result in
-    settlement, duplicate, replacement_order, posts
-  in
-  check int "released-scope proof dispatches once" 1 posts;
-  check
-    bool
-    "domain-valid settlement remains durable after scope release"
-    true
-    (match settlement with
-     | Ok receipt -> EO.domain_settlement_receipt_disposition receipt = EO.Domain_valid
-     | Error _ -> false);
-  check
-    bool
-    "released-scope replay returns the same receipt"
-    true
-    (match settlement, duplicate with
-     | Ok first, Ok second -> String.equal (settlement_id first) (settlement_id second)
-     | Ok _, Error _ | Error _, Ok _ | Error _, Error _ -> false);
-  check
-    (list string)
-    "same scope reuses capacity without accepting stale generation"
-    [ "replacement-b"; "released-a" ]
-    replacement_order
-;;
-
-exception Injected_after_domain_commit
-
-let json_field_string name encoded =
-  match Yojson.Safe.from_string encoded with
-  | `Assoc fields ->
-    (match List.assoc_opt name fields with
-     | Some (`String value) -> value
-     | Some _ | None -> failf "intent field %s was not a string" name)
-  | _ -> fail "intent envelope was not an object"
-;;
-
-let rewrite_json_field name replacement encoded =
-  match Yojson.Safe.from_string encoded with
-  | `Assoc fields ->
-    `Assoc
-      (List.map
-         (fun (field, value) ->
-            if String.equal field name then field, replacement else field, value)
-         fields)
-    |> Yojson.Safe.to_string
-  | _ -> fail "intent envelope was not an object"
-;;
-
-let duplicate_json_field name encoded =
-  match Yojson.Safe.from_string encoded with
-  | `Assoc fields ->
-    (match List.assoc_opt name fields with
-     | Some value -> `Assoc ((name, value) :: fields) |> Yojson.Safe.to_string
-     | None -> failf "intent field %s was absent" name)
-  | _ -> fail "intent envelope was not an object"
-;;
-
-let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
-  let (first_id, replay_id, future_order, ordinal_advanced, reservation_advanced), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"durable-a" ~base_url ~native:true ~json:true ()
-      ; catalog_entry ~id:"durable-b" ~base_url ~native:true ~json:true ()
-      ]
-    @@ fun snapshot ->
-    let original_preferences = preference_store () in
-    let scope = flow_scope "/runtime/durable-settlement" in
-    let success =
-      match
-        frozen_flow
-          ~preferences:original_preferences
-          ~scope
-          snapshot
-          [ "durable-a"; "durable-b" ]
-        |> start_flow
-        |> execute_ok ~net
-      with
-      | Ok success -> success
-      | Error _ -> fail "durable settlement fixture did not succeed"
-    in
-    let original_ordinal = EO.flow_success_ordinal success in
-    let encoded = ref None in
-    (try
-       ignore
-         (EO.commit_and_settle_flow_domain
-            ~commit:(fun intent ->
-              encoded := Some (EO.domain_settlement_intent_to_string intent);
-              raise Injected_after_domain_commit)
-            success
-            EO.Domain_valid);
-       fail "injected post-commit crash did not escape"
-     with
-     | Injected_after_domain_commit -> ());
-    let encoded =
-      match !encoded with
-      | Some encoded -> encoded
-      | None -> fail "durable callback did not receive an intent"
-    in
-    let fields =
-      match Yojson.Safe.from_string encoded with
-      | `Assoc fields -> List.map fst fields
-      | _ -> fail "durable intent was not an object"
-    in
-    check
-      (list string)
-      "durable envelope has one provider-neutral current schema"
-      [ "format"
-      ; "version"
-      ; "flow_id"
-      ; "scope"
-      ; "reservation_ordinal"
-      ; "candidate_id"
-      ; "candidate_binding_sha256"
-      ; "success_ordinal"
-      ; "execution_evidence_sha256"
-      ; "settlement_id"
-      ; "disposition"
-      ; "integrity_sha256"
-      ]
-      fields;
-    let encoded_lower = String.lowercase_ascii encoded in
-    let contains_substring text needle =
-      let text_length = String.length text in
-      let needle_length = String.length needle in
-      let rec loop index =
-        index + needle_length <= text_length
-        && (String.equal (String.sub text index needle_length) needle || loop (index + 1))
-      in
-      loop 0
-    in
-    List.iter
-      (fun forbidden ->
-         check
-           bool
-           ("durable envelope excludes " ^ forbidden)
-           false
-           (contains_substring encoded_lower forbidden))
-      [ "provider"; "model"; "catalog"; "credential"; "wire"; "pricing" ];
-    let intent =
-      match EO.domain_settlement_intent_of_string encoded with
-      | Ok intent -> intent
-      | Error _ -> fail "current durable intent did not decode"
-    in
-    let old_version = rewrite_json_field "version" (`Int 0) encoded in
-    (match EO.domain_settlement_intent_of_string old_version with
-     | Error (EO.Domain_settlement_intent_unsupported_version 0) -> ()
-     | Ok _ | Error _ -> fail "old durable intent version did not fail closed");
-    List.iter
-      (fun field ->
-         List.iter
-           (fun raw ->
-              let noncanonical = rewrite_json_field field (`String raw) encoded in
-              match EO.domain_settlement_intent_of_string noncanonical with
-              | Error (EO.Domain_settlement_intent_invalid_field rejected)
-                when String.equal rejected field -> ()
-              | Ok _ | Error _ ->
-                failf
-                  "noncanonical %s=%s survived with original settlement hashes"
-                  field
-                  raw)
-           [ "01"; "+1"; "0x1"; "0_1" ])
-      [ "reservation_ordinal"; "success_ordinal" ];
-    let corrupt =
-      rewrite_json_field "integrity_sha256" (`String (String.make 64 '0')) encoded
-    in
-    (match EO.domain_settlement_intent_of_string corrupt with
-     | Error EO.Domain_settlement_intent_integrity_mismatch -> ()
-     | Ok _ | Error _ -> fail "corrupt durable intent did not fail closed");
-    let recovered_preferences =
-      match
-        EO.recover_flow_preferences
-          ~concurrent_scope_budget:0
-          ~evidence:
-            [ EO.Domain_settlement_evidence intent; EO.Domain_settlement_evidence intent ]
-      with
-      | Ok preferences -> preferences
-      | Error _ -> fail "committed intent did not recover"
-    in
-    let future_order =
-      frozen_flow
-        ~preferences:recovered_preferences
-        ~scope
-        snapshot
-        [ "durable-b"; "durable-a" ]
-      |> flow_snapshot_ids
-    in
-    ignore (retire_scope recovered_preferences scope);
-    let next_success =
-      match
-        frozen_flow
-          ~preferences:recovered_preferences
-          ~scope
-          snapshot
-          [ "durable-b"; "durable-a" ]
-        |> start_flow
-        |> execute_ok ~net
-      with
-      | Ok success -> success
-      | Error _ -> fail "post-recovery success did not execute"
-    in
-    let next_encoded = ref None in
-    (match
-       EO.commit_and_settle_flow_domain
-         ~commit:(fun next ->
-           next_encoded := Some (EO.domain_settlement_intent_to_string next);
-           Error ())
-         next_success
-         EO.Domain_valid
-     with
-     | Error (EO.Domain_commit_failed ()) -> ()
-     | Ok _ | Error EO.Domain_settlement_in_progress | Error EO.Domain_settlement_conflict
-       -> fail "failed durable callback did not remain retryable");
-    let next_encoded =
-      match !next_encoded with
-      | Some encoded -> encoded
-      | None -> fail "next durable intent was not observed"
-    in
-    let original_reservation =
-      json_field_string "reservation_ordinal" encoded |> Int64.of_string
-    in
-    let next_reservation =
-      json_field_string "reservation_ordinal" next_encoded |> Int64.of_string
-    in
-    ( EO.domain_settlement_intent_id intent |> EO.domain_settlement_id_to_string
-    , EO.domain_settlement_intent_id intent |> EO.domain_settlement_id_to_string
-    , future_order
-    , Int64.compare
-        (EO.flow_success_ordinal_to_int64 (EO.flow_success_ordinal next_success))
-        (EO.flow_success_ordinal_to_int64 original_ordinal)
-      > 0
-    , Int64.compare next_reservation original_reservation > 0 )
-  in
-  check int "restart proof dispatches only its two explicit executions" 2 posts;
-  check string "recovery replay returns same receipt" first_id replay_id;
-  check
-    (list string)
-    "recovered last-good affects only future snapshot"
-    [ "durable-a"; "durable-b" ]
-    future_order;
-  check bool "recovery restores success ordinal high-water" true ordinal_advanced;
-  check bool "recovery restores reservation high-water" true reservation_advanced
-;;
-
-let test_retirement_recovery_blocks_stale_and_allows_newer_reservation () =
-  let (retired_blocked, newer_order, retirement_roundtrip), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"retirement-a" ~base_url ~native:true ~json:true ()
-      ; catalog_entry ~id:"retirement-b" ~base_url ~native:true ~json:true ()
-      ]
-    @@ fun snapshot ->
-    let preferences = preference_store ~capacity:1 () in
-    let scope = flow_scope "/runtime/retirement-order" in
-    let capture_domain candidate =
-      let success =
-        match
-          frozen_flow ~preferences ~scope snapshot [ candidate ]
-          |> start_flow
-          |> execute_ok ~net
-        with
-        | Ok success -> success
-        | Error _ -> fail "retirement recovery fixture did not succeed"
-      in
-      let encoded = ref None in
-      (match
-         EO.commit_and_settle_flow_domain
-           ~commit:(fun intent ->
-             encoded := Some (EO.domain_settlement_intent_to_string intent);
-             Error ())
-           success
-           EO.Domain_valid
-       with
-       | Error (EO.Domain_commit_failed ()) -> ()
-       | Ok _
-       | Error EO.Domain_settlement_in_progress
-       | Error EO.Domain_settlement_conflict ->
-         fail "retirement recovery fixture unexpectedly settled");
-      match !encoded with
-      | None -> fail "retirement recovery fixture emitted no domain intent"
-      | Some encoded ->
-        (match EO.domain_settlement_intent_of_string encoded with
-         | Ok intent -> intent
-         | Error _ -> fail "retirement recovery domain intent did not decode")
-    in
-    let older = capture_domain "retirement-a" in
-    let retirement_encoded = ref None in
-    let retirement_receipt =
-      match
-        EO.commit_and_retire_flow_preference_scope
-          ~commit:(fun intent ->
-            retirement_encoded
-            := Some (EO.flow_preference_retirement_intent_to_string intent);
-            Ok ())
-          preferences
-          scope
-      with
-      | Ok receipt -> receipt
-      | Error _ -> fail "durable retirement did not commit"
-    in
-    let retirement_encoded, retirement =
-      match !retirement_encoded with
-      | None -> fail "durable retirement callback emitted no intent"
-      | Some encoded ->
-        (match EO.flow_preference_retirement_intent_of_string encoded with
-         | Ok intent -> encoded, intent
-         | Error _ -> fail "current retirement intent did not decode")
-    in
-    (match EO.flow_preference_retirement_intent_of_string "{" with
-     | Error (EO.Flow_preference_retirement_intent_malformed_json _) -> ()
-     | Ok _ | Error _ -> fail "malformed retirement intent did not fail closed");
-    (match EO.flow_preference_retirement_intent_of_string "[]" with
-     | Error EO.Flow_preference_retirement_intent_invalid_fields -> ()
-     | Ok _ | Error _ -> fail "non-object retirement intent did not fail closed");
-    (match
-       duplicate_json_field "scope" retirement_encoded
-       |> EO.flow_preference_retirement_intent_of_string
-     with
-     | Error EO.Flow_preference_retirement_intent_invalid_fields -> ()
-     | Ok _ | Error _ -> fail "duplicate retirement field did not fail closed");
-    (match
-       rewrite_json_field "version" (`Int 0) retirement_encoded
-       |> EO.flow_preference_retirement_intent_of_string
-     with
-     | Error (EO.Flow_preference_retirement_intent_unsupported_version 0) -> ()
-     | Ok _ | Error _ -> fail "old retirement intent version did not fail closed");
-    List.iter
-      (fun field ->
-         List.iter
-           (fun raw ->
-              match
-                rewrite_json_field field (`String raw) retirement_encoded
-                |> EO.flow_preference_retirement_intent_of_string
-              with
-              | Error (EO.Flow_preference_retirement_intent_invalid_field rejected)
-                when String.equal rejected field -> ()
-              | Ok _ | Error _ -> failf "noncanonical retirement %s=%s survived" field raw)
-           [ "01"; "+1"; "0x1"; "0_1" ])
-      [ "reservation_ordinal"; "success_high_water" ];
-    List.iter
-      (fun field ->
-         match
-           rewrite_json_field field (`String (String.make 64 '0')) retirement_encoded
-           |> EO.flow_preference_retirement_intent_of_string
-         with
-         | Error EO.Flow_preference_retirement_intent_integrity_mismatch -> ()
-         | Ok _ | Error _ -> failf "retirement %s tampering survived" field)
-      [ "retirement_id"; "integrity_sha256" ];
-    let retirement_roundtrip =
-      String.equal
-        (EO.flow_preference_retirement_receipt_id retirement_receipt
-         |> EO.flow_preference_retirement_id_to_string)
-        (EO.flow_preference_retirement_intent_id retirement
-         |> EO.flow_preference_retirement_id_to_string)
-    in
-    let newer = capture_domain "retirement-b" in
-    let retired_only =
-      match
-        EO.recover_flow_preferences
-          ~concurrent_scope_budget:0
-          ~evidence:
-            [ EO.Domain_settlement_evidence older
-            ; EO.Scope_retirement_evidence retirement
-            ]
-      with
-      | Ok recovered -> recovered
-      | Error _ -> fail "retire-after-valid evidence did not recover"
-    in
-    let retired_blocked =
-      match
-        snapshot_candidates
-          ~preferences:retired_only
-          ~scope
-          [ flow_candidate snapshot "retirement-a" ]
-      with
-      | Error (EO.Flow_preference_capacity_exhausted { capacity = 0 }) -> true
-      | Ok _ | Error _ -> false
-    in
-    let reactivated =
-      match
-        EO.recover_flow_preferences
-          ~concurrent_scope_budget:0
-          ~evidence:
-            [ EO.Domain_settlement_evidence older
-            ; EO.Scope_retirement_evidence retirement
-            ; EO.Domain_settlement_evidence newer
-            ]
-      with
-      | Ok recovered -> recovered
-      | Error _ -> fail "newer valid reservation did not reactivate"
-    in
-    let newer_order =
-      frozen_flow
-        ~preferences:reactivated
-        ~scope
-        snapshot
-        [ "retirement-a"; "retirement-b" ]
-      |> flow_snapshot_ids
-    in
-    retired_blocked, newer_order, retirement_roundtrip
-  in
-  check int "retirement ordering fixture dispatches twice" 2 posts;
-  check bool "retirement prevents stale resurrection" true retired_blocked;
-  check
-    (list string)
-    "genuinely newer reservation reactivates preference"
-    [ "retirement-b"; "retirement-a" ]
-    newer_order;
-  check bool "retirement codec preserves deterministic id" true retirement_roundtrip
-;;
-
-let test_recovery_rejects_superseded_retirement_conflicts_regardless_order () =
-  let (every_order_conflicted, deterministic_conflict_payload), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"retirement-conflict" ~base_url ~native:true ~json:true () ]
-    @@ fun snapshot ->
-    let scope = flow_scope "/runtime/retirement-conflict-order" in
-    let other_scope = flow_scope "/runtime/retirement-conflict-high-water" in
-    let advance preferences scope =
-      let success =
-        match
-          frozen_flow ~preferences ~scope snapshot [ "retirement-conflict" ]
-          |> start_flow
-          |> execute_ok ~net
-        with
-        | Ok success -> success
-        | Error _ -> fail "retirement conflict fixture did not succeed"
-      in
-      match
-        EO.commit_and_settle_flow_domain
-          ~commit:(fun _ -> Error ())
-          success
-          EO.Domain_valid
-      with
-      | Error (EO.Domain_commit_failed ()) -> ()
-      | Ok _
-      | Error EO.Domain_settlement_in_progress
-      | Error EO.Domain_settlement_conflict ->
-        fail "retirement conflict fixture unexpectedly settled"
-    in
-    let retire preferences =
-      let encoded = ref None in
-      (match
-         EO.commit_and_retire_flow_preference_scope
-           ~commit:(fun intent ->
-             encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
-             Ok ())
-           preferences
-           scope
-       with
-       | Ok _ -> ()
-       | Error _ -> fail "retirement conflict fixture did not retire");
-      match !encoded with
-      | None -> fail "retirement conflict fixture emitted no intent"
-      | Some encoded ->
-        (match EO.flow_preference_retirement_intent_of_string encoded with
-         | Ok intent -> intent
-         | Error _ -> fail "retirement conflict intent did not decode")
-    in
-    let first_preferences = preference_store ~capacity:2 () in
-    advance first_preferences scope;
-    let first = retire first_preferences in
-    let conflicting_preferences = preference_store ~capacity:2 () in
-    advance conflicting_preferences scope;
-    advance conflicting_preferences other_scope;
-    let conflicting = retire conflicting_preferences in
-    let newer_preferences = preference_store ~capacity:2 () in
-    advance newer_preferences scope;
-    let _retired = retire newer_preferences in
-    advance newer_preferences scope;
-    let newer = retire newer_preferences in
-    let retirement_id intent =
-      EO.flow_preference_retirement_intent_id intent
-      |> EO.flow_preference_retirement_id_to_string
-    in
-    let retirement_field field intent =
-      EO.flow_preference_retirement_intent_to_string intent |> json_field_string field
-    in
-    let retirement_reservation intent =
-      retirement_field "reservation_ordinal" intent |> Int64.of_string
-    in
-    let first_id = retirement_id first in
-    let conflicting_id = retirement_id conflicting in
-    let newer_id = retirement_id newer in
-    if String.equal first_id conflicting_id
-    then fail "retirement conflict fixture produced identical older intents";
-    if String.equal conflicting_id newer_id
-    then fail "retirement conflict fixture did not create a distinct newer intent";
-    if String.equal first_id newer_id
-    then fail "retirement conflict fixture reused the first retirement intent";
-    if
-      not
-        (String.equal
-           (retirement_field "scope" first)
-           (retirement_field "scope" conflicting)
-         && String.equal (retirement_field "scope" first) (retirement_field "scope" newer)
-        )
-    then fail "retirement conflict fixture did not preserve one scope";
-    let first_reservation = retirement_reservation first in
-    let conflicting_reservation = retirement_reservation conflicting in
-    let newer_reservation = retirement_reservation newer in
-    if not (Int64.equal first_reservation conflicting_reservation)
-    then fail "retirement conflict fixture did not share the older reservation";
-    if Int64.compare newer_reservation first_reservation <= 0
-    then fail "retirement conflict fixture did not create a newer reservation";
-    let permutations =
-      [ [ first; conflicting; newer ]
-      ; [ first; newer; conflicting ]
-      ; [ conflicting; first; newer ]
-      ; [ conflicting; newer; first ]
-      ; [ newer; first; conflicting ]
-      ; [ newer; conflicting; first ]
-      ]
-    in
-    let permutation_keys =
-      List.map
-        (fun ordered -> List.map retirement_id ordered |> String.concat ":")
-        permutations
-    in
-    if List.length (List.sort_uniq String.compare permutation_keys) <> 6
-    then fail "retirement conflict fixture did not produce six distinct permutations";
-    let conflict_ids =
-      List.map
-        (fun ordered ->
-           match
-             EO.recover_flow_preferences
-               ~concurrent_scope_budget:0
-               ~evidence:
-                 (List.map (fun intent -> EO.Scope_retirement_evidence intent) ordered)
-           with
-           | Error (EO.Conflicting_scope_retirement_evidence id) ->
-             Some (EO.flow_preference_retirement_id_to_string id)
-           | Ok _
-           | Error (EO.Invalid_concurrent_scope_budget _)
-           | Error (EO.Conflicting_domain_settlement_evidence _) -> None)
-        permutations
-    in
-    let every_order_conflicted =
-      List.for_all
-        (function
-          | Some _ -> true
-          | None -> false)
-        conflict_ids
-    in
-    let deterministic_conflict_payload =
-      match conflict_ids with
-      | Some expected :: rest ->
-        (String.equal expected first_id || String.equal expected conflicting_id)
-        && List.for_all
-             (function
-               | Some actual -> String.equal actual expected
-               | None -> false)
-             rest
-      | None :: _ | [] -> false
-    in
-    every_order_conflicted, deterministic_conflict_payload
-  in
-  check int "superseded retirement conflict fixture dispatches five times" 5 posts;
-  check
-    bool
-    "superseded equal-reservation retirements always conflict"
-    true
-    every_order_conflicted;
-  check
-    bool
-    "superseded retirement conflict payload is deterministic"
-    true
-    deterministic_conflict_payload
-;;
-
-let test_rejected_only_recovery_restores_high_water_without_active_scope () =
-  let (zero_active, reservation_advanced, ordinal_advanced), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"rejected-only" ~base_url ~native:true ~json:true () ]
-    @@ fun snapshot ->
-    let original = preference_store ~capacity:1 () in
-    let original_scope = flow_scope "/runtime/rejected-only/original" in
-    let original_success =
-      match
-        frozen_flow
-          ~preferences:original
-          ~scope:original_scope
-          snapshot
-          [ "rejected-only" ]
-        |> start_flow
-        |> execute_ok ~net
-      with
-      | Ok success -> success
-      | Error _ -> fail "rejected-only fixture did not succeed"
-    in
-    let original_encoded = ref None in
-    (match
-       EO.commit_and_settle_flow_domain
-         ~commit:(fun intent ->
-           original_encoded := Some (EO.domain_settlement_intent_to_string intent);
-           Error ())
-         original_success
-         EO.Domain_rejected
-     with
-     | Error (EO.Domain_commit_failed ()) -> ()
-     | Ok _ | Error EO.Domain_settlement_in_progress | Error EO.Domain_settlement_conflict
-       -> fail "rejected-only fixture unexpectedly settled");
-    let original_encoded, rejected =
-      match !original_encoded with
-      | None -> fail "rejected-only fixture emitted no intent"
-      | Some encoded ->
-        (match EO.domain_settlement_intent_of_string encoded with
-         | Ok intent -> encoded, intent
-         | Error _ -> fail "rejected-only intent did not decode")
-    in
-    let zero =
-      match
-        EO.recover_flow_preferences
-          ~concurrent_scope_budget:0
-          ~evidence:[ EO.Domain_settlement_evidence rejected ]
-      with
-      | Ok recovered -> recovered
-      | Error _ -> fail "rejected-only zero-budget recovery failed"
-    in
-    let zero_active =
-      match
-        snapshot_candidates
-          ~preferences:zero
-          ~scope:original_scope
-          [ flow_candidate snapshot "rejected-only" ]
-      with
-      | Error (EO.Flow_preference_capacity_exhausted { capacity = 0 }) -> true
-      | Ok _ | Error _ -> false
-    in
-    let recovered =
-      match
-        EO.recover_flow_preferences
-          ~concurrent_scope_budget:1
-          ~evidence:[ EO.Domain_settlement_evidence rejected ]
-      with
-      | Ok recovered -> recovered
-      | Error _ -> fail "rejected-only high-water recovery failed"
-    in
-    let next_success =
-      match
-        frozen_flow
-          ~preferences:recovered
-          ~scope:(flow_scope "/runtime/rejected-only/next")
-          snapshot
-          [ "rejected-only" ]
-        |> start_flow
-        |> execute_ok ~net
-      with
-      | Ok success -> success
-      | Error _ -> fail "post rejected-only recovery did not execute"
-    in
-    let next_encoded = ref None in
-    (match
-       EO.commit_and_settle_flow_domain
-         ~commit:(fun intent ->
-           next_encoded := Some (EO.domain_settlement_intent_to_string intent);
-           Error ())
-         next_success
-         EO.Domain_rejected
-     with
-     | Error (EO.Domain_commit_failed ()) -> ()
-     | Ok _ | Error EO.Domain_settlement_in_progress | Error EO.Domain_settlement_conflict
-       -> fail "post rejected-only fixture unexpectedly settled");
-    let next_encoded =
-      match !next_encoded with
-      | Some encoded -> encoded
-      | None -> fail "post rejected-only fixture emitted no intent"
-    in
-    ( zero_active
-    , Int64.compare
-        (json_field_string "reservation_ordinal" next_encoded |> Int64.of_string)
-        (json_field_string "reservation_ordinal" original_encoded |> Int64.of_string)
-      > 0
-    , Int64.compare
-        (json_field_string "success_ordinal" next_encoded |> Int64.of_string)
-        (json_field_string "success_ordinal" original_encoded |> Int64.of_string)
-      > 0 )
-  in
-  check int "rejected-only high-water fixture dispatches twice" 2 posts;
-  check bool "rejected-only evidence consumes no active capacity" true zero_active;
-  check
-    bool
-    "rejected-only recovery restores reservation high-water"
-    true
-    reservation_advanced;
-  check bool "rejected-only recovery restores success high-water" true ordinal_advanced
-;;
-
-let test_retirement_cancellation_replays_stable_intent_after_high_water_drift () =
-  let stable_intent, posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"retirement-stable" ~base_url ~native:true ~json:true () ]
-    @@ fun snapshot ->
-    let preferences = preference_store ~capacity:2 () in
-    let retirement_scope = flow_scope "/runtime/retirement-stable" in
-    (match
-       snapshot_candidates
-         ~preferences
-         ~scope:retirement_scope
-         [ flow_candidate snapshot "retirement-stable" ]
-     with
-     | Ok _ -> ()
-     | Error _ -> fail "retirement cancellation scope was not reserved");
-    let first_encoded = ref None in
-    (try
-       ignore
-         (EO.commit_and_retire_flow_preference_scope
-            ~commit:(fun intent ->
-              first_encoded
-              := Some (EO.flow_preference_retirement_intent_to_string intent);
-              raise
-                (Eio.Cancel.Cancelled (Failure "injected after durable retirement commit")))
-            preferences
-            retirement_scope);
-       fail "injected retirement cancellation did not escape"
-     with
-     | Eio.Cancel.Cancelled _ -> ());
-    let drift_scope = flow_scope "/runtime/retirement-stable-drift" in
-    (match
-       frozen_flow ~preferences ~scope:drift_scope snapshot [ "retirement-stable" ]
-       |> start_flow
-       |> execute_ok ~net
-     with
-     | Ok _ -> ()
-     | Error _ -> fail "success high-water drift fixture did not execute");
-    let failed_replay_encoded = ref None in
-    (match
-       EO.commit_and_retire_flow_preference_scope
-         ~commit:(fun intent ->
-           failed_replay_encoded
-           := Some (EO.flow_preference_retirement_intent_to_string intent);
-           Error ())
-         preferences
-         retirement_scope
-     with
-     | Error (EO.Flow_preference_retirement_commit_failed ()) -> ()
-     | Ok _
-     | Error EO.Flow_preference_retirement_in_progress
-     | Error EO.Flow_preference_retirement_conflict
-     | Error EO.Flow_preference_scope_not_reserved ->
-       fail "failed indeterminate replay did not remain retryable");
-    let replay_encoded = ref None in
-    let replay_receipt =
-      match
-        EO.commit_and_retire_flow_preference_scope
-          ~commit:(fun intent ->
-            replay_encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
-            Ok ())
-          preferences
-          retirement_scope
-      with
-      | Ok receipt -> receipt
-      | Error _ -> fail "indeterminate retirement did not replay"
-    in
-    let first_encoded =
-      match !first_encoded with
-      | Some encoded -> encoded
-      | None -> fail "cancelled retirement exposed no intent"
-    in
-    let replay_encoded =
-      match !replay_encoded with
-      | Some encoded -> encoded
-      | None -> fail "retirement replay exposed no intent"
-    in
-    let failed_replay_encoded =
-      match !failed_replay_encoded with
-      | Some encoded -> encoded
-      | None -> fail "failed retirement replay exposed no intent"
-    in
-    let first_intent =
-      match EO.flow_preference_retirement_intent_of_string first_encoded with
-      | Ok intent -> intent
-      | Error _ -> fail "cancelled retirement intent did not decode"
-    in
-    String.equal first_encoded failed_replay_encoded
-    && String.equal first_encoded replay_encoded
-    && String.equal
-         (EO.flow_preference_retirement_intent_id first_intent
-          |> EO.flow_preference_retirement_id_to_string)
-         (EO.flow_preference_retirement_receipt_id replay_receipt
-          |> EO.flow_preference_retirement_id_to_string)
-  in
-  check int "retirement stability fixture dispatches only high-water drift" 1 posts;
-  check bool "post-commit cancellation replays exact retirement intent" true stable_intent
-;;
-
-let test_retirement_initial_error_preserves_intent_after_high_water_drift () =
-  let (stable_intent, initial_call_count, final_call_count), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"retirement-error" ~base_url ~native:true ~json:true () ]
-    @@ fun snapshot ->
-    let preferences = preference_store ~capacity:2 () in
-    let retirement_scope = flow_scope "/runtime/retirement-error" in
-    (match
-       snapshot_candidates
-         ~preferences
-         ~scope:retirement_scope
-         [ flow_candidate snapshot "retirement-error" ]
-     with
-     | Ok _ -> ()
-     | Error _ -> fail "retirement error scope was not reserved");
-    let callback_calls = ref 0 in
-    let first_encoded = ref None in
-    (match
-       EO.commit_and_retire_flow_preference_scope
-         ~commit:(fun intent ->
-           incr callback_calls;
-           first_encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
-           Error ())
-         preferences
-         retirement_scope
-     with
-     | Error (EO.Flow_preference_retirement_commit_failed ()) -> ()
-     | Ok _
-     | Error EO.Flow_preference_retirement_in_progress
-     | Error EO.Flow_preference_retirement_conflict
-     | Error EO.Flow_preference_scope_not_reserved ->
-       fail "initial retirement error lost its typed outcome");
-    let initial_call_count = !callback_calls in
-    let drift_scope = flow_scope "/runtime/retirement-error-drift" in
-    (match
-       frozen_flow ~preferences ~scope:drift_scope snapshot [ "retirement-error" ]
-       |> start_flow
-       |> execute_ok ~net
-     with
-     | Ok _ -> ()
-     | Error _ -> fail "retirement error high-water drift did not execute");
-    let retry_encoded = ref None in
-    let retry_receipt =
-      match
-        EO.commit_and_retire_flow_preference_scope
-          ~commit:(fun intent ->
-            incr callback_calls;
-            retry_encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
-            Ok ())
-          preferences
-          retirement_scope
-      with
-      | Ok receipt -> receipt
-      | Error _ -> fail "initial retirement error was not explicitly retryable"
-    in
-    let first_encoded =
-      match !first_encoded with
-      | Some encoded -> encoded
-      | None -> fail "initial retirement error exposed no intent"
-    in
-    let retry_encoded =
-      match !retry_encoded with
-      | Some encoded -> encoded
-      | None -> fail "retirement error retry exposed no intent"
-    in
-    let first_intent =
-      match EO.flow_preference_retirement_intent_of_string first_encoded with
-      | Ok intent -> intent
-      | Error _ -> fail "initial retirement error intent did not decode"
-    in
-    ( String.equal first_encoded retry_encoded
-      && String.equal
-           (EO.flow_preference_retirement_intent_id first_intent
-            |> EO.flow_preference_retirement_id_to_string)
-           (EO.flow_preference_retirement_receipt_id retry_receipt
-            |> EO.flow_preference_retirement_id_to_string)
-    , initial_call_count
-    , !callback_calls )
-  in
-  check int "initial error does not auto-redispatch callback" 1 initial_call_count;
-  check int "explicit retry dispatches callback exactly once" 2 final_call_count;
-  check int "initial error stability fixture dispatches only high-water drift" 1 posts;
-  check bool "initial error retry preserves exact retirement intent" true stable_intent
-;;
-
-let test_recovery_conflicting_disposition_fails_closed () =
-  let conflicted, posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog [ catalog_entry ~id:"conflict-a" ~base_url ~native:true ~json:true () ]
-    @@ fun snapshot ->
-    let success =
-      frozen_flow snapshot [ "conflict-a" ] |> start_flow |> execute_ok ~net
-    in
-    let success =
-      match success with
-      | Ok success -> success
-      | Error _ -> fail "conflicting intent fixture did not succeed"
-    in
-    let capture disposition =
-      let encoded = ref None in
-      (match
-         EO.commit_and_settle_flow_domain
-           ~commit:(fun intent ->
-             encoded := Some (EO.domain_settlement_intent_to_string intent);
-             Error ())
-           success
-           disposition
-       with
-       | Error (EO.Domain_commit_failed ()) -> ()
-       | Ok _
-       | Error EO.Domain_settlement_in_progress
-       | Error EO.Domain_settlement_conflict ->
-         fail "failed commit unexpectedly consumed the disposition");
-      match !encoded with
-      | Some encoded ->
-        (match EO.domain_settlement_intent_of_string encoded with
-         | Ok intent -> intent
-         | Error _ -> fail "captured conflict intent did not decode")
-      | None -> fail "commit callback did not receive conflict intent"
-    in
-    let valid = capture EO.Domain_valid in
-    let rejected = capture EO.Domain_rejected in
-    check
-      string
-      "opposite dispositions share structural settlement id"
-      (EO.domain_settlement_intent_id valid |> EO.domain_settlement_id_to_string)
-      (EO.domain_settlement_intent_id rejected |> EO.domain_settlement_id_to_string);
-    match
-      EO.recover_flow_preferences
-        ~concurrent_scope_budget:1
-        ~evidence:
-          [ EO.Domain_settlement_evidence valid; EO.Domain_settlement_evidence rejected ]
-    with
-    | Error (EO.Conflicting_domain_settlement_evidence _) -> true
-    | Ok _
-    | Error (EO.Invalid_concurrent_scope_budget _)
-    | Error (EO.Conflicting_scope_retirement_evidence _) -> false
-  in
-  check int "conflicting recovery performs no extra dispatch" 1 posts;
-  check bool "conflicting disposition fails closed" true conflicted
-;;
-
-let test_recovery_rejects_reused_success_ordinals_regardless_order () =
-  let ( (every_order_conflicted, deterministic_conflict_payload, distinct_ordinals_recover)
-      , posts )
-    =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"ordinal-a" ~base_url ~native:true ~json:true ()
-      ; catalog_entry ~id:"ordinal-b" ~base_url ~native:true ~json:true ()
-      ]
-    @@ fun snapshot ->
-    let scope = flow_scope "/runtime/success-ordinal-reuse" in
-    let capture preferences candidate =
-      let success =
-        match
-          frozen_flow ~preferences ~scope snapshot [ candidate ]
-          |> start_flow
-          |> execute_ok ~net
-        with
-        | Ok success -> success
-        | Error _ -> fail "success ordinal fixture did not succeed"
-      in
-      let encoded = ref None in
-      (match
-         EO.commit_and_settle_flow_domain
-           ~commit:(fun intent ->
-             encoded := Some (EO.domain_settlement_intent_to_string intent);
-             Error ())
-           success
-           EO.Domain_valid
-       with
-       | Error (EO.Domain_commit_failed ()) -> ()
-       | Ok _
-       | Error EO.Domain_settlement_in_progress
-       | Error EO.Domain_settlement_conflict ->
-         fail "success ordinal fixture unexpectedly settled");
-      match !encoded with
-      | None -> fail "success ordinal fixture emitted no domain intent"
-      | Some encoded ->
-        (match EO.domain_settlement_intent_of_string encoded with
-         | Ok intent -> intent
-         | Error _ -> fail "success ordinal fixture intent did not decode")
-    in
-    let intent_field field intent =
-      EO.domain_settlement_intent_to_string intent |> json_field_string field
-    in
-    let intent_id intent =
-      EO.domain_settlement_intent_id intent |> EO.domain_settlement_id_to_string
-    in
-    let recover_permutation ordered =
-      EO.recover_flow_preferences
-        ~concurrent_scope_budget:1
-        ~evidence:(List.map (fun intent -> EO.Domain_settlement_evidence intent) ordered)
-    in
-    let first_preferences = preference_store ~capacity:1 () in
-    let first = capture first_preferences "ordinal-a" in
-    let second_preferences = preference_store ~capacity:1 () in
-    let second = capture second_preferences "ordinal-b" in
-    if not (String.equal (intent_field "scope" first) (intent_field "scope" second))
-    then fail "success ordinal fixture did not preserve one scope";
-    if
-      not
-        (String.equal
-           (intent_field "reservation_ordinal" first)
-           (intent_field "reservation_ordinal" second))
-    then fail "success ordinal fixture did not share one reservation";
-    if
-      not
-        (String.equal
-           (intent_field "success_ordinal" first)
-           (intent_field "success_ordinal" second))
-    then fail "success ordinal fixture did not reuse the success ordinal";
-    if
-      String.equal
-        (intent_field "candidate_id" first)
-        (intent_field "candidate_id" second)
-    then fail "success ordinal fixture named one candidate twice";
-    if String.equal (intent_id first) (intent_id second)
-    then fail "success ordinal fixture produced one settlement id";
-    let conflict_ids =
-      List.map
-        (fun ordered ->
-           match recover_permutation ordered with
-           | Error (EO.Conflicting_domain_settlement_evidence id) ->
-             Some (EO.domain_settlement_id_to_string id)
-           | Ok _
-           | Error (EO.Invalid_concurrent_scope_budget _)
-           | Error (EO.Conflicting_scope_retirement_evidence _) -> None)
-        [ [ first; second ]; [ second; first ] ]
-    in
-    let every_order_conflicted =
-      List.for_all
-        (function
-          | Some _ -> true
-          | None -> false)
-        conflict_ids
-    in
-    let deterministic_conflict_payload =
-      match conflict_ids with
-      | Some expected :: rest ->
-        (String.equal expected (intent_id first)
-         || String.equal expected (intent_id second))
-        && List.for_all
-             (function
-               | Some actual -> String.equal actual expected
-               | None -> false)
-             rest
-      | None :: _ | [] -> false
-    in
-    let distinct_preferences = preference_store ~capacity:1 () in
-    let distinct_first = capture distinct_preferences "ordinal-a" in
-    let distinct_second = capture distinct_preferences "ordinal-b" in
-    if
-      not
-        (String.equal
-           (intent_field "reservation_ordinal" distinct_first)
-           (intent_field "reservation_ordinal" distinct_second))
-    then fail "distinct-ordinal control did not share one reservation";
-    if
-      String.equal
-        (intent_field "success_ordinal" distinct_first)
-        (intent_field "success_ordinal" distinct_second)
-    then fail "distinct-ordinal control reused a success ordinal";
-    let distinct_ordinals_recover =
-      List.for_all
-        (fun ordered ->
-           match recover_permutation ordered with
-           | Ok _ -> true
-           | Error _ -> false)
-        [ [ distinct_first; distinct_second ]; [ distinct_second; distinct_first ] ]
-    in
-    every_order_conflicted, deterministic_conflict_payload, distinct_ordinals_recover
-  in
-  check int "success ordinal reuse fixture dispatches four times" 4 posts;
-  check bool "reused success ordinals always conflict" true every_order_conflicted;
-  check
-    bool
-    "reused success ordinal conflict payload is deterministic"
-    true
-    deterministic_conflict_payload;
-  check bool "distinct success ordinals still recover" true distinct_ordinals_recover
-;;
-
-let test_recovery_capacity_is_derived_from_distinct_active_scopes () =
-  let (historical_ids_do_not_inflate, high_water_restored), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog [ catalog_entry ~id:"capacity-a" ~base_url ~native:true ~json:true () ]
-    @@ fun snapshot ->
-    let live_preferences = preference_store ~capacity:2 () in
-    let capture preferences scope =
-      let success =
-        frozen_flow ~preferences ~scope snapshot [ "capacity-a" ]
-        |> start_flow
-        |> execute_ok ~net
-      in
-      let success =
-        match success with
-        | Ok success -> success
-        | Error _ -> fail "capacity recovery fixture did not succeed"
-      in
-      let encoded = ref None in
-      (match
-         EO.commit_and_settle_flow_domain
-           ~commit:(fun intent ->
-             encoded := Some (EO.domain_settlement_intent_to_string intent);
-             Error ())
-           success
-           EO.Domain_valid
-       with
-       | Error (EO.Domain_commit_failed ()) -> ()
-       | Ok _
-       | Error EO.Domain_settlement_in_progress
-       | Error EO.Domain_settlement_conflict ->
-         fail "capacity recovery fixture unexpectedly settled");
-      match !encoded with
-      | Some encoded ->
-        (match EO.domain_settlement_intent_of_string encoded with
-         | Ok intent -> intent, encoded
-         | Error _ -> fail "capacity recovery fixture intent did not decode")
-      | None -> fail "capacity recovery fixture did not expose its intent"
-    in
-    let first_scope = flow_scope "/runtime/recovery-capacity/a" in
-    let first, first_encoded = capture live_preferences first_scope in
-    let second, second_encoded = capture live_preferences first_scope in
-    let recovered_preferences =
-      match
-        EO.recover_flow_preferences
-          ~concurrent_scope_budget:0
-          ~evidence:
-            [ EO.Domain_settlement_evidence first; EO.Domain_settlement_evidence second ]
-      with
-      | Ok preferences -> preferences
-      | Error _ -> fail "distinct-scope recovery failed"
-    in
-    let second_scope = flow_scope "/runtime/recovery-capacity/b" in
-    let historical_ids_do_not_inflate =
-      match
-        snapshot_candidates
-          ~preferences:recovered_preferences
-          ~scope:second_scope
-          [ flow_candidate snapshot "capacity-a" ]
-      with
-      | Error (EO.Flow_preference_capacity_exhausted { capacity = 1 }) -> true
-      | Ok _ | Error _ -> false
-    in
-    ignore (retire_scope recovered_preferences first_scope);
-    let _, next_encoded =
-      capture recovered_preferences (flow_scope "/runtime/recovery-capacity/next")
-    in
-    ( historical_ids_do_not_inflate
-    , Int64.compare
-        (json_field_string "reservation_ordinal" next_encoded |> Int64.of_string)
-        (Int64.max
-           (json_field_string "reservation_ordinal" first_encoded |> Int64.of_string)
-           (json_field_string "reservation_ordinal" second_encoded |> Int64.of_string))
-      > 0 )
-  in
-  check int "capacity recovery proof dispatches only live fixtures" 3 posts;
-  check bool "historical ids do not inflate capacity" true historical_ids_do_not_inflate;
-  check bool "recovery restores reservation high-water" true high_water_restored
+  |> fun evidence -> candidate_ids evidence.declared_candidate_snapshot
 ;;
 
 let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
@@ -2319,8 +501,6 @@ let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
       | first :: rest ->
         (match
            EO.snapshot_flow
-             ~preferences:(preference_store ())
-             ~scope:(flow_scope "nonsharing")
              ~first
              ~rest
              ~messages:[ msg "freeze all" ]
@@ -2361,7 +541,7 @@ let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
          int
          "candidate snapshot is complete"
          3
-         (List.length evidence.EO.candidate_snapshot);
+         (List.length evidence.EO.declared_candidate_snapshot);
        check int "no admission is speculative" 0 (List.length evidence.admissions);
        check int "no attempt is speculative" 0 (List.length evidence.attempts);
        check
@@ -2438,7 +618,7 @@ let test_later_missing_credential_does_not_block_current_success () =
     @@ fun snapshot ->
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -2463,7 +643,7 @@ let test_later_missing_credential_does_not_block_current_success () =
       int
       "full candidate snapshot remains frozen"
       2
-      (List.length (EO.flow_success_evidence success).candidate_snapshot);
+      (List.length (EO.flow_success_evidence success).declared_candidate_snapshot);
     check
       int
       "only current admission is recorded"
@@ -2483,67 +663,190 @@ let test_later_missing_credential_does_not_block_current_success () =
   | Error _ -> fail "later missing credential blocked the current candidate"
 ;;
 
-(* The format axis of the exact-output contract had no behavioural coverage. The
-   chain that carries a format refusal to the next candidate — capability read refuses
-   (exact_output.ml No_structured_output + Json_syntax -> Error Json_syntax_unavailable),
-   the refusal classifies as a candidate rejection (admission_error_disposition ->
-   Output_requirement_rejected), the walk treats a rejection as advanceable
-   (advanceable_flow_failure) — held only by construction. Json_syntax_unavailable
-   appeared nowhere in any test, so nothing observed a format refusal ordering rather
-   than ending the walk. The neighbouring credential cases exercise the same advance
-   step through Runtime_slot_unavailable, which is why the mechanism worked; what was
-   unobserved is that a *format* refusal reaches it and that a capable successor then
-   serves the same request. *)
-let test_format_refusal_orders_the_walk () =
-  let (result, dispositions, advances), posts =
-    with_server ~response:(openai_response {|{"name":"accepted"}|})
+let test_json_syntax_uses_strict_text_fallback () =
+  let (result, advances), posts =
+    with_counted_server
+      ~measurement_reply:(Measurement_tokens 1)
+      ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog
-      [ catalog_entry ~id:"no-json" ~base_url ~native:false ~json:false ()
-      ; catalog_entry ~id:"json-capable" ~base_url ~native:true ~json:true ()
-      ]
+    with_catalog [ catalog_entry ~id:"text-json" ~base_url ~native:false ~json:false () ]
     @@ fun snapshot ->
-    let dispositions = ref [] in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
         ~before_dispatch:(fun _ -> Ok ())
-        ~before_advance:(fun ~failed ~next:_ ->
+        ~before_advance:(fun ~failed:_ ~next:_ ->
           incr advances;
-          (match failed with
-           | EO.Flow_candidate_rejected rejection ->
-             dispositions := EO.candidate_rejection_disposition rejection :: !dispositions
-           | _ -> fail "a format refusal did not arrive as a candidate rejection");
           Ok ())
-        (start_flow (frozen_flow snapshot [ "no-json"; "json-capable" ]))
+        (start_flow (frozen_flow snapshot [ "text-json" ]))
     in
-    result, !dispositions, !advances
+    result, !advances
   in
-  (* Pre-dispatch: the refused candidate never reaches the wire, so ordering past it
-     is not a duplicate request. *)
-  check int "only the capable candidate posts" 1 posts;
-  check int "the format refusal advanced the walk once" 1 advances;
-  (match dispositions with
-   | [ EO.Output_requirement_rejected ] -> ()
-   | [ _ ] -> fail "a format refusal was classified as some other disposition"
-   | _ -> failf "expected exactly one rejection, saw %d" (List.length dispositions));
+  check int "text fallback skips measurement" 0 posts.measurement_posts;
+  check int "text fallback posts exactly once" 1 posts.generation_posts;
+  check int "successful text fallback does not advance" 0 advances;
+  let request =
+    match posts.generation_bodies with
+    | [ body ] -> Yojson.Safe.from_string body
+    | _ -> fail "text fallback did not retain its single generation body"
+  in
+  (match request with
+   | `Assoc fields ->
+     check
+       bool
+       "text fallback emits no response_format field"
+       false
+       (List.mem_assoc "response_format" fields)
+   | _ -> fail "text fallback request body was not an object");
+  let messages = Yojson.Safe.Util.(request |> member "messages" |> to_list) in
+  check int "strict JSON instruction is appended last" 2 (List.length messages);
+  let instruction =
+    match List.rev messages with
+    | final :: _ -> Yojson.Safe.Util.(final |> member "content" |> to_string)
+    | [] -> fail "text fallback request lost all messages"
+  in
+  check
+    bool
+    "final instruction requires a bare JSON value"
+    true
+    (String.starts_with
+       ~prefix:
+         "Return exactly one JSON value matching this JSON Schema. Do not use Markdown \
+          code fences or include any explanation. JSON Schema:"
+       instruction);
   match result with
   | Ok success ->
     check
       string
-      "the capable successor served the same request"
-      "json-capable"
+      "text fallback candidate serves the request"
+      "text-json"
       (candidate_id (EO.flow_success_candidate success));
     check
-      int
-      "both candidates were visited"
-      2
-      (EO.candidate_visit_count_to_int
-         (EO.flow_success_evidence success).candidate_visit_count)
-  | Error _ -> fail "a format refusal ended the walk instead of ordering it"
+      bool
+      "strict text fallback returns parsed JSON"
+      true
+      ((EO.flow_success_output success).output = `Assoc [ "name", `String "accepted" ])
+  | Error _ -> fail "valid JSON text fallback did not succeed"
+;;
+
+let test_fenced_text_json_advances_to_frozen_successor () =
+  let first_response =
+    `OK, openai_response "```json\n{\"name\":\"must-not-be-cleaned\"}\n```"
+  in
+  let (result, observed_advance, advances), posts =
+    with_server ~first_response ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"fenced-text" ~base_url ~native:false ~json:false ()
+      ; catalog_entry ~id:"bare-text" ~base_url ~native:false ~json:false ()
+      ]
+    @@ fun snapshot ->
+    let observed_advance = ref None in
+    let advances = ref 0 in
+    let result =
+      execute_with_accepting_test_validator
+        ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
+        ~before_measurement_dispatch:(fun _ -> Ok ())
+        ~before_dispatch:(fun _ -> Ok ())
+        ~before_advance:(fun ~failed ~next ->
+          let candidate, failure = flow_execution_failure failed in
+          observed_advance
+          := Some
+               ( candidate_id candidate
+               , next.identity.candidate_id
+               , failure.EO.cause
+               , EO.receipt_phase failure.receipt
+               , EO.receipt_dispatch_count failure.receipt );
+          incr advances;
+          Ok ())
+        (start_flow (frozen_flow snapshot [ "fenced-text"; "bare-text" ]))
+    in
+    result, !observed_advance, !advances
+  in
+  check int "invalid then valid fallback performs two POSTs" 2 posts;
+  check int "invalid fallback advances once" 1 advances;
+  (match observed_advance with
+   | Some (failed, next, cause, phase, dispatch_count) ->
+     check string "invalid fallback candidate" "fenced-text" failed;
+     check string "frozen fallback successor" "bare-text" next;
+     check bool "fenced text is invalid JSON" true (cause = EO.Invalid_json_output);
+     check bool "invalid fallback receipt is terminal" true (phase = EO.Terminal);
+     check int "invalid fallback preserves one POST" 1 dispatch_count
+   | None -> fail "invalid fallback did not request its frozen successor");
+  match result with
+  | Ok success ->
+    check
+      string
+      "bare JSON successor serves the request"
+      "bare-text"
+      (candidate_id (EO.flow_success_candidate success));
+    check
+      bool
+      "successor output is parsed without cleanup"
+      true
+      ((EO.flow_success_output success).output = `Assoc [ "name", `String "accepted" ])
+  | Error _ -> fail "strict fallback did not advance to its frozen successor"
+;;
+
+let test_provider_schema_still_requires_native_capability () =
+  let requirement =
+    EO.make_output_requirement ~schema ~minimum_guarantee:EO.Provider_schema
+  in
+  let (result, evidence), posts =
+    with_counted_server ~measurement_reply:(Measurement_tokens 1) ~response:"unused"
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"no-native-schema" ~base_url ~native:false ~json:false () ]
+    @@ fun snapshot ->
+    let flow =
+      start_flow
+        (frozen_candidates ~requirement [ flow_candidate snapshot "no-native-schema" ])
+    in
+    let result =
+      execute_with_accepting_test_validator
+        ~net
+        ~on_measurement_terminal:(fun _ ->
+          fail "provider-schema rejection reached measurement terminal")
+        ~before_measurement_dispatch:(fun _ ->
+          fail "provider-schema rejection reached measurement dispatch")
+        ~before_dispatch:(fun _ ->
+          fail "provider-schema rejection reached generation dispatch")
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          fail "single provider-schema rejection requested a successor")
+        flow
+    in
+    result, EO.flow_attempt_evidence flow
+  in
+  check
+    int
+    "provider-schema rejection performs no measurement POST"
+    0
+    posts.measurement_posts;
+  check
+    int
+    "provider-schema rejection performs no generation POST"
+    0
+    posts.generation_posts;
+  check
+    int
+    "provider-schema rejection allocates no attempt"
+    0
+    (List.length evidence.attempts);
+  match result with
+  | Error (EO.Flow_candidates_exhausted { rejection; _ } as error) ->
+    check
+      bool
+      "provider-schema rejection starts no outward dispatch"
+      true
+      (EO.flow_execution_error_generation_dispatch error = EO.No_generation_dispatch);
+    (match EO.candidate_rejection_disposition rejection with
+     | EO.Output_requirement_rejected -> ()
+     | _ -> fail "provider-schema rejection lost its typed disposition")
+  | Ok _ | Error _ -> fail "missing native schema support was not rejected pre-dispatch"
 ;;
 
 let test_missing_current_credential_advances_after_durable_settlement () =
@@ -2566,7 +869,7 @@ let test_missing_current_credential_advances_after_durable_settlement () =
     let bound = ref [] in
     let next_visit = ref None in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -2680,7 +983,7 @@ let test_read_failed_current_credential_advances_to_good_successor () =
     @@ fun snapshot ->
     let advances = ref [] in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -2756,7 +1059,7 @@ let test_credential_rejections_are_ordered_zero_dispatch_terminal () =
            [ "credential-missing"; "credential-invalid"; "credential-read-failed" ])
     in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -2846,14 +1149,11 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
       ; catalog_entry ~id:"unconstrained-exact" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    let scope = flow_scope "/runtime/capacity-rejection" in
-    let ready =
-      frozen_flow ~scope snapshot [ "constrained-exact"; "unconstrained-exact" ]
-    in
+    let ready = frozen_flow snapshot [ "constrained-exact"; "unconstrained-exact" ] in
     let transitions = ref [] in
     let bound = ref [] in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -2884,10 +1184,10 @@ let test_unmeasured_constraint_advances_only_after_durable_settlement () =
               (Some 524299)
               rejected_from_tokens;
             check
-              bool
-              "candidate rejection carries flow scope"
-              true
-              (EO.flow_scope_equal scope (EO.candidate_rejection_scope rejection));
+              string
+              "candidate rejection and successor share one flow"
+              (EO.flow_id_to_string (EO.candidate_rejection_visit rejection).flow_id)
+              (EO.flow_id_to_string next.flow_id);
             check
               bool
               "unsupported measurement starts no measurement wire"
@@ -2955,7 +1255,7 @@ let test_request_body_capacity_advances_only_after_durable_settlement () =
     @@ fun snapshot ->
     let transition = ref None in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -3046,15 +1346,10 @@ let test_measured_token_and_body_capacity_are_independent () =
          @@ fun snapshot ->
          let flow =
            start_flow
-             (frozen_flow
-                ~preferences:(preference_store ())
-                ~scope:(flow_scope ("measured-capacity-" ^ label))
-                ~messages:[ msg large_input ]
-                snapshot
-                [ "measured-capacity" ])
+             (frozen_flow ~messages:[ msg large_input ] snapshot [ "measured-capacity" ])
          in
          let result =
-           EO.execute_flow_once
+           execute_with_accepting_test_validator
              ~net
              ~on_measurement_terminal:(fun _ -> Ok ())
              ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -3152,7 +1447,7 @@ let test_measurement_receipt_codec_and_transition () =
     let intent = ref None in
     let terminal = ref None in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun measurement ->
           intent := Some (EO.flow_measurement_receipt_snapshot measurement);
@@ -3521,7 +1816,7 @@ let test_measurement_fence_rejection_is_terminal_without_wire () =
     let terminal_callbacks = ref 0 in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun measurement ->
           incr terminal_callbacks;
@@ -3643,7 +1938,7 @@ let test_measurement_fence_nested_http_does_not_mark_outer_dispatch () =
     @@ fun snapshot ->
     let flow = start_flow (frozen_flow snapshot [ "measurement-nested-journal" ]) in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun measurement ->
           let before = EO.flow_measurement_receipt_snapshot measurement in
@@ -3734,7 +2029,7 @@ let test_measurement_terminal_callback_failure_blocks_generation () =
     let terminal_callbacks = ref 0 in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun measurement ->
           let snapshot = EO.flow_measurement_receipt_snapshot measurement in
@@ -3820,7 +2115,7 @@ let test_measurement_predispatch_failure_records_zero_dispatch () =
     let intent_callbacks = ref 0 in
     let terminal_callbacks = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun measurement ->
           incr intent_callbacks;
@@ -3931,7 +2226,7 @@ let test_measurement_cancellation_terminalizes_receipt () =
       try
         ignore
           (Eio.Time.with_timeout_exn clock 0.01 (fun () ->
-             EO.execute_flow_once
+             execute_with_accepting_test_validator
                ~net
                ~on_measurement_terminal:(fun measurement ->
                  incr terminal_callbacks;
@@ -4133,7 +2428,7 @@ let test_predispatch_measurement_failure_advances_without_wire () =
     in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -4225,7 +2520,7 @@ let test_postdispatch_measurement_failures_do_not_advance () =
          let advances = ref 0 in
          let terminal_callbacks = ref 0 in
          let result =
-           EO.execute_flow_once
+           execute_with_accepting_test_validator
              ~net
              ~on_measurement_terminal:(fun measurement ->
                incr terminal_callbacks;
@@ -4461,7 +2756,7 @@ let test_all_candidate_rejections_return_typed_zero_dispatch_terminal () =
     let transitions = ref [] in
     let flow = start_flow (frozen_flow snapshot [ "rejected-a"; "rejected-b" ]) in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -4573,7 +2868,7 @@ let test_exception_after_durable_rejection_stops_before_successor () =
          let raised =
            try
              ignore
-               (EO.execute_flow_once
+               (execute_with_accepting_test_validator
                   ~net
                   ~on_measurement_terminal:(fun _ -> Ok ())
                   ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -4661,7 +2956,7 @@ let test_predispatch_transport_failure_advances_after_durable_callback () =
     let advanced = ref [] in
     let events = ref [] in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -4770,7 +3065,7 @@ let test_exception_after_durable_advance_stops_before_successor () =
          let raised =
            try
              ignore
-               (EO.execute_flow_once
+               (execute_with_accepting_test_validator
                   ~net
                   ~on_measurement_terminal:(fun _ -> Ok ())
                   ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -4909,7 +3204,7 @@ let test_callback_failures_are_terminal () =
       ; catalog_entry ~id:"bind-b" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    EO.execute_flow_once
+    execute_with_accepting_test_validator
       ~net
       ~on_measurement_terminal:(fun _ -> Ok ())
       ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -4957,7 +3252,7 @@ let test_callback_failures_are_terminal () =
       ; catalog_entry ~id:"advance-b" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    EO.execute_flow_once
+    execute_with_accepting_test_validator
       ~net
       ~on_measurement_terminal:(fun _ -> Ok ())
       ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -4998,7 +3293,7 @@ let assert_typed_capacity_refusal_advances_once ~label ~first_response ~assert_c
     let advances = ref 0 in
     let observed_advance = ref None in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -5112,7 +3407,7 @@ let test_generic_400_remains_terminal_without_advance () =
     let flow = start_flow (frozen_flow snapshot [ "generic-400-a"; "generic-400-b" ]) in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -5147,7 +3442,7 @@ let test_postdispatch_and_structural_outcomes_never_advance () =
       @@ fun snapshot ->
       let advances = ref 0 in
       let result =
-        EO.execute_flow_once
+        execute_with_accepting_test_validator
           ~net
           ~on_measurement_terminal:(fun _ -> Ok ())
           ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -5184,50 +3479,231 @@ let test_postdispatch_and_structural_outcomes_never_advance () =
   in
   run ~abort_completion:true "partial" "unused";
   run ~status:`Too_many_requests "response" "rate limited";
-  run "structural" (openai_response "not-json");
   run "tool" tool_response
 ;;
 
-let test_success_and_later_domain_rejection_are_terminal () =
-  let result, posts =
+let test_snapshot_preserves_caller_declared_order () =
+  with_catalog
+    [ catalog_entry
+        ~id:"catalog-a"
+        ~base_url:"http://127.0.0.1:1"
+        ~native:true
+        ~json:true
+        ()
+    ; catalog_entry
+        ~id:"catalog-b"
+        ~base_url:"http://127.0.0.1:2"
+        ~native:true
+        ~json:true
+        ()
+    ]
+  @@ fun snapshot ->
+  let ready = frozen_flow snapshot [ "catalog-b"; "catalog-a" ] in
+  check
+    (list string)
+    "snapshot preserves caller order"
+    [ "catalog-b"; "catalog-a" ]
+    (flow_snapshot_ids ready)
+;;
+
+let test_semantic_rejection_advances_to_declared_successor () =
+  let (result, validated_ids, advances), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     with_catalog
-      [ catalog_entry ~id:"success-a" ~base_url ~native:true ~json:true ()
-      ; catalog_entry ~id:"success-b" ~base_url ~native:true ~json:true ()
+      [ catalog_entry ~id:"semantic-a" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"semantic-b" ~base_url ~native:true ~json:true ()
       ]
     @@ fun snapshot ->
-    execute_ok ~net (start_flow (frozen_flow snapshot [ "success-a"; "success-b" ]))
+    let validated_ids = ref [] in
+    let advances = ref 0 in
+    let result =
+      execute_with_validator
+        ~net
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          incr advances;
+          Ok ())
+        ~validate:(fun success ->
+          let id = candidate_id (EO.flow_success_candidate success) in
+          validated_ids := id :: !validated_ids;
+          if String.equal id "semantic-a"
+          then EO.Reject_and_advance ("domain-invalid:" ^ id)
+          else EO.Accept id)
+        (start_flow (frozen_flow snapshot [ "semantic-a"; "semantic-b" ]))
+    in
+    result, List.rev !validated_ids, !advances
   in
-  check int "success dispatches exactly once" 1 posts;
+  check int "one POST per visited candidate" 2 posts;
+  check
+    (list string)
+    "validator follows declared order"
+    [ "semantic-a"; "semantic-b" ]
+    validated_ids;
+  check int "semantic rejection bypasses before_advance" 0 advances;
   match result with
   | Ok success ->
-    let evidence = EO.flow_success_evidence success in
+    check string "accepted successor" "semantic-b" success.accepted;
     check
       string
-      "first candidate succeeds"
-      "success-a"
-      (candidate_id (EO.flow_success_candidate success));
+      "transport success belongs to successor"
+      "semantic-b"
+      (candidate_id (EO.flow_success_candidate success.transport_success));
     check
-      int
-      "successor remains unavailable to later domain rejection"
-      1
-      (List.length evidence.attempts);
+      (list string)
+      "prior opaque rejection is preserved"
+      [ "semantic-a" ]
+      (List.map semantic_rejection_candidate_id success.prior_rejections)
+  | Error _ -> fail "declared semantic successor did not succeed"
+;;
+
+let test_all_semantic_rejections_return_nonempty_ordered_exhaustion () =
+  let (result, advances), posts =
+    with_server ~response:(openai_response {|{"name":"rejected"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"reject-a" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"reject-b" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"reject-c" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let advances = ref 0 in
+    let result =
+      execute_with_validator
+        ~net
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          incr advances;
+          Ok ())
+        ~validate:(fun success ->
+          let id = candidate_id (EO.flow_success_candidate success) in
+          EO.Reject_and_advance ("rejected:" ^ id))
+        (start_flow (frozen_flow snapshot [ "reject-a"; "reject-b"; "reject-c" ]))
+    in
+    result, !advances
+  in
+  check int "each exhausted candidate posts once" 3 posts;
+  check int "semantic exhaustion bypasses before_advance" 0 advances;
+  match result with
+  | Error (EO.Flow_semantic_candidates_exhausted { rejections; evidence }) ->
+    let ordered = rejections.first :: rejections.rest in
     check
-      bool
-      "ordinal exhaustion follows a completed outward dispatch"
-      true
-      (EO.flow_execution_error_generation_dispatch
-         (EO.Flow_success_ordinal_exhausted evidence)
-       = EO.Generation_dispatch_started);
+      (list string)
+      "nonempty rejection trace preserves declared order"
+      [ "reject-a"; "reject-b"; "reject-c" ]
+      (List.map semantic_rejection_candidate_id ordered);
+    List.iter
+      (fun (rejection : _ EO.semantic_rejection_receipt) ->
+         check
+           int
+           "semantic candidate dispatch count"
+           1
+           (EO.receipt_dispatch_count
+              (EO.flow_success_candidate rejection.transport_success).receipt))
+      ordered;
+    check int "terminal evidence retains every attempt" 3 (List.length evidence.attempts)
+  | Ok _ | Error _ -> fail "semantic exhaustion lost its typed nonempty trace"
+;;
+
+let test_admission_and_semantic_rejections_share_one_declared_walk () =
+  let (result, transitions, validated_ids), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      ~getenv:credential_getenv
+      [ catalog_entry
+          ~api_key_env:"MISSING_FLOW_KEY"
+          ~id:"mixed-missing"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ; catalog_entry ~id:"mixed-semantic" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"mixed-accepted" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let transitions = ref [] in
+    let validated_ids = ref [] in
+    let result =
+      execute_with_validator
+        ~net
+        ~before_advance:(fun ~failed ~next ->
+          transitions
+          := (flow_failure_id failed, next.identity.candidate_id) :: !transitions;
+          Ok ())
+        ~validate:(fun success ->
+          let id = candidate_id (EO.flow_success_candidate success) in
+          validated_ids := id :: !validated_ids;
+          if String.equal id "mixed-semantic"
+          then EO.Reject_and_advance id
+          else EO.Accept id)
+        (start_flow
+           (frozen_flow snapshot [ "mixed-missing"; "mixed-semantic"; "mixed-accepted" ]))
+    in
+    result, List.rev !transitions, List.rev !validated_ids
+  in
+  check int "only transport-admitted candidates post" 2 posts;
+  check
+    (list (pair string string))
+    "admission rejection advances only to predetermined successor"
+    [ "mixed-missing", "mixed-semantic" ]
+    transitions;
+  check
+    (list string)
+    "semantic validation retains declared suffix order"
+    [ "mixed-semantic"; "mixed-accepted" ]
+    validated_ids;
+  match result with
+  | Ok success ->
+    check string "mixed walk accepted final candidate" "mixed-accepted" success.accepted;
     check
-      bool
-      "replayed invocation starts no new outward dispatch"
-      true
-      (EO.flow_execution_error_generation_dispatch
-         (EO.Flow_attempt_already_started evidence)
-       = EO.No_generation_dispatch)
-  | Error _ -> fail "terminal success fixture failed"
+      (list string)
+      "mixed walk preserves semantic evidence only"
+      [ "mixed-semantic" ]
+      (List.map semantic_rejection_candidate_id success.prior_rejections)
+  | Error _ -> fail "mixed declared walk did not accept its final candidate"
+;;
+
+let test_prior_semantic_rejection_survives_later_transport_terminal () =
+  let first_response = `OK, openai_response {|{"name":"first"}|} in
+  let (result, advances), posts =
+    with_server
+      ~first_response
+      ~status:`Bad_request
+      ~response:{|{"error":"generic invalid request"}|}
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"prior-semantic" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"later-terminal" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let advances = ref 0 in
+    let result =
+      execute_with_validator
+        ~net
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          incr advances;
+          Ok ())
+        ~validate:(fun success ->
+          EO.Reject_and_advance (candidate_id (EO.flow_success_candidate success)))
+        (start_flow (frozen_flow snapshot [ "prior-semantic"; "later-terminal" ]))
+    in
+    result, !advances
+  in
+  check int "semantic then transport terminal posts once each" 2 posts;
+  check int "neither terminal path requests before_advance" 0 advances;
+  match result with
+  | Error
+      (EO.Flow_execution_terminal
+         { cause = EO.Flow_exact_execution_failed { candidate; evidence; _ }
+         ; prior_rejections
+         }) ->
+    check string "later terminal candidate" "later-terminal" (candidate_id candidate);
+    check
+      (list string)
+      "earlier opaque rejection survives"
+      [ "prior-semantic" ]
+      (List.map semantic_rejection_candidate_id prior_rejections);
+    check int "terminal evidence retains both attempts" 2 (List.length evidence.attempts)
+  | Ok _ | Error _ -> fail "later transport terminal lost prior semantic evidence"
 ;;
 
 let test_gemini_structural_sibling_rejects_before_outer_dispatch () =
@@ -5264,7 +3740,7 @@ let test_gemini_structural_sibling_rejects_before_outer_dispatch () =
       start_flow (frozen_candidates ~requirement [ flow_candidate snapshot id ])
     in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun _ ->
           fail "schema rejection reached measurement intent")
@@ -5337,7 +3813,7 @@ let test_structural_predispatch_failure_does_not_advance () =
     let terminals = ref 0 in
     let advances = ref 0 in
     let result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~before_measurement_dispatch:(fun _ ->
           incr intents;
@@ -5398,7 +3874,7 @@ let test_concurrent_duplicate_flow_does_not_double_dispatch () =
     @@ fun snapshot ->
     let flow = start_flow (frozen_flow snapshot [ "concurrent-flow" ]) in
     let execute () : (EO.flow_success, string EO.flow_execution_error) result =
-      EO.execute_flow_once
+      execute_with_accepting_test_validator
         ~net
         ~on_measurement_terminal:(fun _ -> Ok ())
         ~before_measurement_dispatch:(fun _ -> Ok ())
@@ -5471,78 +3947,6 @@ let () =
     "exact-output-flow"
     [ ( "outer-flow"
       , [ test_case
-            "same-scope last-good changes only future snapshots"
-            `Quick
-            test_scope_local_domain_valid_preference_changes_only_future_snapshots
-        ; test_case
-            "concurrent flow scopes isolate attempts and last-good"
-            `Quick
-            test_concurrent_flow_scopes_isolate_attempts_and_future_preferences
-        ; test_case
-            "domain rejection does not update preference"
-            `Quick
-            test_domain_rejection_never_updates_preference_and_settlement_is_affine
-        ; test_case
-            "concurrent domain settlement is nonblocking and later replays"
-            `Quick
-            test_concurrent_domain_settlement_has_one_winner
-        ; test_case
-            "older success cannot overwrite newer after reversed domain settlement"
-            `Quick
-            test_older_success_cannot_overwrite_newer_after_reversed_domain_settlement
-        ; test_case
-            "rebound preference is not promoted and observation is typed"
-            `Quick
-            test_rebound_preference_is_not_promoted_and_observation_is_typed
-        ; test_case
-            "blank flow scope is rejected"
-            `Quick
-            test_blank_flow_scope_is_rejected
-        ; test_case
-            "preference capacity is typed and reusable after removal"
-            `Quick
-            test_preference_store_capacity_is_typed_and_reusable_after_removal
-        ; test_case
-            "removed scope keeps durable settlement idempotent"
-            `Quick
-            test_removed_scope_consumes_domain_valid_settlement_as_typed_failure
-        ; test_case
-            "committed intent resumes and restores high-water"
-            `Quick
-            test_committed_intent_resumes_without_dispatch_and_restores_high_water
-        ; test_case
-            "retirement blocks stale and newer reservation reactivates"
-            `Quick
-            test_retirement_recovery_blocks_stale_and_allows_newer_reservation
-        ; test_case
-            "recovery rejects superseded retirement conflicts regardless order"
-            `Quick
-            test_recovery_rejects_superseded_retirement_conflicts_regardless_order
-        ; test_case
-            "rejected-only recovery restores high-water without active scope"
-            `Quick
-            test_rejected_only_recovery_restores_high_water_without_active_scope
-        ; test_case
-            "retirement cancellation replays stable intent after high-water drift"
-            `Quick
-            test_retirement_cancellation_replays_stable_intent_after_high_water_drift
-        ; test_case
-            "retirement initial error preserves intent after high-water drift"
-            `Quick
-            test_retirement_initial_error_preserves_intent_after_high_water_drift
-        ; test_case
-            "recovery rejects conflicting disposition"
-            `Quick
-            test_recovery_conflicting_disposition_fails_closed
-        ; test_case
-            "recovery rejects reused success ordinals regardless order"
-            `Quick
-            test_recovery_rejects_reused_success_ordinals_regardless_order
-        ; test_case
-            "recovery capacity follows distinct active scopes"
-            `Quick
-            test_recovery_capacity_is_derived_from_distinct_active_scopes
-        ; test_case
             "snapshot defers admission and current attempts do not share"
             `Quick
             test_snapshot_defers_admission_and_allocates_nonshared_current_attempts
@@ -5551,9 +3955,17 @@ let () =
             `Quick
             test_later_missing_credential_does_not_block_current_success
         ; test_case
-            "format refusal orders the walk"
+            "JSON syntax uses strict text fallback"
             `Quick
-            test_format_refusal_orders_the_walk
+            test_json_syntax_uses_strict_text_fallback
+        ; test_case
+            "fenced JSON advances to frozen successor"
+            `Quick
+            test_fenced_text_json_advances_to_frozen_successor
+        ; test_case
+            "provider schema still requires native capability"
+            `Quick
+            test_provider_schema_still_requires_native_capability
         ; test_case
             "missing current credential advances after durable settlement"
             `Quick
@@ -5651,9 +4063,25 @@ let () =
             `Quick
             test_postdispatch_and_structural_outcomes_never_advance
         ; test_case
-            "success and domain rejection stop"
+            "snapshot preserves caller declared order"
             `Quick
-            test_success_and_later_domain_rejection_are_terminal
+            test_snapshot_preserves_caller_declared_order
+        ; test_case
+            "semantic rejection advances to declared successor"
+            `Quick
+            test_semantic_rejection_advances_to_declared_successor
+        ; test_case
+            "all semantic rejections return typed nonempty exhaustion"
+            `Quick
+            test_all_semantic_rejections_return_nonempty_ordered_exhaustion
+        ; test_case
+            "admission and semantic rejections share one declared walk"
+            `Quick
+            test_admission_and_semantic_rejections_share_one_declared_walk
+        ; test_case
+            "prior semantic rejection survives later transport terminal"
+            `Quick
+            test_prior_semantic_rejection_survives_later_transport_terminal
         ; test_case
             "Gemini structural sibling rejects before outer dispatch"
             `Quick

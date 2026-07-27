@@ -5,13 +5,10 @@ include Measurement_receipt
 module Exec = Exact_output_execution
 module Flow_state = Exact_output_flow
 module Flow_contract = Exact_output_flow_contract
-module Domain_settlement = Exact_output_domain_settlement
-module Preference_lifecycle_facade = Exact_output_preference_lifecycle_facade
 module Trace = Exact_output_provider_trace
 module Generation_receipt = Exact_output_generation_receipt
 include Exact_output_resolver
 include Flow_contract
-include Preference_lifecycle_facade
 include Exact_output_ready_admission
 
 let plan_provenance_source_schema_fingerprint (provenance : plan_provenance) =
@@ -145,8 +142,7 @@ type candidate_rejection_cause =
   | Request_admission_rejected of admission_error
 
 type candidate_rejection_receipt =
-  { scope : flow_scope
-  ; visit : flow_candidate_visit
+  { visit : flow_candidate_visit
   ; cause : candidate_rejection_cause
   ; measurement : measurement_evidence
   }
@@ -164,25 +160,18 @@ type candidate_admission =
   | Candidate_rejected of candidate_rejection_receipt
 
 type flow_snapshot =
-  { preferences : flow_preference_store
-  ; scope : flow_scope
-  ; preference_reservation : Flow_contract.flow_preference_reservation
-  ; declared_candidate_snapshot : flow_candidate_identity list
-  ; preference_observation : flow_preference_observation
-  ; candidates : flow_candidate list
+  { candidates : flow_candidate list
   ; messages : Types.message list
   ; requirement : output_requirement
   }
 
 type flow_attempt_receipt =
-  { scope : flow_scope
-  ; visit : flow_candidate_visit
+  { visit : flow_candidate_visit
   ; receipt : receipt
   }
 
 type flow_attempt_snapshot =
-  { scope : flow_scope
-  ; visit : flow_candidate_visit
+  { visit : flow_candidate_visit
   ; receipt : generation_receipt_snapshot
   }
 
@@ -194,12 +183,7 @@ type flow_attempt_publication =
 type flow_attempt =
   { execution : Flow_state.t
   ; flow_id : flow_id
-  ; preferences : flow_preference_store
-  ; scope : flow_scope
-  ; preference_reservation : Flow_contract.flow_preference_reservation
   ; declared_candidate_snapshot : flow_candidate_identity list
-  ; candidate_snapshot : flow_candidate_identity list
-  ; preference_observation : flow_preference_observation
   ; candidates : flow_candidate_step list
   ; messages : Types.message list
   ; requirement : output_requirement
@@ -218,8 +202,6 @@ type flow_snapshot_error =
       ; first_position : int
       ; duplicate_position : int
       }
-  | Flow_preference_capacity_exhausted of { capacity : int }
-  | Flow_preference_reservation_exhausted
 
 type start_attempt_error = Call_id_generation_failed of string
 
@@ -231,10 +213,7 @@ type flow_start_error = Flow_id_generation_failed of string
 
 type flow_evidence =
   { flow_id : flow_id
-  ; scope : flow_scope
   ; declared_candidate_snapshot : flow_candidate_identity list
-  ; candidate_snapshot : flow_candidate_identity list
-  ; preference_observation : flow_preference_observation
   ; candidate_visit_count : candidate_visit_count
   ; measurements : measurement_receipt_snapshot list
   ; admissions : candidate_admission list
@@ -244,28 +223,28 @@ type flow_evidence =
 type flow_success =
   { candidate : flow_attempt_receipt
   ; success : success
-  ; success_ordinal : flow_success_ordinal
   ; evidence : flow_evidence
-  ; domain_settlement : Flow_state.domain_settlement
-  ; preferences : flow_preference_store
-  ; scope : flow_scope
-  ; preference_reservation : Flow_contract.flow_preference_reservation
   }
 
-type domain_settlement_intent = Domain_settlement.intent
+type ('accepted, 'rejection) semantic_verdict =
+  | Accept of 'accepted
+  | Reject_and_advance of 'rejection
 
-type domain_settlement_intent_decode_error = Domain_settlement.decode_error =
-  | Domain_settlement_intent_malformed_json of string
-  | Domain_settlement_intent_invalid_fields
-  | Domain_settlement_intent_unknown_format of string
-  | Domain_settlement_intent_unsupported_version of int
-  | Domain_settlement_intent_invalid_field of string
-  | Domain_settlement_intent_integrity_mismatch
+type 'rejection semantic_rejection_receipt =
+  { transport_success : flow_success
+  ; rejection : 'rejection
+  }
 
-type 'commit_error domain_commit_error = 'commit_error Domain_settlement.commit_error =
-  | Domain_commit_failed of 'commit_error
-  | Domain_settlement_in_progress
-  | Domain_settlement_conflict
+type 'rejection semantic_rejection_trace =
+  { first : 'rejection semantic_rejection_receipt
+  ; rest : 'rejection semantic_rejection_receipt list
+  }
+
+type ('accepted, 'rejection) validated_flow_success =
+  { accepted : 'accepted
+  ; transport_success : flow_success
+  ; prior_rejections : 'rejection semantic_rejection_receipt list
+  }
 
 type flow_candidate_failure =
   | Flow_candidate_rejected of candidate_rejection_receipt
@@ -280,7 +259,6 @@ type generation_dispatch_fact =
 
 type 'callback_error flow_execution_error =
   | Flow_attempt_already_started of flow_evidence
-  | Flow_success_ordinal_exhausted of flow_evidence
   | Flow_attempt_start_failed of
       { candidate : flow_candidate_visit
       ; cause : start_attempt_error
@@ -322,6 +300,16 @@ type 'callback_error flow_execution_error =
       ; evidence : flow_evidence
       }
 
+type ('callback_error, 'rejection) validated_flow_error =
+  | Flow_execution_terminal of
+      { cause : 'callback_error flow_execution_error
+      ; prior_rejections : 'rejection semantic_rejection_receipt list
+      }
+  | Flow_semantic_candidates_exhausted of
+      { rejections : 'rejection semantic_rejection_trace
+      ; evidence : flow_evidence
+      }
+
 type 'callback_error flow_step_failure =
   | Flow_step_candidate_rejected of candidate_rejection_receipt
   | Flow_step_attempt_start_failed of flow_candidate_visit * start_attempt_error
@@ -356,7 +344,7 @@ let make_flow_candidate ~id ~admitted_target =
 
 let flow_candidate_identity (candidate : flow_candidate) = candidate.identity
 
-let snapshot_flow ~preferences ~scope ~first ~rest ~messages requirement =
+let snapshot_flow ~first ~rest ~messages requirement =
   let candidates = first :: rest in
   match
     Flow_state.duplicate_key
@@ -367,30 +355,7 @@ let snapshot_flow ~preferences ~scope ~first ~rest ~messages requirement =
   | Some (candidate_id, first_position, duplicate_position) ->
     Error
       (Duplicate_flow_candidate_id { candidate_id; first_position; duplicate_position })
-  | None ->
-    let declared_candidate_snapshot = List.map flow_candidate_identity candidates in
-    (match
-       Flow_contract.prefer_last_good
-         preferences
-         scope
-         ~candidate_identity:flow_candidate_identity
-         candidates
-     with
-     | Error (Preference_capacity_exhausted { capacity }) ->
-       Error (Flow_preference_capacity_exhausted { capacity })
-     | Error Preference_reservation_space_exhausted ->
-       Error Flow_preference_reservation_exhausted
-     | Ok (candidates, preference_observation, preference_reservation) ->
-       Ok
-         { preferences
-         ; scope
-         ; preference_reservation
-         ; declared_candidate_snapshot
-         ; preference_observation
-         ; candidates
-         ; messages
-         ; requirement
-         })
+  | None -> Ok { candidates; messages; requirement }
 ;;
 
 let start_attempt (ready : ready_plan) =
@@ -429,12 +394,7 @@ let start_flow (ready : flow_snapshot) =
     Ok
       { execution = Flow_state.create ()
       ; flow_id
-      ; preferences = ready.preferences
-      ; scope = ready.scope
-      ; preference_reservation = ready.preference_reservation
-      ; declared_candidate_snapshot = ready.declared_candidate_snapshot
-      ; candidate_snapshot = List.map flow_candidate_identity ready.candidates
-      ; preference_observation = ready.preference_observation
+      ; declared_candidate_snapshot = List.map flow_candidate_identity ready.candidates
       ; candidates
       ; messages = ready.messages
       ; requirement = ready.requirement
@@ -445,7 +405,6 @@ let start_flow (ready : flow_snapshot) =
 let flow_success_candidate success = success.candidate
 let flow_success_output success = success.success
 let flow_success_evidence success = success.evidence
-let flow_success_ordinal success = success.success_ordinal
 let call_id_to_string (Call_id id) = id
 let flow_attempt_id (flow : flow_attempt) = flow.flow_id
 let attempt_receipt (attempt : attempt) = attempt.receipt
@@ -453,15 +412,13 @@ let receipt_call_id = Generation_receipt.call_id
 
 let flow_measurement_receipt_snapshot (measurement : flow_measurement_receipt) =
   let snapshot = Flow_admission.receipt_snapshot measurement.receipt in
-  let candidate =
-    Flow_contract.flow_preference_identity_of_candidate measurement.visit.identity
-  in
   create_measurement_receipt_snapshot
     ~operation_id:(Flow_admission.operation_id_to_string snapshot.operation_id)
     ~flow_id:measurement.visit.flow_id
     ~visit_ordinal:measurement.visit.ordinal
-    ~candidate_id:candidate.candidate_id
-    ~candidate_binding_sha256:candidate.binding_sha256
+    ~candidate_id:measurement.visit.identity.candidate_id
+    ~candidate_binding_sha256:
+      (target_identity_fingerprint measurement.visit.identity.target_identity)
     ~catalog_generation_fingerprint:
       (catalog_generation_fingerprint measurement.visit.identity.catalog_generation)
     ~catalog_evidence_sha256:
@@ -489,10 +446,7 @@ let publish_attempt_snapshot (flow : flow_attempt) (live : flow_attempt_receipt)
   let publication : flow_attempt_publication =
     { call_id = receipt_call_id live.receipt
     ; snapshot =
-        { scope = live.scope
-        ; visit = live.visit
-        ; receipt = Generation_receipt.snapshot live.receipt
-        }
+        { visit = live.visit; receipt = Generation_receipt.snapshot live.receipt }
     }
   in
   Flow_state.publish_attempt flow.progress ~same:same_attempt publication
@@ -516,7 +470,6 @@ let flow_execution_error_generation_dispatch = function
   | Flow_before_dispatch_callback_failed _
   | Flow_before_advance_callback_failed _
   | Flow_candidates_exhausted _ -> No_generation_dispatch
-  | Flow_success_ordinal_exhausted _ -> Generation_dispatch_started
   | Flow_exact_execution_failed { cause; _ } ->
     generation_dispatch_fact_of_receipt cause.receipt
 ;;
@@ -565,29 +518,10 @@ let generation_receipt_snapshot_target_identity =
   Generation_receipt.snapshot_target_identity
 ;;
 
-let domain_settlement_intent_to_string = Domain_settlement.intent_to_string
-let domain_settlement_intent_of_string = Domain_settlement.intent_of_string
-let domain_settlement_intent_id = Domain_settlement.intent_id
-
-let commit_and_settle_flow_domain ~commit success disposition =
-  Domain_settlement.commit_and_settle
-    ~commit
-    ~domain_settlement:success.domain_settlement
-    ~preferences:success.preferences
-    ~scope:success.scope
-    ~reservation:success.preference_reservation
-    ~candidate:success.candidate.visit.identity
-    ~success_ordinal:success.success_ordinal
-    ~flow_id:(flow_id_to_string success.candidate.visit.flow_id)
-    ~execution:(generation_receipt_snapshot success.candidate.receipt)
-    disposition
-;;
-
 let candidate_rejection_identity (receipt : candidate_rejection_receipt) =
   receipt.visit.identity
 ;;
 
-let candidate_rejection_scope (receipt : candidate_rejection_receipt) = receipt.scope
 let candidate_rejection_visit (receipt : candidate_rejection_receipt) = receipt.visit
 
 let candidate_rejection_measurement_dispatch_fact (receipt : candidate_rejection_receipt) =
@@ -643,7 +577,6 @@ let wire_admission_error_disposition = function
 
 let admission_error_disposition = function
   | Provider_schema_unavailable
-  | Json_syntax_unavailable
   | Unsupported_schema_keyword _
   | Unsupported_schema_type _
   | Invalid_schema -> Output_requirement_rejected
@@ -659,10 +592,7 @@ let candidate_rejection_disposition (receipt : candidate_rejection_receipt) =
 let flow_attempt_evidence (flow : flow_attempt) =
   let progress = Flow_state.progress_snapshot flow.progress in
   { flow_id = flow.flow_id
-  ; scope = flow.scope
   ; declared_candidate_snapshot = flow.declared_candidate_snapshot
-  ; candidate_snapshot = flow.candidate_snapshot
-  ; preference_observation = flow.preference_observation
   ; candidate_visit_count = Candidate_visit_count progress.candidate_visit_count
   ; measurements = progress.measurements
   ; admissions = progress.admissions
@@ -769,13 +699,33 @@ let execute_once_with_publication ~publish ~net ?clock (attempt : attempt) =
            ; provenance = ready.provenance
            ; raw_response = raw_response evidence
            }
-       | Exec.Text_output _ ->
-         Error
-           { call_id = receipt_call_id receipt
-           ; receipt
-           ; cause = Internal_non_json_output
-           ; raw_response = Some (raw_response evidence)
-           }))
+       | Exec.Text_output text ->
+         (match ready.provenance.actual_assurance, Plan.response_format ready.plan with
+          | Json_syntax_only, Types.Off ->
+            (try
+               let value = Yojson.Safe.from_string text in
+               Ok
+                 { call_id = receipt_call_id receipt
+                 ; receipt
+                 ; output = value
+                 ; provenance = ready.provenance
+                 ; raw_response = raw_response evidence
+                 }
+             with
+             | Yojson.Json_error _ ->
+               Error
+                 { call_id = receipt_call_id receipt
+                 ; receipt
+                 ; cause = Invalid_json_output
+                 ; raw_response = Some (raw_response evidence)
+                 })
+          | (Json_syntax_only | Provider_schema_requested), _ ->
+            Error
+              { call_id = receipt_call_id receipt
+              ; receipt
+              ; cause = Internal_non_json_output
+              ; raw_response = Some (raw_response evidence)
+              })))
 ;;
 
 let execute_once ~net ?clock attempt =
@@ -790,8 +740,11 @@ let execution_failure_may_advance (error : execution_error) =
        generation. Keep the honest one-dispatch receipt, but allow the frozen
        lane to try its predetermined successor. *)
     receipt_dispatch_count error.receipt = 1
+  | Invalid_json_output, (Response_received | Terminal) ->
+    receipt_dispatch_count error.receipt = 1
   | Completion_failed, (Not_started | Dispatch_started | Response_received | Terminal)
   | Input_capacity_refused _, (Not_started | Before_dispatch | Dispatch_started | Terminal)
+  | Invalid_json_output, (Not_started | Before_dispatch | Dispatch_started)
   | ( ( Attempt_already_started
       | Clock_required_for_timeout
       | Frozen_request_mismatch
@@ -799,7 +752,6 @@ let execution_failure_may_advance (error : execution_error) =
       | Missing_output
       | Ambiguous_output _
       | Unexpected_output_content
-      | Invalid_json_output
       | Internal_non_json_output )
     , _ ) -> false
 ;;
@@ -814,7 +766,7 @@ let admitted_flow_candidate visit (plan : ready_plan) =
 ;;
 
 let record_candidate_rejection (flow : flow_attempt) visit cause measurement =
-  let rejection = { scope = flow.scope; visit; cause; measurement } in
+  let rejection = { visit; cause; measurement } in
   Flow_state.record_admission flow.progress (Candidate_rejected rejection);
   rejection
 ;;
@@ -839,17 +791,20 @@ let execute_flow_candidate
   match resolve_target candidate.admitted_target with
   | Error cause -> reject (Target_selection_rejected cause)
   | Ok target ->
+    let flow_measurement receipt : flow_measurement_receipt =
+      { visit = candidate.visit; receipt }
+    in
     (match
        admit_candidate_request
          ~net
          ?clock
          ~on_measurement_receipt:(fun receipt ->
-           let measurement = { visit = candidate.visit; receipt } in
+           let measurement = flow_measurement receipt in
            publish_measurement flow measurement)
          ~before_measurement_dispatch:(fun receipt ->
-           before_measurement_dispatch { visit = candidate.visit; receipt })
+           before_measurement_dispatch (flow_measurement receipt))
          ~on_measurement_terminal:(fun receipt ->
-           on_measurement_terminal { visit = candidate.visit; receipt })
+           on_measurement_terminal (flow_measurement receipt))
          ~target
          ~messages:flow.messages
          flow.requirement
@@ -867,11 +822,10 @@ let execute_flow_candidate
      | Error (Flow_request_before_measurement_dispatch_failed (receipt, cause)) ->
        Error
          (Flow_step_before_measurement_dispatch_callback_failed
-            ({ visit = candidate.visit; receipt }, cause))
+            (flow_measurement receipt, cause))
      | Error (Flow_request_measurement_terminal_callback_failed (receipt, cause)) ->
        Error
-         (Flow_step_measurement_terminal_callback_failed
-            ({ visit = candidate.visit; receipt }, cause))
+         (Flow_step_measurement_terminal_callback_failed (flow_measurement receipt, cause))
      | Ok plan ->
        let admitted = admitted_flow_candidate candidate.visit plan in
        Flow_state.record_admission flow.progress (Candidate_admitted admitted);
@@ -879,10 +833,7 @@ let execute_flow_candidate
         | Error cause -> Error (Flow_step_attempt_start_failed (candidate.visit, cause))
         | Ok attempt ->
           let candidate_receipt : flow_attempt_receipt =
-            { scope = flow.scope
-            ; visit = candidate.visit
-            ; receipt = attempt_receipt attempt
-            }
+            { visit = candidate.visit; receipt = attempt_receipt attempt }
           in
           publish_attempt_snapshot flow candidate_receipt;
           (match before_dispatch candidate_receipt with
@@ -927,6 +878,7 @@ let execute_flow_once
       ~on_measurement_terminal
       ~before_dispatch
       ~before_advance
+      ~validate
       flow
   =
   let outcome =
@@ -941,48 +893,54 @@ let execute_flow_once
            ~on_measurement_terminal
            ~before_dispatch
            flow)
+      ~validate:(fun _candidate (candidate, success) ->
+        let transport_success =
+          { candidate; success; evidence = flow_attempt_evidence flow }
+        in
+        match validate transport_success with
+        | Accept accepted -> Flow_state.Accept (accepted, transport_success)
+        | Reject_and_advance rejection ->
+          Flow_state.Reject_and_advance { transport_success; rejection })
       ~advanceable:advanceable_flow_failure
       ~before_advance:(fun ~failed:_ ~failure ~next ->
         before_advance ~failed:failure ~next:next.visit)
   in
   let evidence = flow_attempt_evidence flow in
+  let terminal prior_rejections cause =
+    Error (Flow_execution_terminal { cause; prior_rejections })
+  in
   match outcome with
-  | Flow_state.Succeeded { success = candidate, success; _ } ->
-    (match Flow_contract.allocate_flow_success_ordinal flow.preferences with
-     | Error Success_ordinal_space_exhausted ->
-       Error (Flow_success_ordinal_exhausted evidence)
-     | Ok success_ordinal ->
-       Ok
-         { candidate
-         ; success
-         ; success_ordinal
-         ; evidence
-         ; domain_settlement = Flow_state.create_domain_settlement ()
-         ; preferences = flow.preferences
-         ; scope = flow.scope
-         ; preference_reservation = flow.preference_reservation
-         })
-  | Flow_state.Attempt_already_started -> Error (Flow_attempt_already_started evidence)
-  | Flow_state.Before_advance_callback_failed { failure; next_candidate; cause; _ } ->
+  | Flow_state.Succeeded { accepted = accepted, transport_success; prior_rejections } ->
+    Ok { accepted; transport_success; prior_rejections }
+  | Flow_state.Semantic_candidates_exhausted { first_rejection; rest_rejections } ->
     Error
+      (Flow_semantic_candidates_exhausted
+         { rejections = { first = first_rejection; rest = rest_rejections }; evidence })
+  | Flow_state.Attempt_already_started ->
+    terminal [] (Flow_attempt_already_started evidence)
+  | Flow_state.Before_advance_callback_failed
+      { failure; next_candidate; cause; prior_rejections; _ } ->
+    terminal
+      prior_rejections
       (Flow_before_advance_callback_failed
          { failed = failure; next = next_candidate.visit; cause; evidence })
-  | Flow_state.Execution_failed { cause; _ } ->
-    (match cause with
-     | Flow_step_candidate_rejected rejection ->
-       Error (Flow_candidates_exhausted { rejection; evidence })
-     | Flow_step_attempt_start_failed (candidate, cause) ->
-       Error (Flow_attempt_start_failed { candidate; cause; evidence })
-     | Flow_step_measurement_start_failed (candidate, cause) ->
-       Error (Flow_measurement_start_failed { candidate; cause; evidence })
-     | Flow_step_before_measurement_dispatch_callback_failed (measurement, cause) ->
-       Error
-         (Flow_before_measurement_dispatch_callback_failed
-            { measurement; cause; evidence })
-     | Flow_step_measurement_terminal_callback_failed (measurement, cause) ->
-       Error (Flow_measurement_terminal_callback_failed { measurement; cause; evidence })
-     | Flow_step_before_dispatch_callback_failed (candidate, cause) ->
-       Error (Flow_before_dispatch_callback_failed { candidate; cause; evidence })
-     | Flow_step_execution_failed { candidate; cause; _ } ->
-       Error (Flow_exact_execution_failed { candidate; cause; evidence }))
+  | Flow_state.Execution_failed { cause; prior_rejections; _ } ->
+    let cause =
+      match cause with
+      | Flow_step_candidate_rejected rejection ->
+        Flow_candidates_exhausted { rejection; evidence }
+      | Flow_step_attempt_start_failed (candidate, cause) ->
+        Flow_attempt_start_failed { candidate; cause; evidence }
+      | Flow_step_measurement_start_failed (candidate, cause) ->
+        Flow_measurement_start_failed { candidate; cause; evidence }
+      | Flow_step_before_measurement_dispatch_callback_failed (measurement, cause) ->
+        Flow_before_measurement_dispatch_callback_failed { measurement; cause; evidence }
+      | Flow_step_measurement_terminal_callback_failed (measurement, cause) ->
+        Flow_measurement_terminal_callback_failed { measurement; cause; evidence }
+      | Flow_step_before_dispatch_callback_failed (candidate, cause) ->
+        Flow_before_dispatch_callback_failed { candidate; cause; evidence }
+      | Flow_step_execution_failed { candidate; cause; _ } ->
+        Flow_exact_execution_failed { candidate; cause; evidence }
+    in
+    terminal prior_rejections cause
 ;;
