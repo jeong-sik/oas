@@ -1,33 +1,7 @@
 module Plan = Exact_output_plan
 module Flow_admission = Exact_output_flow_admission
-
-type measurement_dispatch_fact = Flow_admission.measurement_dispatch_fact =
-  | No_measurement_dispatch
-  | Measurement_dispatch_unknown
-  | Measurement_dispatch_started
-
-type measurement_outcome = Flow_admission.measurement_outcome =
-  | Measurement_not_required
-  | Measurement_succeeded
-  | Measurement_unsupported
-  | Measurement_local_invalid
-  | Measurement_transport_failed
-  | Measurement_invalid_response
-  | Measurement_fence_rejected
-  | Measurement_cancelled
-
-type measurement_evidence = Flow_admission.measurement_evidence =
-  { dispatch : measurement_dispatch_fact
-  ; outcome : measurement_outcome
-  }
-
-type measurement_operation_id = Flow_admission.measurement_operation_id
-
-type measurement_receipt_phase = Flow_admission.measurement_receipt_phase =
-  | Measurement_fence_committed
-  | Measurement_wire_started
-  | Measurement_terminal
-
+module Measurement_receipt = Exact_output_measurement_receipt
+include Measurement_receipt
 module Exec = Exact_output_execution
 module Flow_state = Exact_output_flow
 module Flow_contract = Exact_output_flow_contract
@@ -143,8 +117,6 @@ type flow_candidate =
   ; admitted_target : admitted_target
   }
 
-type flow_id = Flow_id of string
-type flow_visit_ordinal = Flow_visit_ordinal of int
 type candidate_visit_count = Candidate_visit_count of int
 
 type flow_candidate_visit =
@@ -156,15 +128,6 @@ type flow_candidate_visit =
 type flow_measurement_receipt =
   { visit : flow_candidate_visit
   ; receipt : Flow_admission.measurement_receipt
-  }
-
-type measurement_receipt_snapshot =
-  { operation_id : measurement_operation_id
-  ; visit : flow_candidate_visit
-  ; request_body_sha256 : string
-  ; phase : measurement_receipt_phase
-  ; dispatch : measurement_dispatch_fact
-  ; outcome : measurement_outcome option
   }
 
 type flow_candidate_step =
@@ -479,32 +442,32 @@ let flow_success_output success = success.success
 let flow_success_evidence success = success.evidence
 let flow_success_ordinal success = success.success_ordinal
 let call_id_to_string (Call_id id) = id
-let flow_id_to_string (Flow_id id) = id
-let flow_visit_ordinal_to_int (Flow_visit_ordinal ordinal) = ordinal
 let flow_attempt_id (flow : flow_attempt) = flow.flow_id
 let attempt_receipt (attempt : attempt) = attempt.receipt
 let receipt_call_id = Generation_receipt.call_id
-let measurement_operation_id_to_string = Flow_admission.operation_id_to_string
 
 let flow_measurement_receipt_snapshot (measurement : flow_measurement_receipt) =
   let snapshot = Flow_admission.receipt_snapshot measurement.receipt in
-  { operation_id = snapshot.operation_id
-  ; visit = measurement.visit
-  ; request_body_sha256 = snapshot.request_body_sha256
-  ; phase = snapshot.phase
-  ; dispatch = snapshot.dispatch
-  ; outcome = snapshot.outcome
-  }
+  let candidate =
+    Flow_contract.flow_preference_identity_of_candidate measurement.visit.identity
+  in
+  create_measurement_receipt_snapshot
+    ~operation_id:(Flow_admission.operation_id_to_string snapshot.operation_id)
+    ~flow_id:measurement.visit.flow_id
+    ~visit_ordinal:measurement.visit.ordinal
+    ~candidate_id:candidate.candidate_id
+    ~candidate_binding_sha256:candidate.binding_sha256
+    ~catalog_generation_fingerprint:
+      (catalog_generation_fingerprint measurement.visit.identity.catalog_generation)
+    ~catalog_evidence_sha256:
+      (catalog_evidence_sha256 measurement.visit.identity.catalog_evidence)
+    ~request_body_sha256:snapshot.request_body_sha256
+    ~phase:snapshot.phase
+    ~dispatch:snapshot.dispatch
+    ~outcome:snapshot.outcome
 ;;
 
-let same_measurement
-      (left : measurement_receipt_snapshot)
-      (right : measurement_receipt_snapshot)
-  =
-  String.equal
-    (measurement_operation_id_to_string left.operation_id)
-    (measurement_operation_id_to_string right.operation_id)
-;;
+let same_measurement = measurement_receipt_same_operation
 
 let publish_measurement (flow : flow_attempt) (measurement : flow_measurement_receipt) =
   Flow_state.publish_measurement

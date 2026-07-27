@@ -3117,6 +3117,363 @@ let test_measured_token_and_body_capacity_are_independent () =
     cases
 ;;
 
+let test_measurement_receipt_codec_and_transition () =
+  let response =
+    {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"accepted\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
+  in
+  let (intent, terminal), posts =
+    with_counted_server ~measurement_reply:(Measurement_tokens 1) ~response
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry
+          ~kind:"anthropic"
+          ~request_path:"/v1/messages"
+          ~serving_constraint:true
+          ~id:"measurement-receipt-codec"
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ]
+    @@ fun snapshot ->
+    let flow = start_flow (frozen_flow snapshot [ "measurement-receipt-codec" ]) in
+    let intent = ref None in
+    let terminal = ref None in
+    let result =
+      EO.execute_flow_once
+        ~net
+        ~before_measurement_dispatch:(fun measurement ->
+          intent := Some (EO.flow_measurement_receipt_snapshot measurement);
+          Ok ())
+        ~on_measurement_terminal:(fun measurement ->
+          terminal := Some (EO.flow_measurement_receipt_snapshot measurement);
+          Ok ())
+        ~before_dispatch:(fun _ -> Ok ())
+        ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
+        flow
+    in
+    (match result with
+     | Ok _ -> ()
+     | Error _ -> fail "measurement receipt codec fixture did not complete");
+    let require_snapshot label = function
+      | Some snapshot -> snapshot
+      | None -> fail (label ^ " snapshot was not published")
+    in
+    require_snapshot "intent" !intent, require_snapshot "terminal" !terminal
+  in
+  check int "codec fixture measures once" 1 posts.measurement_posts;
+  check int "codec fixture generates once" 1 posts.generation_posts;
+  let decode label encoded =
+    match EO.measurement_receipt_snapshot_of_string encoded with
+    | Ok snapshot -> snapshot
+    | Error error ->
+      failf
+        "%s decode failed: %s"
+        label
+        (EO.measurement_receipt_snapshot_decode_error_to_string error)
+  in
+  let intent_encoded = EO.measurement_receipt_snapshot_to_string intent in
+  let terminal_encoded = EO.measurement_receipt_snapshot_to_string terminal in
+  let decoded_intent = decode "intent" intent_encoded in
+  let decoded_terminal = decode "terminal" terminal_encoded in
+  check
+    string
+    "intent codec is canonical"
+    intent_encoded
+    (EO.measurement_receipt_snapshot_to_string decoded_intent);
+  check
+    string
+    "terminal codec is canonical"
+    terminal_encoded
+    (EO.measurement_receipt_snapshot_to_string decoded_terminal);
+  check
+    string
+    "operation identity survives durable round trip"
+    (EO.measurement_operation_id_to_string (EO.measurement_receipt_operation_id intent))
+    (EO.measurement_operation_id_to_string
+       (EO.measurement_receipt_operation_id decoded_terminal));
+  check
+    string
+    "catalog generation survives durable round trip"
+    (EO.measurement_receipt_catalog_generation_fingerprint intent)
+    (EO.measurement_receipt_catalog_generation_fingerprint decoded_terminal);
+  check
+    string
+    "catalog evidence survives durable round trip"
+    (EO.measurement_receipt_catalog_evidence_sha256 intent)
+    (EO.measurement_receipt_catalog_evidence_sha256 decoded_terminal);
+  check
+    bool
+    "first callback is dispatch intent"
+    true
+    (match EO.classify_measurement_receipt_transition ~previous:None ~incoming:intent with
+     | EO.Measurement_dispatch_intent -> true
+     | _ -> false);
+  check
+    bool
+    "same dispatch intent is idempotent"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:(Some intent)
+         ~incoming:decoded_intent
+     with
+     | EO.Measurement_idempotent_replay -> true
+     | _ -> false);
+  check
+    bool
+    "terminal callback advances the same operation"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:(Some decoded_intent)
+         ~incoming:decoded_terminal
+     with
+     | EO.Measurement_terminal_advance -> true
+     | _ -> false);
+  check
+    bool
+    "same terminal evidence is idempotent"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:(Some terminal)
+         ~incoming:decoded_terminal
+     with
+     | EO.Measurement_idempotent_replay -> true
+     | _ -> false);
+  check
+    bool
+    "terminal to intent is a typed monotonicity conflict"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:(Some terminal)
+         ~incoming:intent
+     with
+     | EO.Measurement_transition_conflict
+         (EO.Measurement_phase_regression
+            { previous_phase = EO.Measurement_terminal
+            ; incoming_phase = EO.Measurement_fence_committed
+            }) -> true
+     | _ -> false);
+  let rewrite_field encoded name replacement =
+    match Yojson.Safe.from_string encoded with
+    | `Assoc fields ->
+      `Assoc
+        (List.map
+           (fun (field, value) ->
+              if String.equal field name then field, replacement else field, value)
+           fields)
+      |> Yojson.Safe.to_string
+    | _ -> fail "encoded measurement receipt was not an object"
+  in
+  let remove_field encoded name =
+    match Yojson.Safe.from_string encoded with
+    | `Assoc fields ->
+      `Assoc (List.filter (fun (field, _) -> not (String.equal field name)) fields)
+      |> Yojson.Safe.to_string
+    | _ -> fail "encoded measurement receipt was not an object"
+  in
+  let add_field encoded name value =
+    match Yojson.Safe.from_string encoded with
+    | `Assoc fields -> `Assoc (fields @ [ name, value ]) |> Yojson.Safe.to_string
+    | _ -> fail "encoded measurement receipt was not an object"
+  in
+  (match EO.measurement_receipt_snapshot_of_string "{" with
+   | Error (EO.Measurement_receipt_snapshot_malformed_json _) -> ()
+   | Ok _ | Error _ -> fail "malformed receipt did not fail typed decode");
+  (match
+     remove_field intent_encoded "catalog_evidence_sha256"
+     |> EO.measurement_receipt_snapshot_of_string
+   with
+   | Error EO.Measurement_receipt_snapshot_invalid_fields -> ()
+   | Ok _ | Error _ -> fail "missing receipt field did not fail exact schema");
+  (match
+     add_field intent_encoded "unexpected" (`Bool true)
+     |> EO.measurement_receipt_snapshot_of_string
+   with
+   | Error EO.Measurement_receipt_snapshot_invalid_fields -> ()
+   | Ok _ | Error _ -> fail "extra receipt field did not fail exact schema");
+  let tampered = rewrite_field terminal_encoded "outcome" (`String "cancelled") in
+  (match EO.measurement_receipt_snapshot_of_string tampered with
+   | Error EO.Measurement_receipt_snapshot_integrity_mismatch -> ()
+   | Ok _ | Error _ -> fail "tampered receipt did not fail integrity");
+  let future = rewrite_field terminal_encoded "version" (`Int 2) in
+  (match EO.measurement_receipt_snapshot_of_string future with
+   | Error (EO.Measurement_receipt_snapshot_unsupported_version 2) -> ()
+   | Ok _ | Error _ -> fail "future receipt version did not fail closed");
+  check
+    bool
+    "terminal evidence cannot initialize a dispatch journal"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:None
+         ~incoming:decoded_terminal
+     with
+     | EO.Measurement_transition_conflict
+         (EO.Measurement_invalid_commit_phase EO.Measurement_terminal) -> true
+     | _ -> false);
+  let rewrite_with_integrity encoded name replacement =
+    match Yojson.Safe.from_string encoded with
+    | `Assoc fields ->
+      let payload =
+        fields
+        |> List.filter (fun (field, _) -> not (String.equal field "integrity_sha256"))
+        |> List.map (fun (field, value) ->
+          if String.equal field name then field, replacement else field, value)
+      in
+      let integrity_sha256 =
+        `Assoc payload
+        |> Yojson.Safe.to_string
+        |> Digestif.SHA256.digest_string
+        |> Digestif.SHA256.to_hex
+      in
+      `Assoc (payload @ [ "integrity_sha256", `String integrity_sha256 ])
+      |> Yojson.Safe.to_string
+    | _ -> fail "encoded measurement receipt was not an object"
+  in
+  let inconsistent =
+    rewrite_with_integrity terminal_encoded "phase" (`String "fence_committed")
+  in
+  (match EO.measurement_receipt_snapshot_of_string inconsistent with
+   | Error (EO.Measurement_receipt_snapshot_invalid_field "receipt_state") -> ()
+   | Ok _ | Error _ -> fail "internally inconsistent receipt did not fail closed");
+  let other_operation =
+    rewrite_with_integrity intent_encoded "operation_id" (`String "other-operation")
+    |> decode "other operation"
+  in
+  check
+    bool
+    "operation mismatch is typed"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:(Some intent)
+         ~incoming:other_operation
+     with
+     | EO.Measurement_transition_conflict EO.Measurement_operation_mismatch -> true
+     | _ -> false);
+  let other_binding =
+    rewrite_with_integrity
+      intent_encoded
+      "candidate_binding_sha256"
+      (`String (String.make 64 'a'))
+    |> decode "other binding"
+  in
+  check
+    bool
+    "operation binding mismatch is typed"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:(Some intent)
+         ~incoming:other_binding
+     with
+     | EO.Measurement_transition_conflict EO.Measurement_operation_binding_mismatch ->
+       true
+     | _ -> false);
+  let check_catalog_binding_conflict label field replacement =
+    let incoming =
+      rewrite_with_integrity intent_encoded field (`String replacement) |> decode label
+    in
+    check
+      bool
+      label
+      true
+      (match
+         EO.classify_measurement_receipt_transition ~previous:(Some intent) ~incoming
+       with
+       | EO.Measurement_transition_conflict EO.Measurement_operation_binding_mismatch ->
+         true
+       | _ -> false)
+  in
+  check_catalog_binding_conflict
+    "catalog generation mismatch is binding conflict"
+    "catalog_generation_fingerprint"
+    (String.make 64 'b');
+  check_catalog_binding_conflict
+    "catalog evidence mismatch is binding conflict"
+    "catalog_evidence_sha256"
+    (String.make 64 'c');
+  let wire_started =
+    intent_encoded
+    |> fun encoded ->
+    rewrite_with_integrity encoded "phase" (`String "wire_started")
+    |> fun encoded ->
+    rewrite_with_integrity encoded "dispatch" (`String "dispatch_started")
+    |> decode "wire started"
+  in
+  let no_dispatch_intent =
+    rewrite_with_integrity intent_encoded "dispatch" (`String "no_dispatch")
+    |> decode "no-dispatch fence"
+  in
+  let check_invalid_previous label previous expected_phase expected_dispatch =
+    check
+      bool
+      label
+      true
+      (match
+         EO.classify_measurement_receipt_transition
+           ~previous:(Some previous)
+           ~incoming:terminal
+       with
+       | EO.Measurement_transition_conflict
+           (EO.Measurement_invalid_previous_boundary { phase; dispatch; outcome = None })
+         -> phase = expected_phase && dispatch = expected_dispatch
+       | _ -> false)
+  in
+  check_invalid_previous
+    "wire-started previous boundary fails closed"
+    wire_started
+    EO.Measurement_wire_started
+    EO.Measurement_dispatch_started;
+  check_invalid_previous
+    "no-dispatch fence previous boundary fails closed"
+    no_dispatch_intent
+    EO.Measurement_fence_committed
+    EO.No_measurement_dispatch;
+  check
+    bool
+    "wire-started incoming snapshot is not a durable commit"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:(Some intent)
+         ~incoming:wire_started
+     with
+     | EO.Measurement_transition_conflict
+         (EO.Measurement_invalid_commit_phase EO.Measurement_wire_started) -> true
+     | _ -> false);
+  let conflicting_terminal =
+    rewrite_with_integrity terminal_encoded "outcome" (`String "cancelled")
+    |> decode "conflicting terminal"
+  in
+  check
+    bool
+    "terminal evidence conflict fails closed"
+    true
+    (match
+       EO.classify_measurement_receipt_transition
+         ~previous:(Some terminal)
+         ~incoming:conflicting_terminal
+     with
+     | EO.Measurement_transition_conflict EO.Measurement_evidence_conflict -> true
+     | _ -> false);
+  let conflicting_intent =
+    rewrite_with_integrity intent_encoded "dispatch" (`String "no_dispatch")
+    |> decode "conflicting intent"
+  in
+  match
+    EO.classify_measurement_receipt_transition
+      ~previous:(Some intent)
+      ~incoming:conflicting_intent
+  with
+  | EO.Measurement_transition_conflict EO.Measurement_evidence_conflict -> ()
+  | _ -> fail "same-phase conflicting evidence was not typed"
+;;
+
 let test_measurement_fence_rejection_is_terminal_without_wire () =
   let response =
     {|{"id":"msg-flow","type":"message","role":"assistant","model":"flow","content":[{"type":"text","text":"{\"name\":\"unused\"}"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}|}
@@ -5055,6 +5412,10 @@ let () =
             "measured token and serialized body capacities are independent"
             `Quick
             test_measured_token_and_body_capacity_are_independent
+        ; test_case
+            "measurement receipt codec and monotonic transition"
+            `Quick
+            test_measurement_receipt_codec_and_transition
         ; test_case
             "measurement fence rejection is terminal without wire"
             `Quick
