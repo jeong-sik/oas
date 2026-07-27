@@ -8,8 +8,24 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Breaking Changes
+
+`Exact_output.measurement_receipt_snapshot` no longer exposes the nested
+`visit` field. Read receipt identity through
+`measurement_receipt_flow_id`, `measurement_receipt_visit_ordinal`,
+`measurement_receipt_candidate_id`,
+`measurement_receipt_candidate_binding_sha256`,
+`measurement_receipt_catalog_generation_fingerprint`, and
+`measurement_receipt_catalog_evidence_sha256`.
+
+The durable receipt decoder accepts only the current complete schema.
+Discard pre-0.227.0 persisted measurement receipt snapshots and recreate them
+from fresh flow state; there is no compatibility decoder or migration path.
+
 ## [0.226.1](https://github.com/jeong-sik/oas/compare/v0.226.0...v0.226.1) (2026-07-27)
 
+Compatibility notice: this patch release unintentionally included the breaking
+measurement receipt shape above. Consumers should upgrade directly to 0.227.0.
 
 ### Features
 
