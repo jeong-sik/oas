@@ -8,6 +8,8 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.227.0](https://github.com/jeong-sik/oas/compare/v0.226.1...v0.227.0) (2026-07-27)
+
 ### Breaking Changes
 
 `Exact_output.measurement_receipt_snapshot` no longer exposes the nested
@@ -22,6 +24,10 @@ The durable receipt decoder accepts only the current complete schema.
 Discard retired nested-`visit` snapshots produced before 0.226.1 and recreate
 them from fresh flow state; there is no compatibility decoder or migration
 path. Current-schema 0.226.1 receipts remain valid in 0.227.0.
+
+### Features
+
+* **exact-output:** document measurement receipt hard cut ([#2823](https://github.com/jeong-sik/oas/issues/2823)) ([ca5ce0e](https://github.com/jeong-sik/oas/commit/ca5ce0e36ad7768fe29db857e60039a64bfc0192))
 
 ## [0.226.1](https://github.com/jeong-sik/oas/compare/v0.226.0...v0.226.1) (2026-07-27)
 
