@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.227.2](https://github.com/jeong-sik/oas/compare/v0.227.1...v0.227.2) (2026-07-27)
+
+
+### Bug Fixes
+
+* **exact-output:** fail over typed input capacity refusals ([#2828](https://github.com/jeong-sik/oas/issues/2828)) ([15644b9](https://github.com/jeong-sik/oas/commit/15644b9f20080c113fa6095e272e8c6522a147a4))
+
 ## [0.227.1](https://github.com/jeong-sik/oas/compare/v0.227.0...v0.227.1) (2026-07-27)
 
 ### Bug Fixes
