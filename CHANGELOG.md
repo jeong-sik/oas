@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.226.1](https://github.com/jeong-sik/oas/compare/v0.226.0...v0.226.1) (2026-07-27)
+
+
+### Features
+
+* **exact-output:** own durable measurement receipts ([#2820](https://github.com/jeong-sik/oas/issues/2820)) ([0592665](https://github.com/jeong-sik/oas/commit/0592665ba6b772b608e78989f6dbd40d470676fa))
+
 ## [0.226.0](https://github.com/jeong-sik/oas/compare/v0.225.0...v0.226.0) (2026-07-27)
 
 
