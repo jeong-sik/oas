@@ -22,17 +22,10 @@ type flow_preference_recovery =
 type flow_scope = Flow_scope of string
 type flow_preference_reservation = Flow_state.preference_reservation
 type flow_success_ordinal = Flow_state.success_ordinal
-type flow_preference_store_error = Invalid_flow_preference_capacity of int
 
 type flow_preference_reservation_error =
   | Preference_capacity_exhausted of { capacity : int }
   | Preference_reservation_space_exhausted
-
-type flow_preference_recovery_error = Flow_preference_recovery_already_finished
-
-type flow_preference_scope_removal =
-  | Flow_preference_scope_removed
-  | Flow_preference_scope_not_reserved
 
 type flow_success_ordinal_error = Success_ordinal_space_exhausted
 
@@ -78,18 +71,37 @@ type domain_settlement_recovery_error =
   | Preference_recovery_capacity_exhausted of { capacity : int }
   | Domain_settlement_recovery_conflict
 
-let begin_flow_preference_recovery ~capacity =
-  match Flow_state.start_preference_recovery ~capacity with
-  | Ok recovery -> Ok recovery
-  | Error (Flow_state.Invalid_preference_capacity capacity) ->
-    Error (Invalid_flow_preference_capacity capacity)
+type flow_preference_retirement_receipt = Flow_state.preference_retirement_receipt =
+  { retirement_id : string
+  ; reservation : flow_preference_reservation
+  ; success_high_water : int64
+  }
+
+type flow_preference_retirement_begin =
+  | Flow_preference_retirement_claimed of flow_preference_retirement_receipt
+  | Flow_preference_retirement_replayed of flow_preference_retirement_receipt
+  | Flow_preference_retirement_in_progress
+  | Flow_preference_scope_not_reserved
+  | Flow_preference_retirement_conflict
+
+type flow_preference_retirement_apply_error = Flow_preference_retirement_apply_conflict
+
+type flow_preference_retirement_recovery_error =
+  | Flow_preference_retirement_recovery_finished
+  | Flow_preference_retirement_recovery_conflict
+
+let flow_preference_retirement_receipt_equal left right =
+  String.equal left.retirement_id right.retirement_id
+  && left.reservation = right.reservation
+  && Int64.equal left.success_high_water right.success_high_water
 ;;
 
-let finish_flow_preference_recovery recovery =
-  match Flow_state.finish_preference_recovery recovery with
-  | Ok store -> Ok store
-  | Error Flow_state.Preference_recovery_already_finished ->
-    Error Flow_preference_recovery_already_finished
+let create_validated_flow_preference_recovery ~capacity =
+  Flow_state.create_validated_preference_recovery ~capacity
+;;
+
+let activate_validated_flow_preference_recovery recovery =
+  Flow_state.activate_validated_preference_recovery recovery
 ;;
 
 let make_flow_scope ~id =
@@ -112,12 +124,6 @@ let flow_preference_identity_of_candidate (candidate : flow_candidate_identity) 
 
 let make_flow_preference_identity ~candidate_id ~binding_sha256 =
   { candidate_id; binding_sha256 }
-;;
-
-let remove_flow_preference_scope preferences (Flow_scope scope) =
-  match Flow_state.remove_preference_scope preferences ~scope with
-  | Flow_state.Preference_scope_removed -> Flow_preference_scope_removed
-  | Flow_state.Preference_scope_not_reserved -> Flow_preference_scope_not_reserved
 ;;
 
 let allocate_flow_success_ordinal preferences =
@@ -242,6 +248,7 @@ let finish_domain_settlement
 
 let resume_committed_domain
       recovery
+      ~restore_preference
       (Flow_scope scope)
       ~reservation
       ~candidate
@@ -251,6 +258,7 @@ let resume_committed_domain
   match
     Flow_state.resume_committed_domain
       recovery
+      ~restore_preference
       ~scope
       ~reservation
       ~candidate
@@ -264,4 +272,109 @@ let resume_committed_domain
     Error (Preference_recovery_capacity_exhausted { capacity })
   | Error Flow_state.Recovered_domain_conflict ->
     Error Domain_settlement_recovery_conflict
+;;
+
+let begin_flow_preference_retirement preferences (Flow_scope scope) ~make_receipt =
+  match Flow_state.begin_preference_retirement preferences ~scope ~make_receipt with
+  | Flow_state.Preference_retirement_claimed receipt ->
+    Flow_preference_retirement_claimed receipt
+  | Flow_state.Preference_retirement_replayed receipt ->
+    Flow_preference_retirement_replayed receipt
+  | Flow_state.Preference_retirement_in_progress -> Flow_preference_retirement_in_progress
+  | Flow_state.Preference_retirement_not_reserved -> Flow_preference_scope_not_reserved
+  | Flow_state.Preference_retirement_conflict -> Flow_preference_retirement_conflict
+;;
+
+let abort_flow_preference_retirement preferences (Flow_scope scope) receipt =
+  Flow_state.abort_preference_retirement
+    preferences
+    ~same_receipt:flow_preference_retirement_receipt_equal
+    ~scope
+    receipt
+;;
+
+let mark_flow_preference_retirement_indeterminate preferences (Flow_scope scope) receipt =
+  Flow_state.mark_preference_retirement_indeterminate
+    preferences
+    ~same_receipt:flow_preference_retirement_receipt_equal
+    ~scope
+    receipt
+;;
+
+let finish_flow_preference_retirement preferences (Flow_scope scope) receipt =
+  match
+    Flow_state.finish_preference_retirement
+      preferences
+      ~same_receipt:flow_preference_retirement_receipt_equal
+      ~scope
+      receipt
+  with
+  | Ok receipt -> Ok receipt
+  | Error Flow_state.Preference_retirement_apply_conflict ->
+    Error Flow_preference_retirement_apply_conflict
+;;
+
+let resume_committed_flow_preference_retirement recovery (Flow_scope scope) receipt =
+  match
+    Flow_state.resume_committed_retirement
+      recovery
+      ~same_receipt:flow_preference_retirement_receipt_equal
+      ~scope
+      receipt
+  with
+  | Ok receipt -> Ok receipt
+  | Error Flow_state.Preference_retirement_recovery_finished ->
+    Error Flow_preference_retirement_recovery_finished
+  | Error Flow_state.Recovered_retirement_conflict ->
+    Error Flow_preference_retirement_recovery_conflict
+;;
+
+let make_flow_preference_retirement_receipt_for_testing
+      ~identity_seed
+      ~(reservation : flow_preference_reservation)
+      ~success_high_water
+  =
+  { retirement_id = String.make 64 identity_seed; reservation; success_high_water }
+;;
+
+let%test_unit "retirement recovery conflict does not mutate high-water" =
+  let recovery : flow_preference_recovery =
+    create_validated_flow_preference_recovery ~capacity:1
+  in
+  let reservation =
+    match flow_preference_reservation_of_int64 1L with
+    | Some reservation -> reservation
+    | None -> assert false
+  in
+  let first =
+    make_flow_preference_retirement_receipt_for_testing
+      ~identity_seed:'a'
+      ~reservation
+      ~success_high_water:1L
+  in
+  let conflicting =
+    make_flow_preference_retirement_receipt_for_testing
+      ~identity_seed:'b'
+      ~reservation
+      ~success_high_water:99L
+  in
+  assert (
+    Result.is_ok
+      (resume_committed_flow_preference_retirement recovery (Flow_scope "old") first));
+  assert (
+    match
+      resume_committed_flow_preference_retirement recovery (Flow_scope "old") conflicting
+    with
+    | Error Flow_preference_retirement_recovery_conflict -> true
+    | Ok _ | Error Flow_preference_retirement_recovery_finished -> false);
+  let store = activate_validated_flow_preference_recovery recovery in
+  assert (
+    match allocate_flow_success_ordinal store with
+    | Ok ordinal -> Int64.equal (flow_success_ordinal_to_int64 ordinal) 2L
+    | Error Success_ordinal_space_exhausted -> false);
+  assert (
+    match Flow_state.reserve_preference_scope store ~scope:"new" with
+    | Ok (reservation, None) ->
+      Int64.equal (flow_preference_reservation_to_int64 reservation) 2L
+    | Ok _ | Error _ -> false)
 ;;

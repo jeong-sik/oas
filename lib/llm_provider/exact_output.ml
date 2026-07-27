@@ -32,10 +32,12 @@ module Exec = Exact_output_execution
 module Flow_state = Exact_output_flow
 module Flow_contract = Exact_output_flow_contract
 module Domain_settlement = Exact_output_domain_settlement
+module Preference_lifecycle_facade = Exact_output_preference_lifecycle_facade
 module Trace = Exact_output_provider_trace
 module Generation_receipt = Exact_output_generation_receipt
 include Exact_output_resolver
 include Flow_contract
+include Preference_lifecycle_facade
 include Exact_output_ready_admission
 
 let plan_provenance_source_schema_fingerprint (provenance : plan_provenance) =
@@ -296,11 +298,6 @@ type 'commit_error domain_commit_error = 'commit_error Domain_settlement.commit_
   | Domain_commit_failed of 'commit_error
   | Domain_settlement_in_progress
   | Domain_settlement_conflict
-
-type domain_settlement_resume_error = Domain_settlement.resume_error =
-  | Domain_preference_recovery_finished
-  | Preference_recovery_capacity_exhausted of { capacity : int }
-  | Domain_settlement_recovery_conflict
 
 type flow_candidate_failure =
   | Flow_candidate_rejected of candidate_rejection_receipt
@@ -617,8 +614,6 @@ let commit_and_settle_flow_domain ~commit success disposition =
     ~execution:(generation_receipt_snapshot success.candidate.receipt)
     disposition
 ;;
-
-let resume_committed_flow_domain = Domain_settlement.resume
 
 let candidate_rejection_identity (receipt : candidate_rejection_receipt) =
   receipt.visit.identity

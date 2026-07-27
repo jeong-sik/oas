@@ -21,8 +21,19 @@ type resume_error =
   | Domain_settlement_recovery_conflict
 
 val intent_id : intent -> Exact_output_flow_contract.domain_settlement_id
+val intent_disposition : intent -> Exact_output_flow_contract.domain_disposition
 val intent_to_string : intent -> string
 val intent_of_string : string -> (intent, decode_error) result
+
+type recovery_evidence =
+  { scope : Exact_output_flow_contract.flow_scope
+  ; reservation : Exact_output_flow_contract.flow_preference_reservation
+  ; candidate : Exact_output_flow_contract.flow_preference_identity
+  ; success_ordinal : Exact_output_flow_contract.flow_success_ordinal
+  ; disposition : Exact_output_flow_contract.domain_disposition
+  }
+
+val recovery_evidence : intent -> recovery_evidence
 
 val commit_and_settle
   :  commit:(intent -> (unit, 'commit_error) result)
@@ -41,5 +52,6 @@ val commit_and_settle
 
 val resume
   :  Exact_output_flow_contract.flow_preference_recovery
+  -> restore_preference:bool
   -> intent
   -> (Exact_output_flow_contract.domain_settlement_receipt, resume_error) result

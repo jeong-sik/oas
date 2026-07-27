@@ -197,16 +197,13 @@ let flow_scope id =
 ;;
 
 let preference_store ?(capacity = 16) () =
-  let recovery =
-    match EO.begin_flow_preference_recovery ~capacity with
-    | Ok recovery -> recovery
-    | Error (EO.Invalid_flow_preference_capacity invalid) ->
-      failf "fixture preference capacity was invalid: %d" invalid
-  in
-  match EO.finish_flow_preference_recovery recovery with
+  match EO.recover_flow_preferences ~concurrent_scope_budget:capacity ~evidence:[] with
   | Ok preferences -> preferences
-  | Error EO.Flow_preference_recovery_already_finished ->
-    fail "fresh preference recovery was already finished"
+  | Error (EO.Invalid_concurrent_scope_budget invalid) ->
+    failf "fixture concurrent scope budget was invalid: %d" invalid
+  | Error (EO.Conflicting_domain_settlement_evidence _)
+  | Error (EO.Conflicting_scope_retirement_evidence _) ->
+    fail "empty preference evidence conflicted"
 ;;
 
 let settle success disposition =
@@ -227,11 +224,18 @@ let check_settlement_disposition label expected receipt =
      | EO.Domain_valid, EO.Domain_rejected | EO.Domain_rejected, EO.Domain_valid -> false)
 ;;
 
-let preference_recovery ?(capacity = 16) () =
-  match EO.begin_flow_preference_recovery ~capacity with
-  | Ok recovery -> recovery
-  | Error (EO.Invalid_flow_preference_capacity invalid) ->
-    failf "fixture preference capacity was invalid: %d" invalid
+let retire_scope preferences scope =
+  match
+    EO.commit_and_retire_flow_preference_scope ~commit:(fun _ -> Ok ()) preferences scope
+  with
+  | Ok receipt -> receipt
+  | Error (EO.Flow_preference_retirement_commit_failed _) ->
+    fail "infallible retirement commit failed"
+  | Error EO.Flow_preference_retirement_in_progress ->
+    fail "single retirement was in progress"
+  | Error EO.Flow_preference_retirement_conflict -> fail "single retirement conflicted"
+  | Error EO.Flow_preference_scope_not_reserved ->
+    fail "reserved fixture scope was absent"
 ;;
 
 let snapshot_candidates
@@ -1004,11 +1008,6 @@ let test_blank_flow_scope_is_rejected () =
 ;;
 
 let test_preference_store_capacity_is_typed_and_reusable_after_removal () =
-  (match EO.begin_flow_preference_recovery ~capacity:0 with
-   | Error (EO.Invalid_flow_preference_capacity 0) -> ()
-   | Error (EO.Invalid_flow_preference_capacity invalid) ->
-     failf "zero capacity reported the wrong value: %d" invalid
-   | Ok _ -> fail "zero-capacity preference store was accepted");
   with_catalog
     [ catalog_entry
         ~id:"capacity-candidate"
@@ -1018,6 +1017,12 @@ let test_preference_store_capacity_is_typed_and_reusable_after_removal () =
         ()
     ]
   @@ fun snapshot ->
+  let zero = preference_store ~capacity:0 () in
+  let zero_scope = flow_scope "/runtime/capacity-zero" in
+  let zero_candidates = [ flow_candidate snapshot "capacity-candidate" ] in
+  (match snapshot_candidates ~preferences:zero ~scope:zero_scope zero_candidates with
+   | Error (EO.Flow_preference_capacity_exhausted { capacity = 0 }) -> ()
+   | Ok _ | Error _ -> fail "zero-capacity store did not reject snapshot admission");
   let preferences = preference_store ~capacity:1 () in
   let scope_a = flow_scope "/runtime/capacity-a" in
   let scope_b = flow_scope "/runtime/capacity-b" in
@@ -1056,17 +1061,23 @@ let test_preference_store_capacity_is_typed_and_reusable_after_removal () =
     | `Reserved, `Reserved -> fail "concurrent scopes exceeded hard capacity"
     | `Exhausted, `Exhausted -> fail "concurrent reservation admitted no scope"
   in
-  (match EO.remove_flow_preference_scope preferences exhausted_scope with
-   | EO.Flow_preference_scope_not_reserved -> ()
-   | EO.Flow_preference_scope_removed ->
-     fail "capacity-exhausted scope was nevertheless reserved");
-  (match EO.remove_flow_preference_scope preferences reserved_scope with
-   | EO.Flow_preference_scope_removed -> ()
-   | EO.Flow_preference_scope_not_reserved ->
-     fail "reserved preference scope was not removable");
-  (match EO.remove_flow_preference_scope preferences reserved_scope with
-   | EO.Flow_preference_scope_not_reserved -> ()
-   | EO.Flow_preference_scope_removed -> fail "preference scope was removed twice");
+  (match
+     EO.commit_and_retire_flow_preference_scope
+       ~commit:(fun _ -> Ok ())
+       preferences
+       exhausted_scope
+   with
+   | Error EO.Flow_preference_scope_not_reserved -> ()
+   | Ok _ | Error _ -> fail "capacity-exhausted scope was nevertheless reserved");
+  let first_retirement = retire_scope preferences reserved_scope in
+  let replayed_retirement = retire_scope preferences reserved_scope in
+  check
+    string
+    "retirement replay returns the same receipt"
+    (EO.flow_preference_retirement_receipt_id first_retirement
+     |> EO.flow_preference_retirement_id_to_string)
+    (EO.flow_preference_retirement_receipt_id replayed_retirement
+     |> EO.flow_preference_retirement_id_to_string);
   match snapshot_candidates ~preferences ~scope:exhausted_scope candidates with
   | Ok _ -> ()
   | Error _ -> fail "released capacity was not reusable by a new scope"
@@ -1097,10 +1108,7 @@ let test_removed_scope_consumes_domain_valid_settlement_as_typed_failure () =
         | Ok success -> success
         | Error _ -> fail "released-scope fixture did not structurally succeed"
       in
-      (match EO.remove_flow_preference_scope preferences released_scope with
-       | EO.Flow_preference_scope_removed -> ()
-       | EO.Flow_preference_scope_not_reserved ->
-         fail "running flow's preference scope was not reserved");
+      ignore (retire_scope preferences released_scope);
       let _replacement_generation =
         frozen_flow
           ~preferences
@@ -1164,6 +1172,15 @@ let rewrite_json_field name replacement encoded =
             if String.equal field name then field, replacement else field, value)
          fields)
     |> Yojson.Safe.to_string
+  | _ -> fail "intent envelope was not an object"
+;;
+
+let duplicate_json_field name encoded =
+  match Yojson.Safe.from_string encoded with
+  | `Assoc fields ->
+    (match List.assoc_opt name fields with
+     | Some value -> `Assoc ((name, value) :: fields) |> Yojson.Safe.to_string
+     | None -> failf "intent field %s was absent" name)
   | _ -> fail "intent envelope was not an object"
 ;;
 
@@ -1279,28 +1296,16 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
     (match EO.domain_settlement_intent_of_string corrupt with
      | Error EO.Domain_settlement_intent_integrity_mismatch -> ()
      | Ok _ | Error _ -> fail "corrupt durable intent did not fail closed");
-    let recovery = preference_recovery () in
-    let first =
-      match EO.resume_committed_flow_domain recovery intent with
-      | Ok receipt -> receipt
-      | Error _ -> fail "committed intent did not resume"
-    in
-    let replay =
-      match EO.resume_committed_flow_domain recovery intent with
-      | Ok receipt -> receipt
-      | Error _ -> fail "same committed intent did not replay idempotently"
-    in
     let recovered_preferences =
-      match EO.finish_flow_preference_recovery recovery with
+      match
+        EO.recover_flow_preferences
+          ~concurrent_scope_budget:0
+          ~evidence:
+            [ EO.Domain_settlement_evidence intent; EO.Domain_settlement_evidence intent ]
+      with
       | Ok preferences -> preferences
-      | Error _ -> fail "preference recovery did not finish"
+      | Error _ -> fail "committed intent did not recover"
     in
-    (match EO.resume_committed_flow_domain recovery intent with
-     | Error EO.Domain_preference_recovery_finished -> ()
-     | Ok _
-     | Error EO.Domain_settlement_recovery_conflict
-     | Error (EO.Preference_recovery_capacity_exhausted _) ->
-       fail "finished recovery accepted another replay");
     let future_order =
       frozen_flow
         ~preferences:recovered_preferences
@@ -1309,10 +1314,7 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
         [ "durable-b"; "durable-a" ]
       |> flow_snapshot_ids
     in
-    (match EO.remove_flow_preference_scope recovered_preferences scope with
-     | EO.Flow_preference_scope_removed -> ()
-     | EO.Flow_preference_scope_not_reserved ->
-       fail "recovered preference scope was not reserved");
+    ignore (retire_scope recovered_preferences scope);
     let next_success =
       match
         frozen_flow
@@ -1349,8 +1351,8 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
     let next_reservation =
       json_field_string "reservation_ordinal" next_encoded |> Int64.of_string
     in
-    ( settlement_id first
-    , settlement_id replay
+    ( EO.domain_settlement_intent_id intent |> EO.domain_settlement_id_to_string
+    , EO.domain_settlement_intent_id intent |> EO.domain_settlement_id_to_string
     , future_order
     , Int64.compare
         (EO.flow_success_ordinal_to_int64 (EO.flow_success_ordinal next_success))
@@ -1367,6 +1369,642 @@ let test_committed_intent_resumes_without_dispatch_and_restores_high_water () =
     future_order;
   check bool "recovery restores success ordinal high-water" true ordinal_advanced;
   check bool "recovery restores reservation high-water" true reservation_advanced
+;;
+
+let test_retirement_recovery_blocks_stale_and_allows_newer_reservation () =
+  let (retired_blocked, newer_order, retirement_roundtrip), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"retirement-a" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"retirement-b" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let preferences = preference_store ~capacity:1 () in
+    let scope = flow_scope "/runtime/retirement-order" in
+    let capture_domain candidate =
+      let success =
+        match
+          frozen_flow ~preferences ~scope snapshot [ candidate ]
+          |> start_flow
+          |> execute_ok ~net
+        with
+        | Ok success -> success
+        | Error _ -> fail "retirement recovery fixture did not succeed"
+      in
+      let encoded = ref None in
+      (match
+         EO.commit_and_settle_flow_domain
+           ~commit:(fun intent ->
+             encoded := Some (EO.domain_settlement_intent_to_string intent);
+             Error ())
+           success
+           EO.Domain_valid
+       with
+       | Error (EO.Domain_commit_failed ()) -> ()
+       | Ok _
+       | Error EO.Domain_settlement_in_progress
+       | Error EO.Domain_settlement_conflict ->
+         fail "retirement recovery fixture unexpectedly settled");
+      match !encoded with
+      | None -> fail "retirement recovery fixture emitted no domain intent"
+      | Some encoded ->
+        (match EO.domain_settlement_intent_of_string encoded with
+         | Ok intent -> intent
+         | Error _ -> fail "retirement recovery domain intent did not decode")
+    in
+    let older = capture_domain "retirement-a" in
+    let retirement_encoded = ref None in
+    let retirement_receipt =
+      match
+        EO.commit_and_retire_flow_preference_scope
+          ~commit:(fun intent ->
+            retirement_encoded
+            := Some (EO.flow_preference_retirement_intent_to_string intent);
+            Ok ())
+          preferences
+          scope
+      with
+      | Ok receipt -> receipt
+      | Error _ -> fail "durable retirement did not commit"
+    in
+    let retirement_encoded, retirement =
+      match !retirement_encoded with
+      | None -> fail "durable retirement callback emitted no intent"
+      | Some encoded ->
+        (match EO.flow_preference_retirement_intent_of_string encoded with
+         | Ok intent -> encoded, intent
+         | Error _ -> fail "current retirement intent did not decode")
+    in
+    (match EO.flow_preference_retirement_intent_of_string "{" with
+     | Error (EO.Flow_preference_retirement_intent_malformed_json _) -> ()
+     | Ok _ | Error _ -> fail "malformed retirement intent did not fail closed");
+    (match EO.flow_preference_retirement_intent_of_string "[]" with
+     | Error EO.Flow_preference_retirement_intent_invalid_fields -> ()
+     | Ok _ | Error _ -> fail "non-object retirement intent did not fail closed");
+    (match
+       duplicate_json_field "scope" retirement_encoded
+       |> EO.flow_preference_retirement_intent_of_string
+     with
+     | Error EO.Flow_preference_retirement_intent_invalid_fields -> ()
+     | Ok _ | Error _ -> fail "duplicate retirement field did not fail closed");
+    (match
+       rewrite_json_field "version" (`Int 0) retirement_encoded
+       |> EO.flow_preference_retirement_intent_of_string
+     with
+     | Error (EO.Flow_preference_retirement_intent_unsupported_version 0) -> ()
+     | Ok _ | Error _ -> fail "old retirement intent version did not fail closed");
+    List.iter
+      (fun field ->
+         List.iter
+           (fun raw ->
+              match
+                rewrite_json_field field (`String raw) retirement_encoded
+                |> EO.flow_preference_retirement_intent_of_string
+              with
+              | Error (EO.Flow_preference_retirement_intent_invalid_field rejected)
+                when String.equal rejected field -> ()
+              | Ok _ | Error _ -> failf "noncanonical retirement %s=%s survived" field raw)
+           [ "01"; "+1"; "0x1"; "0_1" ])
+      [ "reservation_ordinal"; "success_high_water" ];
+    List.iter
+      (fun field ->
+         match
+           rewrite_json_field field (`String (String.make 64 '0')) retirement_encoded
+           |> EO.flow_preference_retirement_intent_of_string
+         with
+         | Error EO.Flow_preference_retirement_intent_integrity_mismatch -> ()
+         | Ok _ | Error _ -> failf "retirement %s tampering survived" field)
+      [ "retirement_id"; "integrity_sha256" ];
+    let retirement_roundtrip =
+      String.equal
+        (EO.flow_preference_retirement_receipt_id retirement_receipt
+         |> EO.flow_preference_retirement_id_to_string)
+        (EO.flow_preference_retirement_intent_id retirement
+         |> EO.flow_preference_retirement_id_to_string)
+    in
+    let newer = capture_domain "retirement-b" in
+    let retired_only =
+      match
+        EO.recover_flow_preferences
+          ~concurrent_scope_budget:0
+          ~evidence:
+            [ EO.Domain_settlement_evidence older
+            ; EO.Scope_retirement_evidence retirement
+            ]
+      with
+      | Ok recovered -> recovered
+      | Error _ -> fail "retire-after-valid evidence did not recover"
+    in
+    let retired_blocked =
+      match
+        snapshot_candidates
+          ~preferences:retired_only
+          ~scope
+          [ flow_candidate snapshot "retirement-a" ]
+      with
+      | Error (EO.Flow_preference_capacity_exhausted { capacity = 0 }) -> true
+      | Ok _ | Error _ -> false
+    in
+    let reactivated =
+      match
+        EO.recover_flow_preferences
+          ~concurrent_scope_budget:0
+          ~evidence:
+            [ EO.Domain_settlement_evidence older
+            ; EO.Scope_retirement_evidence retirement
+            ; EO.Domain_settlement_evidence newer
+            ]
+      with
+      | Ok recovered -> recovered
+      | Error _ -> fail "newer valid reservation did not reactivate"
+    in
+    let newer_order =
+      frozen_flow
+        ~preferences:reactivated
+        ~scope
+        snapshot
+        [ "retirement-a"; "retirement-b" ]
+      |> flow_snapshot_ids
+    in
+    retired_blocked, newer_order, retirement_roundtrip
+  in
+  check int "retirement ordering fixture dispatches twice" 2 posts;
+  check bool "retirement prevents stale resurrection" true retired_blocked;
+  check
+    (list string)
+    "genuinely newer reservation reactivates preference"
+    [ "retirement-b"; "retirement-a" ]
+    newer_order;
+  check bool "retirement codec preserves deterministic id" true retirement_roundtrip
+;;
+
+let test_recovery_rejects_superseded_retirement_conflicts_regardless_order () =
+  let (every_order_conflicted, deterministic_conflict_payload), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"retirement-conflict" ~base_url ~native:true ~json:true () ]
+    @@ fun snapshot ->
+    let scope = flow_scope "/runtime/retirement-conflict-order" in
+    let other_scope = flow_scope "/runtime/retirement-conflict-high-water" in
+    let advance preferences scope =
+      let success =
+        match
+          frozen_flow ~preferences ~scope snapshot [ "retirement-conflict" ]
+          |> start_flow
+          |> execute_ok ~net
+        with
+        | Ok success -> success
+        | Error _ -> fail "retirement conflict fixture did not succeed"
+      in
+      match
+        EO.commit_and_settle_flow_domain
+          ~commit:(fun _ -> Error ())
+          success
+          EO.Domain_valid
+      with
+      | Error (EO.Domain_commit_failed ()) -> ()
+      | Ok _
+      | Error EO.Domain_settlement_in_progress
+      | Error EO.Domain_settlement_conflict ->
+        fail "retirement conflict fixture unexpectedly settled"
+    in
+    let retire preferences =
+      let encoded = ref None in
+      (match
+         EO.commit_and_retire_flow_preference_scope
+           ~commit:(fun intent ->
+             encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
+             Ok ())
+           preferences
+           scope
+       with
+       | Ok _ -> ()
+       | Error _ -> fail "retirement conflict fixture did not retire");
+      match !encoded with
+      | None -> fail "retirement conflict fixture emitted no intent"
+      | Some encoded ->
+        (match EO.flow_preference_retirement_intent_of_string encoded with
+         | Ok intent -> intent
+         | Error _ -> fail "retirement conflict intent did not decode")
+    in
+    let first_preferences = preference_store ~capacity:2 () in
+    advance first_preferences scope;
+    let first = retire first_preferences in
+    let conflicting_preferences = preference_store ~capacity:2 () in
+    advance conflicting_preferences scope;
+    advance conflicting_preferences other_scope;
+    let conflicting = retire conflicting_preferences in
+    let newer_preferences = preference_store ~capacity:2 () in
+    advance newer_preferences scope;
+    let _retired = retire newer_preferences in
+    advance newer_preferences scope;
+    let newer = retire newer_preferences in
+    let retirement_id intent =
+      EO.flow_preference_retirement_intent_id intent
+      |> EO.flow_preference_retirement_id_to_string
+    in
+    let retirement_field field intent =
+      EO.flow_preference_retirement_intent_to_string intent |> json_field_string field
+    in
+    let retirement_reservation intent =
+      retirement_field "reservation_ordinal" intent |> Int64.of_string
+    in
+    let first_id = retirement_id first in
+    let conflicting_id = retirement_id conflicting in
+    let newer_id = retirement_id newer in
+    if String.equal first_id conflicting_id
+    then fail "retirement conflict fixture produced identical older intents";
+    if String.equal conflicting_id newer_id
+    then fail "retirement conflict fixture did not create a distinct newer intent";
+    if String.equal first_id newer_id
+    then fail "retirement conflict fixture reused the first retirement intent";
+    if
+      not
+        (String.equal
+           (retirement_field "scope" first)
+           (retirement_field "scope" conflicting)
+         && String.equal (retirement_field "scope" first) (retirement_field "scope" newer)
+        )
+    then fail "retirement conflict fixture did not preserve one scope";
+    let first_reservation = retirement_reservation first in
+    let conflicting_reservation = retirement_reservation conflicting in
+    let newer_reservation = retirement_reservation newer in
+    if not (Int64.equal first_reservation conflicting_reservation)
+    then fail "retirement conflict fixture did not share the older reservation";
+    if Int64.compare newer_reservation first_reservation <= 0
+    then fail "retirement conflict fixture did not create a newer reservation";
+    let permutations =
+      [ [ first; conflicting; newer ]
+      ; [ first; newer; conflicting ]
+      ; [ conflicting; first; newer ]
+      ; [ conflicting; newer; first ]
+      ; [ newer; first; conflicting ]
+      ; [ newer; conflicting; first ]
+      ]
+    in
+    let permutation_keys =
+      List.map
+        (fun ordered -> List.map retirement_id ordered |> String.concat ":")
+        permutations
+    in
+    if List.length (List.sort_uniq String.compare permutation_keys) <> 6
+    then fail "retirement conflict fixture did not produce six distinct permutations";
+    let conflict_ids =
+      List.map
+        (fun ordered ->
+           match
+             EO.recover_flow_preferences
+               ~concurrent_scope_budget:0
+               ~evidence:
+                 (List.map (fun intent -> EO.Scope_retirement_evidence intent) ordered)
+           with
+           | Error (EO.Conflicting_scope_retirement_evidence id) ->
+             Some (EO.flow_preference_retirement_id_to_string id)
+           | Ok _
+           | Error (EO.Invalid_concurrent_scope_budget _)
+           | Error (EO.Conflicting_domain_settlement_evidence _) -> None)
+        permutations
+    in
+    let every_order_conflicted =
+      List.for_all
+        (function
+          | Some _ -> true
+          | None -> false)
+        conflict_ids
+    in
+    let deterministic_conflict_payload =
+      match conflict_ids with
+      | Some expected :: rest ->
+        (String.equal expected first_id || String.equal expected conflicting_id)
+        && List.for_all
+             (function
+               | Some actual -> String.equal actual expected
+               | None -> false)
+             rest
+      | None :: _ | [] -> false
+    in
+    every_order_conflicted, deterministic_conflict_payload
+  in
+  check int "superseded retirement conflict fixture dispatches five times" 5 posts;
+  check
+    bool
+    "superseded equal-reservation retirements always conflict"
+    true
+    every_order_conflicted;
+  check
+    bool
+    "superseded retirement conflict payload is deterministic"
+    true
+    deterministic_conflict_payload
+;;
+
+let test_rejected_only_recovery_restores_high_water_without_active_scope () =
+  let (zero_active, reservation_advanced, ordinal_advanced), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"rejected-only" ~base_url ~native:true ~json:true () ]
+    @@ fun snapshot ->
+    let original = preference_store ~capacity:1 () in
+    let original_scope = flow_scope "/runtime/rejected-only/original" in
+    let original_success =
+      match
+        frozen_flow
+          ~preferences:original
+          ~scope:original_scope
+          snapshot
+          [ "rejected-only" ]
+        |> start_flow
+        |> execute_ok ~net
+      with
+      | Ok success -> success
+      | Error _ -> fail "rejected-only fixture did not succeed"
+    in
+    let original_encoded = ref None in
+    (match
+       EO.commit_and_settle_flow_domain
+         ~commit:(fun intent ->
+           original_encoded := Some (EO.domain_settlement_intent_to_string intent);
+           Error ())
+         original_success
+         EO.Domain_rejected
+     with
+     | Error (EO.Domain_commit_failed ()) -> ()
+     | Ok _ | Error EO.Domain_settlement_in_progress | Error EO.Domain_settlement_conflict
+       -> fail "rejected-only fixture unexpectedly settled");
+    let original_encoded, rejected =
+      match !original_encoded with
+      | None -> fail "rejected-only fixture emitted no intent"
+      | Some encoded ->
+        (match EO.domain_settlement_intent_of_string encoded with
+         | Ok intent -> encoded, intent
+         | Error _ -> fail "rejected-only intent did not decode")
+    in
+    let zero =
+      match
+        EO.recover_flow_preferences
+          ~concurrent_scope_budget:0
+          ~evidence:[ EO.Domain_settlement_evidence rejected ]
+      with
+      | Ok recovered -> recovered
+      | Error _ -> fail "rejected-only zero-budget recovery failed"
+    in
+    let zero_active =
+      match
+        snapshot_candidates
+          ~preferences:zero
+          ~scope:original_scope
+          [ flow_candidate snapshot "rejected-only" ]
+      with
+      | Error (EO.Flow_preference_capacity_exhausted { capacity = 0 }) -> true
+      | Ok _ | Error _ -> false
+    in
+    let recovered =
+      match
+        EO.recover_flow_preferences
+          ~concurrent_scope_budget:1
+          ~evidence:[ EO.Domain_settlement_evidence rejected ]
+      with
+      | Ok recovered -> recovered
+      | Error _ -> fail "rejected-only high-water recovery failed"
+    in
+    let next_success =
+      match
+        frozen_flow
+          ~preferences:recovered
+          ~scope:(flow_scope "/runtime/rejected-only/next")
+          snapshot
+          [ "rejected-only" ]
+        |> start_flow
+        |> execute_ok ~net
+      with
+      | Ok success -> success
+      | Error _ -> fail "post rejected-only recovery did not execute"
+    in
+    let next_encoded = ref None in
+    (match
+       EO.commit_and_settle_flow_domain
+         ~commit:(fun intent ->
+           next_encoded := Some (EO.domain_settlement_intent_to_string intent);
+           Error ())
+         next_success
+         EO.Domain_rejected
+     with
+     | Error (EO.Domain_commit_failed ()) -> ()
+     | Ok _ | Error EO.Domain_settlement_in_progress | Error EO.Domain_settlement_conflict
+       -> fail "post rejected-only fixture unexpectedly settled");
+    let next_encoded =
+      match !next_encoded with
+      | Some encoded -> encoded
+      | None -> fail "post rejected-only fixture emitted no intent"
+    in
+    ( zero_active
+    , Int64.compare
+        (json_field_string "reservation_ordinal" next_encoded |> Int64.of_string)
+        (json_field_string "reservation_ordinal" original_encoded |> Int64.of_string)
+      > 0
+    , Int64.compare
+        (json_field_string "success_ordinal" next_encoded |> Int64.of_string)
+        (json_field_string "success_ordinal" original_encoded |> Int64.of_string)
+      > 0 )
+  in
+  check int "rejected-only high-water fixture dispatches twice" 2 posts;
+  check bool "rejected-only evidence consumes no active capacity" true zero_active;
+  check
+    bool
+    "rejected-only recovery restores reservation high-water"
+    true
+    reservation_advanced;
+  check bool "rejected-only recovery restores success high-water" true ordinal_advanced
+;;
+
+let test_retirement_cancellation_replays_stable_intent_after_high_water_drift () =
+  let stable_intent, posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"retirement-stable" ~base_url ~native:true ~json:true () ]
+    @@ fun snapshot ->
+    let preferences = preference_store ~capacity:2 () in
+    let retirement_scope = flow_scope "/runtime/retirement-stable" in
+    (match
+       snapshot_candidates
+         ~preferences
+         ~scope:retirement_scope
+         [ flow_candidate snapshot "retirement-stable" ]
+     with
+     | Ok _ -> ()
+     | Error _ -> fail "retirement cancellation scope was not reserved");
+    let first_encoded = ref None in
+    (try
+       ignore
+         (EO.commit_and_retire_flow_preference_scope
+            ~commit:(fun intent ->
+              first_encoded
+              := Some (EO.flow_preference_retirement_intent_to_string intent);
+              raise
+                (Eio.Cancel.Cancelled (Failure "injected after durable retirement commit")))
+            preferences
+            retirement_scope);
+       fail "injected retirement cancellation did not escape"
+     with
+     | Eio.Cancel.Cancelled _ -> ());
+    let drift_scope = flow_scope "/runtime/retirement-stable-drift" in
+    (match
+       frozen_flow ~preferences ~scope:drift_scope snapshot [ "retirement-stable" ]
+       |> start_flow
+       |> execute_ok ~net
+     with
+     | Ok _ -> ()
+     | Error _ -> fail "success high-water drift fixture did not execute");
+    let failed_replay_encoded = ref None in
+    (match
+       EO.commit_and_retire_flow_preference_scope
+         ~commit:(fun intent ->
+           failed_replay_encoded
+           := Some (EO.flow_preference_retirement_intent_to_string intent);
+           Error ())
+         preferences
+         retirement_scope
+     with
+     | Error (EO.Flow_preference_retirement_commit_failed ()) -> ()
+     | Ok _
+     | Error EO.Flow_preference_retirement_in_progress
+     | Error EO.Flow_preference_retirement_conflict
+     | Error EO.Flow_preference_scope_not_reserved ->
+       fail "failed indeterminate replay did not remain retryable");
+    let replay_encoded = ref None in
+    let replay_receipt =
+      match
+        EO.commit_and_retire_flow_preference_scope
+          ~commit:(fun intent ->
+            replay_encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
+            Ok ())
+          preferences
+          retirement_scope
+      with
+      | Ok receipt -> receipt
+      | Error _ -> fail "indeterminate retirement did not replay"
+    in
+    let first_encoded =
+      match !first_encoded with
+      | Some encoded -> encoded
+      | None -> fail "cancelled retirement exposed no intent"
+    in
+    let replay_encoded =
+      match !replay_encoded with
+      | Some encoded -> encoded
+      | None -> fail "retirement replay exposed no intent"
+    in
+    let failed_replay_encoded =
+      match !failed_replay_encoded with
+      | Some encoded -> encoded
+      | None -> fail "failed retirement replay exposed no intent"
+    in
+    let first_intent =
+      match EO.flow_preference_retirement_intent_of_string first_encoded with
+      | Ok intent -> intent
+      | Error _ -> fail "cancelled retirement intent did not decode"
+    in
+    String.equal first_encoded failed_replay_encoded
+    && String.equal first_encoded replay_encoded
+    && String.equal
+         (EO.flow_preference_retirement_intent_id first_intent
+          |> EO.flow_preference_retirement_id_to_string)
+         (EO.flow_preference_retirement_receipt_id replay_receipt
+          |> EO.flow_preference_retirement_id_to_string)
+  in
+  check int "retirement stability fixture dispatches only high-water drift" 1 posts;
+  check bool "post-commit cancellation replays exact retirement intent" true stable_intent
+;;
+
+let test_retirement_initial_error_preserves_intent_after_high_water_drift () =
+  let (stable_intent, initial_call_count, final_call_count), posts =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"retirement-error" ~base_url ~native:true ~json:true () ]
+    @@ fun snapshot ->
+    let preferences = preference_store ~capacity:2 () in
+    let retirement_scope = flow_scope "/runtime/retirement-error" in
+    (match
+       snapshot_candidates
+         ~preferences
+         ~scope:retirement_scope
+         [ flow_candidate snapshot "retirement-error" ]
+     with
+     | Ok _ -> ()
+     | Error _ -> fail "retirement error scope was not reserved");
+    let callback_calls = ref 0 in
+    let first_encoded = ref None in
+    (match
+       EO.commit_and_retire_flow_preference_scope
+         ~commit:(fun intent ->
+           incr callback_calls;
+           first_encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
+           Error ())
+         preferences
+         retirement_scope
+     with
+     | Error (EO.Flow_preference_retirement_commit_failed ()) -> ()
+     | Ok _
+     | Error EO.Flow_preference_retirement_in_progress
+     | Error EO.Flow_preference_retirement_conflict
+     | Error EO.Flow_preference_scope_not_reserved ->
+       fail "initial retirement error lost its typed outcome");
+    let initial_call_count = !callback_calls in
+    let drift_scope = flow_scope "/runtime/retirement-error-drift" in
+    (match
+       frozen_flow ~preferences ~scope:drift_scope snapshot [ "retirement-error" ]
+       |> start_flow
+       |> execute_ok ~net
+     with
+     | Ok _ -> ()
+     | Error _ -> fail "retirement error high-water drift did not execute");
+    let retry_encoded = ref None in
+    let retry_receipt =
+      match
+        EO.commit_and_retire_flow_preference_scope
+          ~commit:(fun intent ->
+            incr callback_calls;
+            retry_encoded := Some (EO.flow_preference_retirement_intent_to_string intent);
+            Ok ())
+          preferences
+          retirement_scope
+      with
+      | Ok receipt -> receipt
+      | Error _ -> fail "initial retirement error was not explicitly retryable"
+    in
+    let first_encoded =
+      match !first_encoded with
+      | Some encoded -> encoded
+      | None -> fail "initial retirement error exposed no intent"
+    in
+    let retry_encoded =
+      match !retry_encoded with
+      | Some encoded -> encoded
+      | None -> fail "retirement error retry exposed no intent"
+    in
+    let first_intent =
+      match EO.flow_preference_retirement_intent_of_string first_encoded with
+      | Ok intent -> intent
+      | Error _ -> fail "initial retirement error intent did not decode"
+    in
+    ( String.equal first_encoded retry_encoded
+      && String.equal
+           (EO.flow_preference_retirement_intent_id first_intent
+            |> EO.flow_preference_retirement_id_to_string)
+           (EO.flow_preference_retirement_receipt_id retry_receipt
+            |> EO.flow_preference_retirement_id_to_string)
+    , initial_call_count
+    , !callback_calls )
+  in
+  check int "initial error does not auto-redispatch callback" 1 initial_call_count;
+  check int "explicit retry dispatches callback exactly once" 2 final_call_count;
+  check int "initial error stability fixture dispatches only high-water drift" 1 posts;
+  check bool "initial error retry preserves exact retirement intent" true stable_intent
 ;;
 
 let test_recovery_conflicting_disposition_fails_closed () =
@@ -1412,22 +2050,166 @@ let test_recovery_conflicting_disposition_fails_closed () =
       "opposite dispositions share structural settlement id"
       (EO.domain_settlement_intent_id valid |> EO.domain_settlement_id_to_string)
       (EO.domain_settlement_intent_id rejected |> EO.domain_settlement_id_to_string);
-    let recovery = preference_recovery () in
-    (match EO.resume_committed_flow_domain recovery valid with
-     | Ok _ -> ()
-     | Error _ -> fail "first recovered disposition did not settle");
-    match EO.resume_committed_flow_domain recovery rejected with
-    | Error EO.Domain_settlement_recovery_conflict -> true
+    match
+      EO.recover_flow_preferences
+        ~concurrent_scope_budget:1
+        ~evidence:
+          [ EO.Domain_settlement_evidence valid; EO.Domain_settlement_evidence rejected ]
+    with
+    | Error (EO.Conflicting_domain_settlement_evidence _) -> true
     | Ok _
-    | Error EO.Domain_preference_recovery_finished
-    | Error (EO.Preference_recovery_capacity_exhausted _) -> false
+    | Error (EO.Invalid_concurrent_scope_budget _)
+    | Error (EO.Conflicting_scope_retirement_evidence _) -> false
   in
   check int "conflicting recovery performs no extra dispatch" 1 posts;
   check bool "conflicting disposition fails closed" true conflicted
 ;;
 
-let test_recovery_capacity_failure_is_typed_unmutated_and_retryable () =
-  let (retryable, reservation_unadvanced, ordinal_unadvanced), posts =
+let test_recovery_rejects_reused_success_ordinals_regardless_order () =
+  let ( (every_order_conflicted, deterministic_conflict_payload, distinct_ordinals_recover)
+      , posts )
+    =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"ordinal-a" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"ordinal-b" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let scope = flow_scope "/runtime/success-ordinal-reuse" in
+    let capture preferences candidate =
+      let success =
+        match
+          frozen_flow ~preferences ~scope snapshot [ candidate ]
+          |> start_flow
+          |> execute_ok ~net
+        with
+        | Ok success -> success
+        | Error _ -> fail "success ordinal fixture did not succeed"
+      in
+      let encoded = ref None in
+      (match
+         EO.commit_and_settle_flow_domain
+           ~commit:(fun intent ->
+             encoded := Some (EO.domain_settlement_intent_to_string intent);
+             Error ())
+           success
+           EO.Domain_valid
+       with
+       | Error (EO.Domain_commit_failed ()) -> ()
+       | Ok _
+       | Error EO.Domain_settlement_in_progress
+       | Error EO.Domain_settlement_conflict ->
+         fail "success ordinal fixture unexpectedly settled");
+      match !encoded with
+      | None -> fail "success ordinal fixture emitted no domain intent"
+      | Some encoded ->
+        (match EO.domain_settlement_intent_of_string encoded with
+         | Ok intent -> intent
+         | Error _ -> fail "success ordinal fixture intent did not decode")
+    in
+    let intent_field field intent =
+      EO.domain_settlement_intent_to_string intent |> json_field_string field
+    in
+    let intent_id intent =
+      EO.domain_settlement_intent_id intent |> EO.domain_settlement_id_to_string
+    in
+    let recover_permutation ordered =
+      EO.recover_flow_preferences
+        ~concurrent_scope_budget:1
+        ~evidence:(List.map (fun intent -> EO.Domain_settlement_evidence intent) ordered)
+    in
+    let first_preferences = preference_store ~capacity:1 () in
+    let first = capture first_preferences "ordinal-a" in
+    let second_preferences = preference_store ~capacity:1 () in
+    let second = capture second_preferences "ordinal-b" in
+    if not (String.equal (intent_field "scope" first) (intent_field "scope" second))
+    then fail "success ordinal fixture did not preserve one scope";
+    if
+      not
+        (String.equal
+           (intent_field "reservation_ordinal" first)
+           (intent_field "reservation_ordinal" second))
+    then fail "success ordinal fixture did not share one reservation";
+    if
+      not
+        (String.equal
+           (intent_field "success_ordinal" first)
+           (intent_field "success_ordinal" second))
+    then fail "success ordinal fixture did not reuse the success ordinal";
+    if
+      String.equal
+        (intent_field "candidate_id" first)
+        (intent_field "candidate_id" second)
+    then fail "success ordinal fixture named one candidate twice";
+    if String.equal (intent_id first) (intent_id second)
+    then fail "success ordinal fixture produced one settlement id";
+    let conflict_ids =
+      List.map
+        (fun ordered ->
+           match recover_permutation ordered with
+           | Error (EO.Conflicting_domain_settlement_evidence id) ->
+             Some (EO.domain_settlement_id_to_string id)
+           | Ok _
+           | Error (EO.Invalid_concurrent_scope_budget _)
+           | Error (EO.Conflicting_scope_retirement_evidence _) -> None)
+        [ [ first; second ]; [ second; first ] ]
+    in
+    let every_order_conflicted =
+      List.for_all
+        (function
+          | Some _ -> true
+          | None -> false)
+        conflict_ids
+    in
+    let deterministic_conflict_payload =
+      match conflict_ids with
+      | Some expected :: rest ->
+        (String.equal expected (intent_id first)
+         || String.equal expected (intent_id second))
+        && List.for_all
+             (function
+               | Some actual -> String.equal actual expected
+               | None -> false)
+             rest
+      | None :: _ | [] -> false
+    in
+    let distinct_preferences = preference_store ~capacity:1 () in
+    let distinct_first = capture distinct_preferences "ordinal-a" in
+    let distinct_second = capture distinct_preferences "ordinal-b" in
+    if
+      not
+        (String.equal
+           (intent_field "reservation_ordinal" distinct_first)
+           (intent_field "reservation_ordinal" distinct_second))
+    then fail "distinct-ordinal control did not share one reservation";
+    if
+      String.equal
+        (intent_field "success_ordinal" distinct_first)
+        (intent_field "success_ordinal" distinct_second)
+    then fail "distinct-ordinal control reused a success ordinal";
+    let distinct_ordinals_recover =
+      List.for_all
+        (fun ordered ->
+           match recover_permutation ordered with
+           | Ok _ -> true
+           | Error _ -> false)
+        [ [ distinct_first; distinct_second ]; [ distinct_second; distinct_first ] ]
+    in
+    every_order_conflicted, deterministic_conflict_payload, distinct_ordinals_recover
+  in
+  check int "success ordinal reuse fixture dispatches four times" 4 posts;
+  check bool "reused success ordinals always conflict" true every_order_conflicted;
+  check
+    bool
+    "reused success ordinal conflict payload is deterministic"
+    true
+    deterministic_conflict_payload;
+  check bool "distinct success ordinals still recover" true distinct_ordinals_recover
+;;
+
+let test_recovery_capacity_is_derived_from_distinct_active_scopes () =
+  let (historical_ids_do_not_inflate, high_water_restored), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
     with_catalog [ catalog_entry ~id:"capacity-a" ~base_url ~native:true ~json:true () ]
@@ -1466,54 +2248,44 @@ let test_recovery_capacity_failure_is_typed_unmutated_and_retryable () =
       | None -> fail "capacity recovery fixture did not expose its intent"
     in
     let first_scope = flow_scope "/runtime/recovery-capacity/a" in
-    let second_scope = flow_scope "/runtime/recovery-capacity/b" in
-    let first, _ = capture live_preferences first_scope in
-    let second, second_encoded = capture live_preferences second_scope in
-    let recovery = preference_recovery ~capacity:1 () in
-    (match EO.resume_committed_flow_domain recovery first with
-     | Ok _ -> ()
-     | Error _ -> fail "first recovery capacity fixture did not settle");
-    let capacity_failure () =
-      match EO.resume_committed_flow_domain recovery second with
-      | Error (EO.Preference_recovery_capacity_exhausted { capacity = 1 }) -> true
-      | Ok _
-      | Error EO.Domain_preference_recovery_finished
-      | Error EO.Domain_settlement_recovery_conflict
-      | Error (EO.Preference_recovery_capacity_exhausted _) -> false
-    in
-    let retryable = capacity_failure () && capacity_failure () in
+    let first, first_encoded = capture live_preferences first_scope in
+    let second, second_encoded = capture live_preferences first_scope in
     let recovered_preferences =
-      match EO.finish_flow_preference_recovery recovery with
+      match
+        EO.recover_flow_preferences
+          ~concurrent_scope_budget:0
+          ~evidence:
+            [ EO.Domain_settlement_evidence first; EO.Domain_settlement_evidence second ]
+      with
       | Ok preferences -> preferences
-      | Error _ -> fail "capacity recovery did not finish"
+      | Error _ -> fail "distinct-scope recovery failed"
     in
-    (match EO.remove_flow_preference_scope recovered_preferences first_scope with
-     | EO.Flow_preference_scope_removed -> ()
-     | EO.Flow_preference_scope_not_reserved ->
-       fail "first recovered capacity scope was absent");
+    let second_scope = flow_scope "/runtime/recovery-capacity/b" in
+    let historical_ids_do_not_inflate =
+      match
+        snapshot_candidates
+          ~preferences:recovered_preferences
+          ~scope:second_scope
+          [ flow_candidate snapshot "capacity-a" ]
+      with
+      | Error (EO.Flow_preference_capacity_exhausted { capacity = 1 }) -> true
+      | Ok _ | Error _ -> false
+    in
+    ignore (retire_scope recovered_preferences first_scope);
     let _, next_encoded =
       capture recovered_preferences (flow_scope "/runtime/recovery-capacity/next")
     in
-    ( retryable
-    , String.equal
-        (json_field_string "reservation_ordinal" second_encoded)
-        (json_field_string "reservation_ordinal" next_encoded)
-    , String.equal
-        (json_field_string "success_ordinal" second_encoded)
-        (json_field_string "success_ordinal" next_encoded) )
+    ( historical_ids_do_not_inflate
+    , Int64.compare
+        (json_field_string "reservation_ordinal" next_encoded |> Int64.of_string)
+        (Int64.max
+           (json_field_string "reservation_ordinal" first_encoded |> Int64.of_string)
+           (json_field_string "reservation_ordinal" second_encoded |> Int64.of_string))
+      > 0 )
   in
   check int "capacity recovery proof dispatches only live fixtures" 3 posts;
-  check bool "capacity failure remains retryable" true retryable;
-  check
-    bool
-    "capacity failure does not advance reservation high-water"
-    true
-    reservation_unadvanced;
-  check
-    bool
-    "capacity failure does not advance success high-water"
-    true
-    ordinal_unadvanced
+  check bool "historical ids do not inflate capacity" true historical_ids_do_not_inflate;
+  check bool "recovery restores reservation high-water" true high_water_restored
 ;;
 
 let test_snapshot_defers_admission_and_allocates_nonshared_current_attempts () =
@@ -4216,13 +4988,37 @@ let () =
             `Quick
             test_committed_intent_resumes_without_dispatch_and_restores_high_water
         ; test_case
+            "retirement blocks stale and newer reservation reactivates"
+            `Quick
+            test_retirement_recovery_blocks_stale_and_allows_newer_reservation
+        ; test_case
+            "recovery rejects superseded retirement conflicts regardless order"
+            `Quick
+            test_recovery_rejects_superseded_retirement_conflicts_regardless_order
+        ; test_case
+            "rejected-only recovery restores high-water without active scope"
+            `Quick
+            test_rejected_only_recovery_restores_high_water_without_active_scope
+        ; test_case
+            "retirement cancellation replays stable intent after high-water drift"
+            `Quick
+            test_retirement_cancellation_replays_stable_intent_after_high_water_drift
+        ; test_case
+            "retirement initial error preserves intent after high-water drift"
+            `Quick
+            test_retirement_initial_error_preserves_intent_after_high_water_drift
+        ; test_case
             "recovery rejects conflicting disposition"
             `Quick
             test_recovery_conflicting_disposition_fails_closed
         ; test_case
-            "recovery capacity fails before mutation and remains retryable"
+            "recovery rejects reused success ordinals regardless order"
             `Quick
-            test_recovery_capacity_failure_is_typed_unmutated_and_retryable
+            test_recovery_rejects_reused_success_ordinals_regardless_order
+        ; test_case
+            "recovery capacity follows distinct active scopes"
+            `Quick
+            test_recovery_capacity_is_derived_from_distinct_active_scopes
         ; test_case
             "snapshot defers admission and current attempts do not share"
             `Quick

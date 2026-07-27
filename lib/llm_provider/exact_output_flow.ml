@@ -34,6 +34,23 @@ type preference_lifecycle =
   | Recovering
   | Active
 
+type preference_retirement_receipt =
+  { retirement_id : string
+  ; reservation : preference_reservation
+  ; success_high_water : int64
+  }
+
+type preference_retirement_claim =
+  { requested : preference_retirement_receipt
+  ; previous : preference_retirement_receipt option
+  ; possibly_committed : bool
+  }
+
+type preference_retirement_state =
+  | Retirement_publishing of preference_retirement_claim
+  | Retirement_indeterminate of preference_retirement_claim
+  | Retirement_settled of preference_retirement_receipt
+
 type domain_disposition =
   | Valid
   | Rejected
@@ -48,6 +65,7 @@ type ('scope, 'candidate) preference_store =
   ; capacity : int
   ; entries : ('scope, 'candidate preference_entry) Hashtbl.t
   ; recovered_domains : (string, domain_disposition) Hashtbl.t
+  ; retirements : ('scope, preference_retirement_state) Hashtbl.t
   ; mutable lifecycle : preference_lifecycle
   ; mutable last_reservation_ordinal : int64
   ; mutable last_success_ordinal : int64
@@ -61,17 +79,10 @@ type settlement_state =
   | Settled of domain_settlement_receipt
 
 type domain_settlement = settlement_state Atomic.t
-type preference_store_error = Invalid_preference_capacity of int
 
 type preference_reservation_error =
   | Preference_capacity_exhausted of { capacity : int }
   | Preference_reservation_exhausted
-
-type preference_recovery_error = Preference_recovery_already_finished
-
-type preference_scope_removal =
-  | Preference_scope_removed
-  | Preference_scope_not_reserved
 
 type success_ordinal_error = Success_ordinal_exhausted
 
@@ -87,6 +98,19 @@ type recovery_domain_error =
   | Preference_recovery_finished
   | Preference_recovery_capacity_exhausted of { capacity : int }
   | Recovered_domain_conflict
+
+type preference_retirement_begin =
+  | Preference_retirement_claimed of preference_retirement_receipt
+  | Preference_retirement_replayed of preference_retirement_receipt
+  | Preference_retirement_in_progress
+  | Preference_retirement_not_reserved
+  | Preference_retirement_conflict
+
+type preference_retirement_error = Preference_retirement_apply_conflict
+
+type recovery_retirement_error =
+  | Preference_retirement_recovery_finished
+  | Recovered_retirement_conflict
 
 type ('candidate, 'success, 'execution_error, 'advanceable_error, 'callback_error) outcome =
   | Succeeded of
@@ -116,19 +140,16 @@ let create_progress () =
     }
 ;;
 
-let start_preference_recovery ~capacity =
-  if capacity <= 0
-  then Error (Invalid_preference_capacity capacity)
-  else
-    Ok
-      { mutex = Mutex.create ()
-      ; capacity
-      ; entries = Hashtbl.create (Int.min capacity 16)
-      ; recovered_domains = Hashtbl.create 16
-      ; lifecycle = Recovering
-      ; last_reservation_ordinal = 0L
-      ; last_success_ordinal = 0L
-      }
+let create_validated_preference_recovery ~capacity =
+  { mutex = Mutex.create ()
+  ; capacity
+  ; entries = Hashtbl.create (Int.max 1 (Int.min capacity 16))
+  ; recovered_domains = Hashtbl.create 16
+  ; retirements = Hashtbl.create 16
+  ; lifecycle = Recovering
+  ; last_reservation_ordinal = 0L
+  ; last_success_ordinal = 0L
+  }
 ;;
 
 let create_domain_settlement () = Atomic.make Pending
@@ -138,14 +159,11 @@ let with_preference_lock (store : (_, _) preference_store) f =
   Fun.protect ~finally:(fun () -> Mutex.unlock store.mutex) f
 ;;
 
-let finish_preference_recovery recovery =
+let activate_validated_preference_recovery recovery =
   with_preference_lock recovery (fun () ->
-    match recovery.lifecycle with
-    | Active -> Error Preference_recovery_already_finished
-    | Recovering ->
-      recovery.lifecycle <- Active;
-      Hashtbl.clear recovery.recovered_domains;
-      Ok recovery)
+    recovery.lifecycle <- Active;
+    Hashtbl.clear recovery.recovered_domains;
+    recovery)
 ;;
 
 let reserve_preference_scope store ~scope =
@@ -163,15 +181,6 @@ let reserve_preference_scope store ~scope =
         let reservation = Preference_reservation ordinal in
         Hashtbl.add store.entries scope { reservation; preference = None };
         Ok (reservation, None)))
-;;
-
-let remove_preference_scope store ~scope =
-  with_preference_lock store (fun () ->
-    if Hashtbl.mem store.entries scope
-    then (
-      Hashtbl.remove store.entries scope;
-      Preference_scope_removed)
-    else Preference_scope_not_reserved)
 ;;
 
 let allocate_success_ordinal store =
@@ -290,7 +299,15 @@ let install_recovered_preference_locked recovery ~scope ~reservation ~candidate 
       | None | Some _ -> entry.preference <- Some (candidate, ordinal))
 ;;
 
-let resume_committed_domain recovery ~scope ~reservation ~candidate ~ordinal receipt =
+let resume_committed_domain
+      recovery
+      ~restore_preference
+      ~scope
+      ~reservation
+      ~candidate
+      ~ordinal
+      receipt
+  =
   with_preference_lock recovery (fun () ->
     match recovery.lifecycle with
     | Active -> Error Preference_recovery_finished
@@ -300,7 +317,8 @@ let resume_committed_domain recovery ~scope ~reservation ~candidate ~ordinal rec
          Ok receipt
        | Some _ -> Error Recovered_domain_conflict
        | None
-         when receipt.disposition = Valid
+         when restore_preference
+              && receipt.disposition = Valid
               && (not (Hashtbl.mem recovery.entries scope))
               && Hashtbl.length recovery.entries >= recovery.capacity ->
          Error (Preference_recovery_capacity_exhausted { capacity = recovery.capacity })
@@ -313,14 +331,161 @@ let resume_committed_domain recovery ~scope ~reservation ~candidate ~ordinal rec
          <- max_int64 recovery.last_success_ordinal (success_ordinal_to_int64 ordinal);
          (match receipt.disposition with
           | Rejected -> ()
-          | Valid ->
+          | Valid when restore_preference ->
             install_recovered_preference_locked
               recovery
               ~scope
               ~reservation
               ~candidate
-              ~ordinal);
+              ~ordinal
+          | Valid -> ());
          Hashtbl.add recovery.recovered_domains receipt.settlement_id receipt.disposition;
+         Ok receipt))
+;;
+
+let begin_preference_retirement store ~scope ~make_receipt =
+  with_preference_lock store (fun () ->
+    match
+      Hashtbl.find_opt store.retirements scope, Hashtbl.find_opt store.entries scope
+    with
+    | Some (Retirement_publishing _), _ -> Preference_retirement_in_progress
+    | Some (Retirement_indeterminate claim), _ ->
+      let claim = { claim with possibly_committed = true } in
+      Hashtbl.replace store.retirements scope (Retirement_publishing claim);
+      Preference_retirement_claimed claim.requested
+    | Some (Retirement_settled receipt), None -> Preference_retirement_replayed receipt
+    | None, None -> Preference_retirement_not_reserved
+    | Some (Retirement_settled previous), Some entry
+      when Int64.compare
+             (preference_reservation_to_int64 entry.reservation)
+             (preference_reservation_to_int64 previous.reservation)
+           > 0 ->
+      let requested =
+        make_receipt
+          ~reservation:entry.reservation
+          ~success_high_water:store.last_success_ordinal
+      in
+      Hashtbl.replace
+        store.retirements
+        scope
+        (Retirement_publishing
+           { requested; previous = Some previous; possibly_committed = false });
+      Preference_retirement_claimed requested
+    | Some (Retirement_settled _), Some _ -> Preference_retirement_conflict
+    | None, Some entry ->
+      let requested =
+        make_receipt
+          ~reservation:entry.reservation
+          ~success_high_water:store.last_success_ordinal
+      in
+      Hashtbl.add
+        store.retirements
+        scope
+        (Retirement_publishing { requested; previous = None; possibly_committed = false });
+      Preference_retirement_claimed requested)
+;;
+
+let abort_preference_retirement store ~same_receipt ~scope requested =
+  with_preference_lock store (fun () ->
+    match Hashtbl.find_opt store.retirements scope with
+    | Some (Retirement_publishing publishing)
+      when same_receipt publishing.requested requested ->
+      if publishing.possibly_committed
+      then Hashtbl.replace store.retirements scope (Retirement_indeterminate publishing)
+      else (
+        match publishing.previous with
+        | None -> Hashtbl.remove store.retirements scope
+        | Some previous ->
+          Hashtbl.replace store.retirements scope (Retirement_settled previous))
+    | None
+    | Some (Retirement_publishing _)
+    | Some (Retirement_indeterminate _)
+    | Some (Retirement_settled _) -> ())
+;;
+
+let mark_preference_retirement_indeterminate store ~same_receipt ~scope requested =
+  with_preference_lock store (fun () ->
+    match Hashtbl.find_opt store.retirements scope with
+    | Some (Retirement_publishing claim) when same_receipt claim.requested requested ->
+      Hashtbl.replace
+        store.retirements
+        scope
+        (Retirement_indeterminate { claim with possibly_committed = true })
+    | None
+    | Some (Retirement_publishing _)
+    | Some (Retirement_indeterminate _)
+    | Some (Retirement_settled _) -> ())
+;;
+
+let finish_preference_retirement store ~same_receipt ~scope requested =
+  with_preference_lock store (fun () ->
+    match Hashtbl.find_opt store.retirements scope with
+    | Some (Retirement_publishing publishing)
+      when same_receipt publishing.requested requested ->
+      (match Hashtbl.find_opt store.entries scope with
+       | Some entry when entry.reservation = requested.reservation ->
+         Hashtbl.remove store.entries scope;
+         Hashtbl.replace store.retirements scope (Retirement_settled requested);
+         Ok requested
+       | None | Some _ -> Error Preference_retirement_apply_conflict)
+    | Some (Retirement_settled receipt) when same_receipt receipt requested -> Ok receipt
+    | None
+    | Some (Retirement_publishing _)
+    | Some (Retirement_indeterminate _)
+    | Some (Retirement_settled _) -> Error Preference_retirement_apply_conflict)
+;;
+
+let resume_committed_retirement recovery ~same_receipt ~scope receipt =
+  with_preference_lock recovery (fun () ->
+    match recovery.lifecycle with
+    | Active -> Error Preference_retirement_recovery_finished
+    | Recovering ->
+      let apply_high_water () =
+        recovery.last_reservation_ordinal
+        <- max_int64
+             recovery.last_reservation_ordinal
+             (preference_reservation_to_int64 receipt.reservation);
+        recovery.last_success_ordinal
+        <- max_int64 recovery.last_success_ordinal receipt.success_high_water
+      in
+      (match Hashtbl.find_opt recovery.retirements scope with
+       | Some (Retirement_publishing _) | Some (Retirement_indeterminate _) ->
+         Error Recovered_retirement_conflict
+       | Some (Retirement_settled current) ->
+         let incoming = preference_reservation_to_int64 receipt.reservation in
+         let existing = preference_reservation_to_int64 current.reservation in
+         if Int64.compare incoming existing < 0
+         then (
+           apply_high_water ();
+           Ok current)
+         else if Int64.equal incoming existing
+         then
+           if same_receipt current receipt
+           then (
+             apply_high_water ();
+             Ok current)
+           else Error Recovered_retirement_conflict
+         else (
+           apply_high_water ();
+           (match Hashtbl.find_opt recovery.entries scope with
+            | Some entry
+              when Int64.compare
+                     (preference_reservation_to_int64 entry.reservation)
+                     incoming
+                   <= 0 -> Hashtbl.remove recovery.entries scope
+            | None | Some _ -> ());
+           Hashtbl.replace recovery.retirements scope (Retirement_settled receipt);
+           Ok receipt)
+       | None ->
+         apply_high_water ();
+         (match Hashtbl.find_opt recovery.entries scope with
+          | Some entry
+            when Int64.compare
+                   (preference_reservation_to_int64 entry.reservation)
+                   (preference_reservation_to_int64 receipt.reservation)
+                 <= 0 -> Hashtbl.remove recovery.entries scope
+          | None | Some _ -> ());
+         Hashtbl.add recovery.retirements scope (Retirement_settled receipt);
          Ok receipt))
 ;;
 
