@@ -62,17 +62,27 @@ Probes local llama-server instances via OpenAI-compatible API:
 - `GET /slots` — per-slot busy/idle status
 
 ```ocaml
+let urls =
+  match Llm_provider.Discovery.parse_llm_endpoints_env () with
+  | [] -> [ Llm_provider.Discovery.resolve_default_endpoint () ]
+  | urls -> urls
+in
 let endpoints =
-  Llm_provider.Discovery.parse_llm_endpoints_env ()
-  |> List.map
-       (Llm_provider.Discovery.endpoint
-          ~protocol:Llm_provider.Discovery.Openai_compatible
-          ~capabilities:Llm_provider.Capabilities.default_capabilities)
+  List.map
+    (Llm_provider.Discovery.endpoint
+       ~protocol:Llm_provider.Discovery.Openai_compatible
+       ~capabilities:Llm_provider.Capabilities.default_capabilities)
+    urls
 in
 let statuses = Llm_provider.Discovery.discover ~sw ~net ~endpoints
 ```
 
-Configure via `LLM_ENDPOINTS` env var (comma-separated, default `http://127.0.0.1:8085`).
+`LLM_ENDPOINTS` (comma-separated) selects the endpoints. It carries no default:
+`parse_llm_endpoints_env` returns `[]` when it is unset or blank, and an empty
+endpoint list makes `discover` probe nothing. The default lives in
+`resolve_default_endpoint`, which reads `OAS_LOCAL_LLM_URL` and otherwise
+returns `Constants.Endpoints.default_url` (`http://127.0.0.1:8085`) — so seed it
+explicitly as above rather than relying on `LLM_ENDPOINTS` to supply one.
 
 ## Provider Routing
 
