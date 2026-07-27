@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.227.1](https://github.com/jeong-sik/oas/compare/v0.227.0...v0.227.1) (2026-07-27)
+
+### Bug Fixes
+
+* **retry:** preserve exact observed Ollama context-overflow wire errors as
+  typed capacity failures ([#2825](https://github.com/jeong-sik/oas/issues/2825))
+  ([2aa9e15](https://github.com/jeong-sik/oas/commit/2aa9e1565e66a77636c3fd8712cfe2c6661c8188))
+
 ## [0.227.0](https://github.com/jeong-sik/oas/compare/v0.226.1...v0.227.0) (2026-07-27)
 
 ### Breaking Changes
