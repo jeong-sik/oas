@@ -2,6 +2,7 @@ module Domain_settlement = Exact_output_domain_settlement
 module Flow_contract = Exact_output_flow_contract
 module Scope_retirement = Exact_output_scope_retirement
 module Int64_map = Map.Make (Int64)
+module Int64_set = Set.Make (Int64)
 module String_map = Map.Make (String)
 module String_set = Set.Make (String)
 
@@ -65,6 +66,33 @@ let collect evidence =
     (String_map.empty : domain_item String_map.t)
     (String_map.empty : retirement_item String_map.t)
     evidence
+;;
+
+(* A store issues one strictly increasing success ordinal per settled domain, so a
+   sound log never carries one ordinal under two settlement ids. Two valid
+   settlements that share a scope and reservation but name different candidates
+   keep distinct settlement ids, so [collect] admits both, and
+   [Domain_settlement.resume] then keeps whichever candidate the settlement-digest
+   fold reached first because the equal ordinal loses its comparison. Reject the
+   reused ordinal instead of resolving the contradiction by digest order. *)
+let validate_unique_success_ordinals (domains : domain_item String_map.t) =
+  let* (_ : Int64_set.t) =
+    String_map.fold
+      (fun _ (item : domain_item) accumulated ->
+         let* claimed = accumulated in
+         let ordinal =
+           Flow_contract.flow_success_ordinal_to_int64 item.evidence.success_ordinal
+         in
+         if Int64_set.mem ordinal claimed
+         then
+           Error
+             (Conflicting_domain_settlement_evidence
+                (Domain_settlement.intent_id item.intent))
+         else Ok (Int64_set.add ordinal claimed))
+      domains
+      (Ok Int64_set.empty)
+  in
+  Ok ()
 ;;
 
 let group_retirements (retirements : retirement_item String_map.t) =
@@ -144,6 +172,7 @@ let recover ~concurrent_scope_budget ~evidence =
   then Error (Invalid_concurrent_scope_budget concurrent_scope_budget)
   else
     let* domains, retirements = collect evidence in
+    let* () = validate_unique_success_ordinals domains in
     let* latest = latest_retirements retirements in
     let capacity = Int.max concurrent_scope_budget (active_scope_count domains latest) in
     let recovery = Flow_contract.create_validated_flow_preference_recovery ~capacity in

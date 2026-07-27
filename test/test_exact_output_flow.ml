@@ -2065,6 +2065,149 @@ let test_recovery_conflicting_disposition_fails_closed () =
   check bool "conflicting disposition fails closed" true conflicted
 ;;
 
+let test_recovery_rejects_reused_success_ordinals_regardless_order () =
+  let ( (every_order_conflicted, deterministic_conflict_payload, distinct_ordinals_recover)
+      , posts )
+    =
+    with_server ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"ordinal-a" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"ordinal-b" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let scope = flow_scope "/runtime/success-ordinal-reuse" in
+    let capture preferences candidate =
+      let success =
+        match
+          frozen_flow ~preferences ~scope snapshot [ candidate ]
+          |> start_flow
+          |> execute_ok ~net
+        with
+        | Ok success -> success
+        | Error _ -> fail "success ordinal fixture did not succeed"
+      in
+      let encoded = ref None in
+      (match
+         EO.commit_and_settle_flow_domain
+           ~commit:(fun intent ->
+             encoded := Some (EO.domain_settlement_intent_to_string intent);
+             Error ())
+           success
+           EO.Domain_valid
+       with
+       | Error (EO.Domain_commit_failed ()) -> ()
+       | Ok _
+       | Error EO.Domain_settlement_in_progress
+       | Error EO.Domain_settlement_conflict ->
+         fail "success ordinal fixture unexpectedly settled");
+      match !encoded with
+      | None -> fail "success ordinal fixture emitted no domain intent"
+      | Some encoded ->
+        (match EO.domain_settlement_intent_of_string encoded with
+         | Ok intent -> intent
+         | Error _ -> fail "success ordinal fixture intent did not decode")
+    in
+    let intent_field field intent =
+      EO.domain_settlement_intent_to_string intent |> json_field_string field
+    in
+    let intent_id intent =
+      EO.domain_settlement_intent_id intent |> EO.domain_settlement_id_to_string
+    in
+    let recover_permutation ordered =
+      EO.recover_flow_preferences
+        ~concurrent_scope_budget:1
+        ~evidence:(List.map (fun intent -> EO.Domain_settlement_evidence intent) ordered)
+    in
+    let first_preferences = preference_store ~capacity:1 () in
+    let first = capture first_preferences "ordinal-a" in
+    let second_preferences = preference_store ~capacity:1 () in
+    let second = capture second_preferences "ordinal-b" in
+    if not (String.equal (intent_field "scope" first) (intent_field "scope" second))
+    then fail "success ordinal fixture did not preserve one scope";
+    if
+      not
+        (String.equal
+           (intent_field "reservation_ordinal" first)
+           (intent_field "reservation_ordinal" second))
+    then fail "success ordinal fixture did not share one reservation";
+    if
+      not
+        (String.equal
+           (intent_field "success_ordinal" first)
+           (intent_field "success_ordinal" second))
+    then fail "success ordinal fixture did not reuse the success ordinal";
+    if
+      String.equal
+        (intent_field "candidate_id" first)
+        (intent_field "candidate_id" second)
+    then fail "success ordinal fixture named one candidate twice";
+    if String.equal (intent_id first) (intent_id second)
+    then fail "success ordinal fixture produced one settlement id";
+    let conflict_ids =
+      List.map
+        (fun ordered ->
+           match recover_permutation ordered with
+           | Error (EO.Conflicting_domain_settlement_evidence id) ->
+             Some (EO.domain_settlement_id_to_string id)
+           | Ok _
+           | Error (EO.Invalid_concurrent_scope_budget _)
+           | Error (EO.Conflicting_scope_retirement_evidence _) -> None)
+        [ [ first; second ]; [ second; first ] ]
+    in
+    let every_order_conflicted =
+      List.for_all
+        (function
+          | Some _ -> true
+          | None -> false)
+        conflict_ids
+    in
+    let deterministic_conflict_payload =
+      match conflict_ids with
+      | Some expected :: rest ->
+        (String.equal expected (intent_id first)
+         || String.equal expected (intent_id second))
+        && List.for_all
+             (function
+               | Some actual -> String.equal actual expected
+               | None -> false)
+             rest
+      | None :: _ | [] -> false
+    in
+    let distinct_preferences = preference_store ~capacity:1 () in
+    let distinct_first = capture distinct_preferences "ordinal-a" in
+    let distinct_second = capture distinct_preferences "ordinal-b" in
+    if
+      not
+        (String.equal
+           (intent_field "reservation_ordinal" distinct_first)
+           (intent_field "reservation_ordinal" distinct_second))
+    then fail "distinct-ordinal control did not share one reservation";
+    if
+      String.equal
+        (intent_field "success_ordinal" distinct_first)
+        (intent_field "success_ordinal" distinct_second)
+    then fail "distinct-ordinal control reused a success ordinal";
+    let distinct_ordinals_recover =
+      List.for_all
+        (fun ordered ->
+           match recover_permutation ordered with
+           | Ok _ -> true
+           | Error _ -> false)
+        [ [ distinct_first; distinct_second ]; [ distinct_second; distinct_first ] ]
+    in
+    every_order_conflicted, deterministic_conflict_payload, distinct_ordinals_recover
+  in
+  check int "success ordinal reuse fixture dispatches four times" 4 posts;
+  check bool "reused success ordinals always conflict" true every_order_conflicted;
+  check
+    bool
+    "reused success ordinal conflict payload is deterministic"
+    true
+    deterministic_conflict_payload;
+  check bool "distinct success ordinals still recover" true distinct_ordinals_recover
+;;
+
 let test_recovery_capacity_is_derived_from_distinct_active_scopes () =
   let (historical_ids_do_not_inflate, high_water_restored), posts =
     with_server ~response:(openai_response {|{"name":"accepted"}|})
@@ -4868,6 +5011,10 @@ let () =
             "recovery rejects conflicting disposition"
             `Quick
             test_recovery_conflicting_disposition_fails_closed
+        ; test_case
+            "recovery rejects reused success ordinals regardless order"
+            `Quick
+            test_recovery_rejects_reused_success_ordinals_regardless_order
         ; test_case
             "recovery capacity follows distinct active scopes"
             `Quick
