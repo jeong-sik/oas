@@ -14,7 +14,7 @@
     typed provider configuration (for example [max_request_body_bytes]).
 
     @stability Evolving
-    @since 0.230.0 *)
+    @since 0.229.1 *)
 
 type phase = Pre_dispatch_serialization [@@deriving yojson, show]
 
