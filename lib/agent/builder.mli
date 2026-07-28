@@ -112,6 +112,7 @@ val with_elicitation : Hooks.elicitation_callback -> t -> t
 (** Configure the closed typed approval boundary used only by
     [Hooks.ElicitToolApproval] at [PreToolUse]. *)
 val with_tool_approval : Hooks.tool_approval_callback -> t -> t
+
 val with_description : string -> t -> t
 val with_periodic_callback : Agent.periodic_callback -> t -> t
 val with_periodic_callbacks : Agent.periodic_callback list -> t -> t

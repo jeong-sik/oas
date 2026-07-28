@@ -466,7 +466,13 @@ let%test "invoke_validated: Sys.Break remains reserved" =
   match invoke_validated (Some (fun _ -> raise Sys.Break)) event with
   | exception Sys.Break -> true
   | (exception _)
-  | Continue | AdjustParams _ | ElicitInput _ | Nudge _ | HookFailed _ | Block _ -> false
+  | Continue
+  | AdjustParams _
+  | ElicitInput _
+  | ElicitToolApproval _
+  | Nudge _
+  | HookFailed _
+  | Block _ -> false
 ;;
 
 (* ── Block variant (RFC-0321) regression tests ─────────────── *)

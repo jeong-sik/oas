@@ -97,13 +97,9 @@ let execute_result_with_tools_in_env
 let test_pre_tool_approval_callback_settles_gate () =
   Eio_main.run
   @@ fun env ->
-  let prompt =
-    { Hooks.question = "Approve exact tool call?"; timeout_s = None }
-  in
+  let prompt = { Hooks.question = "Approve exact tool call?"; timeout_s = None } in
   let hooks =
-    { Hooks.empty with
-      pre_tool_use = Some (fun _ -> Hooks.ElicitToolApproval prompt)
-    }
+    { Hooks.empty with pre_tool_use = Some (fun _ -> Hooks.ElicitToolApproval prompt) }
   in
   let run approval =
     let executed = ref 0 in
@@ -136,7 +132,8 @@ let test_pre_tool_approval_callback_settles_gate () =
   check int "approved call executes once" 1 approved_count;
   (match approved_request with
    | Some request ->
-     check string
+     check
+       string
        "approval sees the exact tool occurrence"
        "gated-1"
        (Tool_contract.Invocation.tool_use_id request.invocation);
@@ -146,10 +143,7 @@ let test_pre_tool_approval_callback_settles_gate () =
   (match approved_events with
    | { Event_bus.payload =
          Event_bus.ToolApprovalCompleted
-           { tool_name = "gated"
-           ; approval = Hooks.Approved
-           ; _
-           }
+           { tool_name = "gated"; approval = Hooks.Approved; _ }
      ; _
      }
      :: _ -> ()
@@ -211,15 +205,15 @@ let test_pre_tool_approval_callback_settles_gate () =
       pre_tool_use =
         Some
           (fun _ ->
-             Hooks.ElicitInput
-               { question = "Approve exact tool call?"
-               ; schema = Some (`Assoc [ "type", `String "boolean" ])
-               ; timeout_s = None
-               })
+            Hooks.ElicitInput
+              { question = "Approve exact tool call?"
+              ; schema = Some (`Assoc [ "type", `String "boolean" ])
+              ; timeout_s = None
+              })
     }
   in
   List.iter
-    (fun answer ->
+    (fun (case, answer) ->
        let generic_callback_count = ref 0 in
        let generic_effect_count = ref 0 in
        let generic_input_tool =
@@ -245,9 +239,12 @@ let test_pre_tool_approval_callback_settles_gate () =
             } -> ()
         | Error _ -> fail "generic JSON elicitation returned the wrong typed failure"
         | Ok _ -> fail "generic JSON elicitation became a tool approval");
-       check int "generic callback is not consulted" 0 !generic_callback_count;
-       check int "generic false/schema reply opens no effect" 0 !generic_effect_count)
-    [ `Bool false; `Assoc [ "approved", `Bool true ] ]
+       check int (case ^ ": generic callback is not consulted") 0 !generic_callback_count;
+       check int (case ^ ": generic reply opens no effect") 0 !generic_effect_count)
+    [ "false", `Bool false
+    ; "schema mismatch", `Assoc [ "approved", `Bool true ]
+    ; "malformed approval-shaped string", `String "{approved:true}"
+    ]
 ;;
 
 let execute_with_tools_in_env

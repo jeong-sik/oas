@@ -60,6 +60,7 @@ type options = Agent_types.options =
           A2A negotiation.  Does not affect runtime prompt composition. *)
   ; elicitation : Hooks.elicitation_callback option
   ; tool_approval : Hooks.tool_approval_callback option
+    (** Closed exact-tool approval callback. *)
   ; description : string option
   ; periodic_callbacks : periodic_callback list
   ; slot_id : int option

@@ -15,7 +15,12 @@ let sanitize_request_id_component value =
   if trimmed = "" then "agent" else trimmed
 ;;
 
-let input_required_of_request ~agent_name ~turn ?created_at req =
+let input_required_of_request
+      ~agent_name
+      ~turn
+      ?created_at
+      (req : Hooks.elicitation_request)
+  =
   let created_at = Option.value created_at ~default:(Unix.gettimeofday ()) in
   let participant = sanitize_request_id_component agent_name in
   let created_ms = int_of_float (created_at *. 1000.0) in

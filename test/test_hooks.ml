@@ -403,8 +403,7 @@ let test_classify_and_to_string () =
     ; Hooks.Block "blocked", "Block"
     ; Hooks.AdjustParams Hooks.default_turn_params, "AdjustParams"
     ; Hooks.ElicitInput { question = "q"; schema = None; timeout_s = None }, "ElicitInput"
-    ; Hooks.ElicitToolApproval { question = "q"; timeout_s = None }
-      , "ElicitToolApproval"
+    ; Hooks.ElicitToolApproval { question = "q"; timeout_s = None }, "ElicitToolApproval"
     ; Hooks.Nudge "n", "Nudge"
     ; Hooks.HookFailed { stage = Hooks.Before_turn; detail = "boom" }, "HookFailed"
     ]

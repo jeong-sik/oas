@@ -129,6 +129,7 @@ type tool_approval =
   | Denied
   | Timed_out
 
+(** Caller-owned settlement callback for an exact tool occurrence. *)
 type tool_approval_callback = tool_approval_request -> tool_approval
 
 (** Closed set of lifecycle stages accepted by the hook decision matrix. *)

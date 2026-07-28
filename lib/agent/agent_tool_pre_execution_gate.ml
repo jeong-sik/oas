@@ -49,11 +49,11 @@ let settle
        Reject
          { stage = Hooks.Pre_tool_use
          ; detail =
-             "ElicitToolApproval at pre_tool_use requires the configured tool_approval callback; \
-              no tool invocation was opened"
+             "ElicitToolApproval at pre_tool_use requires the configured tool_approval \
+              callback; no tool invocation was opened"
          }
      | Some callback ->
-       let request = { Hooks.prompt = prompt; invocation; tool_name; input } in
+       let request = { Hooks.prompt; invocation; tool_name; input } in
        let approval = callback request in
        publish_approval ?correlation_id ?run_id ~event_bus ~agent_name request approval;
        (match approval with

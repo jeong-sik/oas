@@ -116,7 +116,7 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | `Agent` | Multi-turn agent loop with automatic tool_use handling (abstract `Agent.t`) |
 | `Tool` / `Tool_set` | Tool definition, JSON Schema generation, O(1) lookup |
 | `Builder` | Fluent API for agent construction with `build_safe` validation |
-| `Hooks` | Generic lifecycle callbacks; `PreToolUse` accepts exact caller-owned `Continue`, `Block`, or `ElicitInput` decisions |
+| `Hooks` | Generic lifecycle callbacks; `PreToolUse` accepts exact caller-owned `Continue`, `Block`, or `ElicitToolApproval` decisions |
 | `Context` | Cross-turn shared state (scoped key-value store, `Yojson.Safe.t` values) |
 | `Error` / `Error_domain` | 2-level structured errors: 8 domain variants + Internal, poly-variant mapping |
 | `Log` | Structured logging with level filtering and composable sinks |

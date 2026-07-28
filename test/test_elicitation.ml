@@ -174,7 +174,10 @@ let test_event_bus_filter_agent () =
 let test_agent_options_elicitation_default () =
   let opts = Agent.default_options in
   Alcotest.(check bool) "generic default none" true (Option.is_none opts.elicitation);
-  Alcotest.(check bool) "tool approval default none" true (Option.is_none opts.tool_approval)
+  Alcotest.(check bool)
+    "tool approval default none"
+    true
+    (Option.is_none opts.tool_approval)
 ;;
 
 let test_agent_elicit_input_without_callback_pauses () =

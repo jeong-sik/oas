@@ -485,8 +485,7 @@ let stage_output ?raw_trace_run ?before_tool_execution ~turn agent response =
             | Hooks.ElicitInput _
             | Hooks.ElicitToolApproval _
             | Hooks.Nudge _
-            | Hooks.Block _ )
-            as decision ->
+            | Hooks.Block _ ) as decision ->
             Error
               (Pipeline_common.illegal_hook_decision_sdk_error
                  ~hook_name:"on_stop"
