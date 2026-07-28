@@ -23,6 +23,11 @@ type completion_request =
         owns redaction, caller delivery, typed failure telemetry, and ordinary
         callback-exception isolation. The original caller callback is never
         exposed through the transport request. *)
+  ; request_wire_observer : Request_wire_observer.try_observe option
+    (** Optional caller-owned observer for the final serialized provider
+        request. HTTP transports invoke it exactly once after final body
+        admission and before dispatch. Custom transports that do their own
+        serialization must provide the same boundary if they participate. *)
   ; stream_idle_timeout_s : float option
     (** Inter-chunk idle deadline for streaming reads, in seconds. Bounds the
         gap between streamed SSE/NDJSON lines, not total stream duration.

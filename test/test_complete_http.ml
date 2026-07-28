@@ -337,6 +337,7 @@ let test_complete_request_body_limit_rejects_before_io () =
     Eio.Switch.run
     @@ fun sw ->
     let request_count = ref 0 in
+    let observed_request_count = ref 0 in
     let base_url =
       start_mock_server
         ~sw
@@ -353,19 +354,156 @@ let test_complete_request_body_limit_rejects_before_io () =
         ~max_request_body_bytes:1
         ()
     in
+    let request_wire_observer _observation =
+      incr observed_request_count;
+      Ok ()
+    in
     check_request_body_too_large
       ~label:"sync request-body admission"
-      (Complete.complete ~sw ~net:env#net ~config ~messages ());
+      (Complete.complete ~sw ~net:env#net ~request_wire_observer ~config ~messages ());
     check_request_body_too_large
       ~label:"stream request-body admission"
       (Complete.complete_stream
          ~sw
          ~net:env#net
+         ~request_wire_observer
          ~config
          ~messages
          ~on_event:(fun _ -> ())
          ());
     check int "request-body admission performs no HTTP request" 0 !request_count;
+    check int "rejected body is not reported as dispatched" 0 !observed_request_count;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_request_wire_observer_sees_exact_sync_body () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let captured_body = ref None in
+    let observed = ref [] in
+    let base_url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~capture_body:captured_body
+        (openai_response "observed")
+    in
+    let request_wire_observer observation =
+      observed := observation :: !observed;
+      Ok ()
+    in
+    (match
+       Complete.complete
+         ~sw
+         ~net:env#net
+         ~capture_id:"sync-request-1"
+         ~request_wire_observer
+         ~config:(make_openai_config base_url)
+         ~messages
+         ()
+     with
+     | Error _ -> fail "request observation changed the provider result"
+     | Ok _ -> ());
+    (match !captured_body, !observed with
+     | Some body, [ observation ] ->
+       check
+         (option string)
+         "capture id"
+         (Some "sync-request-1")
+         observation.Request_wire_observer.capture_id;
+       check string "provider" "openai_compat" observation.provider;
+       check string "model" "gpt-4" observation.model;
+       check string "codec" "openai-chat" observation.http_codec;
+       check bool "sync" false observation.stream;
+       check int "exact bytes" (String.length body) observation.body_bytes;
+       check
+         string
+         "exact digest"
+         Digestif.SHA256.(to_hex (digest_string body))
+         observation.body_sha256
+     | None, _ -> fail "mock server did not capture the request body"
+     | Some _, _ -> fail "request observer was not invoked exactly once");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_stream_rechecks_limit_after_final_wire_injection () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let request_count = ref 0 in
+    let base_url =
+      start_mock_server
+        ~sw
+        ~net:env#net
+        ~on_request:(fun () -> incr request_count)
+        "must not arrive"
+    in
+    let unlimited = make_openai_config base_url in
+    let pre_injection_bytes =
+      match
+        Complete_common.serialize_http_request
+          ~stream:true
+          ~config:unlimited
+          ~messages
+          ~tools:[]
+      with
+      | Error _ -> fail "fixture serialization failed"
+      | Ok (_, body) -> String.length body
+    in
+    let final_bytes =
+      match
+        Complete.inspect_serialized_request ~stream:true ~config:unlimited ~messages ()
+      with
+      | Error _ -> fail "final request inspection failed"
+      | Ok observation -> observation.Request_wire_observer.body_bytes
+    in
+    check
+      bool
+      "stream injection grows the final body"
+      true
+      (final_bytes > pre_injection_bytes);
+    let config =
+      Provider_config.make
+        ~kind:Provider_config.OpenAI_compat
+        ~model_id:"gpt-4"
+        ~base_url
+        ~request_path:"/v1/chat/completions"
+        ~temperature:0.0
+        ~max_tokens:100
+        ~max_request_body_bytes:(final_bytes - 1)
+        ()
+    in
+    (match Complete.inspect_serialized_request ~stream:true ~config ~messages () with
+     | Error _ -> fail "inspection incorrectly applied the dispatch byte ceiling"
+     | Ok observation ->
+       check int "inspection exact final bytes" final_bytes observation.body_bytes);
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config
+         ~messages
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind = Http_client.Request_body_too_large { actual_bytes; limit_bytes }; _ })
+       ->
+       check int "declared final limit" (final_bytes - 1) limit_bytes;
+       check int "admission exact final bytes" final_bytes actual_bytes
+     | Ok _ -> fail "final stream body bypassed the serialized byte limit"
+     | Error _ -> fail "final stream body returned the wrong typed rejection");
+    check int "no HTTP dispatch" 0 !request_count;
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()
@@ -1500,6 +1638,62 @@ let test_complete_kimi_anthropic_stream_codec () =
       ~stream:true
       ~captured_body:!captured_body
       ~captured_path:!captured_path;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_request_wire_observer_sees_exact_stream_body () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let captured_body = ref None in
+    let observed = ref [] in
+    let url =
+      start_sse_server
+        ~sw
+        ~net:env#net
+        ~capture_body:captured_body
+        (anthropic_sse_response "observed stream")
+    in
+    let request_wire_observer observation =
+      observed := observation :: !observed;
+      Ok ()
+    in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~capture_id:"stream-request-1"
+         ~request_wire_observer
+         ~config:(make_kimi_config url)
+         ~messages
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Ok resp -> check string "stream response" "observed stream" (text_of_response resp)
+     | Error _ -> fail "request observation changed the streaming provider result");
+    (match !captured_body, !observed with
+     | Some body, [ observation ] ->
+       check
+         (option string)
+         "capture id"
+         (Some "stream-request-1")
+         observation.Request_wire_observer.capture_id;
+       check string "provider" "kimi" observation.provider;
+       check string "model" "kimi-for-coding" observation.model;
+       check string "codec" "anthropic-messages" observation.http_codec;
+       check bool "stream" true observation.stream;
+       check int "exact bytes" (String.length body) observation.body_bytes;
+       check
+         string
+         "exact digest"
+         Digestif.SHA256.(to_hex (digest_string body))
+         observation.body_sha256
+     | None, _ -> fail "SSE server did not capture the request body"
+     | Some _, _ -> fail "stream request observer was not invoked exactly once");
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()
@@ -2873,6 +3067,14 @@ let () =
             `Quick
             test_complete_request_body_limit_rejects_before_io
         ; test_case
+            "wire observer sees exact sync body"
+            `Quick
+            test_complete_request_wire_observer_sees_exact_sync_body
+        ; test_case
+            "stream body limit includes final wire injection"
+            `Quick
+            test_complete_stream_rechecks_limit_after_final_wire_injection
+        ; test_case
             "empty http error body has context"
             `Quick
             test_complete_http_empty_error_body_has_context
@@ -2987,6 +3189,10 @@ let () =
             "Kimi Anthropic Messages SSE codec"
             `Quick
             test_complete_kimi_anthropic_stream_codec
+        ; test_case
+            "wire observer sees exact stream body"
+            `Quick
+            test_complete_request_wire_observer_sees_exact_stream_body
         ; test_case
             "HTTP stream rejects typed empty completion"
             `Quick

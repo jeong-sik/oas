@@ -125,6 +125,8 @@ let complete_http
          (provider:string -> model_id:string -> status:int -> unit) option)
       ?body_timeout_s
       ?(connection_cache : Http_client.cache option)
+      ?capture_id
+      ?request_wire_observer
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ~tools
@@ -143,9 +145,16 @@ let complete_http
        with
        | Error _ as error -> error
        | Ok body_deadline ->
-         Result.map
-           (fun (http_codec, body_str) -> body_deadline, http_codec, body_str)
-           (serialize_http_request ~stream:false ~config ~messages ~tools))
+         Result.bind
+           (serialize_final_http_request_unadmitted
+              ~stream:false
+              ~config
+              ~messages
+              ~tools)
+           (fun (http_codec, body_str) ->
+              Result.map
+                (fun body_str -> body_deadline, http_codec, body_str)
+                (admit_final_serialized_body ~config body_str)))
   in
   match preflight with
   | Error err -> Error err, None
@@ -210,6 +219,14 @@ let complete_http
         , None ))
       else (
         let provider_label = provider_name in
+        observe_request_wire
+          ?request_wire_observer
+          ~capture_id
+          ~config
+          ~http_codec
+          ~stream:false
+          ~body:body_str
+          ();
         Diag.debug
           "complete"
           "%s %s → %s (%d bytes)"

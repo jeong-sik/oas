@@ -233,46 +233,54 @@ let dispatch_sync
           ~trace_context
           ()
       in
-      (* Reject stale or future-dated evidence, then resolve the context limit.
-         Both are network-free and therefore precede token measurement. *)
-      match preflight_serving_constraint ~binding ~now_unix_s prepared with
+      (* Reject an oversized exact completion body, stale/future-dated
+         evidence, and an unknown context limit before token measurement.
+         All three checks are network-free. *)
+      match
+        Llm_provider.Complete.admit_request_body ~stream:false prepared
+        |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
+      with
       | Error error -> Error error
       | Ok () ->
-        (match Llm_provider.Complete.resolve_context_limit prepared with
-         | Error error -> Error (fit_error ~binding error)
-         | Ok max_context_tokens ->
-           (match
-              Llm_provider.Complete.measure_request
-                ~sw
-                ~net:agent.net
-                ?clock
-                ?timeout_s:agent.options.body_timeout_s
-                prepared
-            with
-            | Error error ->
-              Error
-                (measurement_error
-                   ~binding
-                   ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
-                   error)
-            | Ok measured ->
+        (match preflight_serving_constraint ~binding ~now_unix_s prepared with
+         | Error error -> Error error
+         | Ok () ->
+           (match Llm_provider.Complete.resolve_context_limit prepared with
+            | Error error -> Error (fit_error ~binding error)
+            | Ok max_context_tokens ->
               (match
-                 Llm_provider.Complete.admit_request
-                   ~now_unix_s
-                   ~max_context_tokens
-                   measured
-               with
-               | Error error -> Error (fit_error ~binding error)
-               | Ok admitted ->
-                 Llm_provider.Complete.complete_admitted
+                 Llm_provider.Complete.measure_request
                    ~sw
                    ~net:agent.net
                    ?clock
-                   ?transport:agent.options.transport
-                   admitted
-                   ?body_timeout_s:agent.options.body_timeout_s
-                   ()
-                 |> Result.map_error (Provider_failure_attribution.of_http_error ~binding))))
+                   ?timeout_s:agent.options.body_timeout_s
+                   prepared
+               with
+               | Error error ->
+                 Error
+                   (measurement_error
+                      ~binding
+                      ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
+                      error)
+               | Ok measured ->
+                 (match
+                    Llm_provider.Complete.admit_request
+                      ~now_unix_s
+                      ~max_context_tokens
+                      measured
+                  with
+                  | Error error -> Error (fit_error ~binding error)
+                  | Ok admitted ->
+                    Llm_provider.Complete.complete_admitted
+                      ~sw
+                      ~net:agent.net
+                      ?clock
+                      ?transport:agent.options.transport
+                      admitted
+                      ?body_timeout_s:agent.options.body_timeout_s
+                      ()
+                    |> Result.map_error
+                         (Provider_failure_attribution.of_http_error ~binding)))))
     in
     if enforce_context_fit agent pc
     then finish_call ?on_provider_failure (admitted_call ())
@@ -339,47 +347,54 @@ let dispatch_stream
           ?body_timeout_s:agent.options.body_timeout_s
           ()
       in
-      (* Reject stale or future-dated evidence, then resolve the context limit.
-         Both are network-free and therefore precede token measurement. *)
-      match preflight_serving_constraint ~binding ~now_unix_s prepared with
+      (* Keep the streaming final-body admission ahead of every measurement
+         round-trip just like the synchronous path. *)
+      match
+        Llm_provider.Complete.admit_request_body ~stream:true prepared
+        |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
+      with
       | Error error -> Error error
       | Ok () ->
-        (match Llm_provider.Complete.resolve_context_limit prepared with
-         | Error error -> Error (fit_error ~binding error)
-         | Ok max_context_tokens ->
-           (match
-              Llm_provider.Complete.measure_request
-                ~sw
-                ~net:agent.net
-                ?clock
-                ?timeout_s:agent.options.body_timeout_s
-                prepared
-            with
-            | Error error ->
-              Error
-                (measurement_error
-                   ~binding
-                   ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
-                   error)
-            | Ok measured ->
+        (match preflight_serving_constraint ~binding ~now_unix_s prepared with
+         | Error error -> Error error
+         | Ok () ->
+           (match Llm_provider.Complete.resolve_context_limit prepared with
+            | Error error -> Error (fit_error ~binding error)
+            | Ok max_context_tokens ->
               (match
-                 Llm_provider.Complete.admit_request
-                   ~now_unix_s
-                   ~max_context_tokens
-                   measured
-               with
-               | Error error -> Error (fit_error ~binding error)
-               | Ok admitted ->
-                 Llm_provider.Complete.complete_stream_admitted
+                 Llm_provider.Complete.measure_request
                    ~sw
                    ~net:agent.net
                    ?clock
-                   ?transport:agent.options.transport
-                   admitted
-                   ~on_event
-                   ?on_telemetry
-                   ()
-                 |> Result.map_error (Provider_failure_attribution.of_http_error ~binding))))
+                   ?timeout_s:agent.options.body_timeout_s
+                   prepared
+               with
+               | Error error ->
+                 Error
+                   (measurement_error
+                      ~binding
+                      ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
+                      error)
+               | Ok measured ->
+                 (match
+                    Llm_provider.Complete.admit_request
+                      ~now_unix_s
+                      ~max_context_tokens
+                      measured
+                  with
+                  | Error error -> Error (fit_error ~binding error)
+                  | Ok admitted ->
+                    Llm_provider.Complete.complete_stream_admitted
+                      ~sw
+                      ~net:agent.net
+                      ?clock
+                      ?transport:agent.options.transport
+                      admitted
+                      ~on_event
+                      ?on_telemetry
+                      ()
+                    |> Result.map_error
+                         (Provider_failure_attribution.of_http_error ~binding)))))
     in
     if enforce_context_fit agent pc
     then finish_call ?on_provider_failure (admitted_call ())

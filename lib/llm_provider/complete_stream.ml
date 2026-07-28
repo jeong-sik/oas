@@ -346,6 +346,8 @@ let complete_stream_http
       ?first_event_timeout_s
       ?body_timeout_s
       ?observe_wire_chunk
+      ?capture_id
+      ?request_wire_observer
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ?(metrics = Metrics.get_global ())
       ?(connection_cache : Http_client.cache option)
@@ -358,11 +360,17 @@ let complete_stream_http
   let request =
     match validate_all config with
     | Error _ as error -> error
-    | Ok () -> serialize_http_request ~stream:true ~config ~messages ~tools
+    | Ok () ->
+      Result.bind
+        (serialize_final_http_request_unadmitted ~stream:true ~config ~messages ~tools)
+        (fun (http_codec, body_str) ->
+           Result.map
+             (fun final_body -> http_codec, final_body)
+             (admit_final_serialized_body ~config body_str))
   in
   match request with
   | Error err -> Error err
-  | Ok (http_codec, body_str) ->
+  | Ok (http_codec, body_with_stream) ->
     if requires_non_http_transport config.kind
     then
       Error
@@ -380,21 +388,14 @@ let complete_stream_http
         | Anthropic | Kimi | OpenAI_compat | Ollama | Glm | DashScope ->
           config.base_url ^ config.request_path
       in
-      let body_with_stream =
-        match http_codec with
-        | Provider_http_codec.Gemini_generate_content
-        | Provider_http_codec.Openai_responses -> body_str
-        | Provider_http_codec.Anthropic_messages | Provider_http_codec.Ollama_chat ->
-          Http_client.inject_stream_param body_str
-        | Provider_http_codec.Openai_chat | Provider_http_codec.Glm_chat ->
-          (* OpenAI-compatible streaming returns token usage only when the
-             request also sets stream_options.include_usage. Anthropic and
-             Ollama carry usage natively (message_start/message_delta and the
-             NDJSON done-chunk respectively), so they keep stream:true only. *)
-          (* Single parse/serialize pass for both fields (was two passes via the
-             inject_stream_param >> inject_stream_options_include_usage chain). *)
-          Http_client.inject_stream_and_options body_str
-      in
+      observe_request_wire
+        ?request_wire_observer
+        ~capture_id
+        ~config
+        ~http_codec
+        ~stream:true
+        ~body:body_with_stream
+        ();
       let requested_at = Unix.gettimeofday () in
       let latency_counter =
         match latency_counter with

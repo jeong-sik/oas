@@ -56,6 +56,15 @@ val prepare_request
   -> unit
   -> prepared_request
 
+(** Serialize and admit the exact final completion body before any optional
+    provider-native token-measurement round-trip. [stream = true] includes every
+    transport-owned stream-field injection. The check is pure and returns the
+    same typed [Request_body_too_large] failure as final HTTP dispatch. *)
+val admit_request_body
+  :  stream:bool
+  -> prepared_request
+  -> (unit, Http_client.http_error) result
+
 (** Validate and measure the exact prepared request through the provider-native
     count protocol. Invalid local configuration fails before admission or I/O;
     the count round-trip uses the same provider admission authority as
@@ -92,6 +101,23 @@ val admit_request
   -> (admitted_request, fit_error) result
 
 val admitted_fit : admitted_request -> context_fit
+
+(** Serialize the exact final body shape that the built-in HTTP transport would
+    send and return metadata only. Streaming inspection includes every
+    transport-owned field injection such as [stream_options.include_usage].
+
+    The function performs no network I/O and does not apply
+    [Provider_config.max_request_body_bytes]; callers may use [body_bytes] to
+    project an input before the authoritative final admission check. All other
+    request validation remains active. The request body, headers, prompts, and
+    tool arguments are not returned. *)
+val inspect_serialized_request
+  :  stream:bool
+  -> config:Provider_config.t
+  -> messages:Types.message list
+  -> ?tools:Yojson.Safe.t list
+  -> unit
+  -> (Request_wire_observer.observation, Http_client.http_error) result
 
 (** {1 Gemini URL Construction} *)
 
@@ -167,6 +193,8 @@ val complete
   -> ?connection_cache:Http_client.cache
   -> ?metrics:Metrics.t
   -> ?body_timeout_s:float
+  -> ?capture_id:string
+  -> ?request_wire_observer:Request_wire_observer.try_observe
   -> unit
   -> (Types.api_response, Http_client.http_error) result
 
@@ -183,6 +211,7 @@ val complete_admitted
   -> ?connection_cache:Http_client.cache
   -> ?metrics:Metrics.t
   -> ?body_timeout_s:float
+  -> ?request_wire_observer:Request_wire_observer.try_observe
   -> unit
   -> (Types.api_response, Http_client.http_error) result
 (** [body_timeout_s] is the exact caller-owned deadline, in seconds, for a
@@ -238,6 +267,13 @@ val complete_admitted
     Redaction is diagnostic sanitization rather than proof that an observation
     is non-sensitive. Callers must retain observations as sensitive data.
 
+    [request_wire_observer], when present, receives one metadata-only
+    observation of the final serialized body after stream-field injection and
+    exact byte admission, immediately before HTTP dispatch. It contains the
+    exact byte length and SHA-256 digest but no body or headers. Rejection and
+    ordinary observer exceptions are diagnostic and do not change the provider
+    result.
+
     Supports both Anthropic native SSE and OpenAI-compatible SSE formats,
     dispatched by {!Provider_config.t.kind}.
 
@@ -291,6 +327,7 @@ val complete_stream
   -> ?transport:Llm_transport.t
   -> ?capture_id:string
   -> ?wire_observer:Wire_observer.try_observe
+  -> ?request_wire_observer:Request_wire_observer.try_observe
   -> config:Provider_config.t
   -> messages:Types.message list
   -> ?tools:Yojson.Safe.t list
@@ -311,6 +348,7 @@ val complete_stream_admitted
   -> ?clock:_ Eio.Time.clock
   -> ?transport:Llm_transport.t
   -> ?wire_observer:Wire_observer.try_observe
+  -> ?request_wire_observer:Request_wire_observer.try_observe
   -> admitted_request
   -> on_event:(Types.sse_event -> unit)
   -> ?metrics:Metrics.t

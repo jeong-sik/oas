@@ -41,6 +41,10 @@ val prepare
 
 val request : t -> Llm_transport.completion_request
 
+(** Serialize and admit the exact final completion body without network I/O.
+    Streaming admission includes transport-owned stream-field injection. *)
+val admit_serialized_body : stream:bool -> t -> (unit, Http_client.http_error) result
+
 val measure
   :  ?connection_cache:Http_client.cache
   -> ?clock:_ Eio.Time.clock

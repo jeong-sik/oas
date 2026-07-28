@@ -51,6 +51,7 @@ let prepare
       ; tools
       ; capture_id
       ; observe_wire_chunk = None
+      ; request_wire_observer = None
       ; stream_idle_timeout_s
       ; first_event_timeout_s
       ; body_timeout_s
@@ -59,6 +60,21 @@ let prepare
 ;;
 
 let request prepared = prepared.request
+
+let admit_serialized_body ~stream prepared =
+  let request = prepared.request in
+  let config = request.Llm_transport.config in
+  let ( let* ) = Result.bind in
+  let* () = Complete_common.validate_all config in
+  let* _http_codec, body =
+    Complete_common.serialize_final_http_request_unadmitted
+      ~stream
+      ~config
+      ~messages:request.messages
+      ~tools:request.tools
+  in
+  Result.map (fun _body -> ()) (Complete_common.admit_final_serialized_body ~config body)
+;;
 
 let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
   let config = prepared.request.Llm_transport.config in
