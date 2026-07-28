@@ -134,6 +134,13 @@ val with_context_fit_admission : Agent.context_fit_admission -> t -> t
     [Error detail] fails the turn as a typed hook execution error. *)
 val with_model_input_projection : Agent.model_input_projection -> t -> t
 
+(** Observe metadata-only evidence for the exact provider serialization prepared
+    before dispatch. This hook does not prove that transport dispatch started. *)
+val with_pre_dispatch_serialization_observer
+  :  Agent.pre_dispatch_serialization_observer
+  -> t
+  -> t
+
 val with_base_url : string -> t -> t
 
 (** Inject an {!Llm_provider.Llm_transport.t} for non-HTTP providers.

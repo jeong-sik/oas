@@ -8,6 +8,7 @@ type completion_request =
   ; tools : Yojson.Safe.t list
   ; capture_id : string option
   ; observe_wire_chunk : Wire_observer.observe_chunk option
+  ; request_wire_observer : Request_wire_observer.try_observe option
   ; stream_idle_timeout_s : float option
     (** Inter-chunk idle deadline for streaming reads, in seconds. Bounds the
         gap between streamed SSE/NDJSON lines, not total stream duration.

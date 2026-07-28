@@ -32,6 +32,7 @@ type t =
   ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : Agent.context_fit_admission
   ; model_input_projection : Agent.model_input_projection option
+  ; pre_dispatch_serialization_observer : Agent.pre_dispatch_serialization_observer option
   ; stream_idle_timeout_s : float option
   ; first_event_timeout_s : float option
   ; body_timeout_s : float option
@@ -84,6 +85,7 @@ let create ~net ~model =
   ; provider_config = None
   ; context_fit_admission = Agent.Disabled
   ; model_input_projection = None
+  ; pre_dispatch_serialization_observer = None
   ; stream_idle_timeout_s = None
   ; first_event_timeout_s = None
   ; body_timeout_s = None
@@ -189,6 +191,10 @@ let with_context_fit_admission context_fit_admission b = { b with context_fit_ad
 
 let with_model_input_projection model_input_projection b =
   { b with model_input_projection = Some model_input_projection }
+;;
+
+let with_pre_dispatch_serialization_observer observer b =
+  { b with pre_dispatch_serialization_observer = Some observer }
 ;;
 
 let with_base_url url b = { b with base_url = url }
@@ -300,6 +306,7 @@ let build b =
     ?provider_config:b.provider_config
     ~context_fit_admission:b.context_fit_admission
     ?model_input_projection:b.model_input_projection
+    ?pre_dispatch_serialization_observer:b.pre_dispatch_serialization_observer
     ?checkpoint_sink:b.checkpoint_sink
     ()
 ;;

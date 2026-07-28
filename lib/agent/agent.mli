@@ -39,6 +39,7 @@ type context_fit_admission = Agent_types.context_fit_admission =
   | Enforce_when_supported
 
 type model_input_projection = Agent_types.model_input_projection
+type pre_dispatch_serialization_observer = Agent_types.pre_dispatch_serialization_observer
 
 type options = Agent_types.options =
   { base_url : string
@@ -108,12 +109,17 @@ val sdk_version : string
     replaces [options.provider]; endpoint, credential, request path, headers,
     and capability overrides are not reconstructed from the legacy option.
 
-    [context_fit_admission] and [model_input_projection] are separate from
-    [options] so callers that construct options records remain source-compatible.
+    [context_fit_admission], [model_input_projection], and
+    [pre_dispatch_serialization_observer] are separate from [options] so callers
+    that construct options records remain source-compatible.
     The optional projection is applied once during turn preparation; native
     request measurement and provider dispatch consume the same projected
     messages. A returned [Error detail] or non-reserved callback exception
-    fails the turn as {!Error.HookExecutionFailed}. *)
+    fails the turn as {!Error.HookExecutionFailed}.
+
+    [pre_dispatch_serialization_observer] receives metadata-only evidence for
+    the admitted provider body before built-in HTTP dispatch is attempted. It
+    does not prove that transport dispatch started or completed. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> config:Types.agent_config
@@ -123,6 +129,7 @@ val create
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
   -> ?model_input_projection:model_input_projection
+  -> ?pre_dispatch_serialization_observer:pre_dispatch_serialization_observer
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t
@@ -530,9 +537,10 @@ val run_with_handoffs_blocks_detailed
     {!options}; pass it explicitly when resumed turns should continue emitting
     crash-recovery checkpoints. An explicit [provider_config] replaces
     [options.provider] under the same exact-carrier contract as {!create}.
-    [context_fit_admission] and [model_input_projection] must be supplied again
-    when a resumed Agent should retain opt-in provider-fit enforcement and
-    caller-owned provider-message projection. *)
+    [context_fit_admission], [model_input_projection], and
+    [pre_dispatch_serialization_observer] must be supplied again when a resumed
+    Agent should retain opt-in provider-fit enforcement, caller-owned
+    provider-message projection, and pre-dispatch serialization evidence. *)
 val resume
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> checkpoint:Checkpoint.t
@@ -542,6 +550,7 @@ val resume
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
   -> ?model_input_projection:model_input_projection
+  -> ?pre_dispatch_serialization_observer:pre_dispatch_serialization_observer
   -> ?checkpoint_sink:checkpoint_sink
   -> ?config:Types.agent_config
   -> unit

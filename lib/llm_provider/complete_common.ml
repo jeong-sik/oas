@@ -712,6 +712,88 @@ let serialize_http_request ~stream ~(config : Provider_config.t) ~messages ~tool
     ~tools
 ;;
 
+let finalize_stream_body ~http_codec body =
+  match http_codec with
+  | Provider_http_codec.Gemini_generate_content | Provider_http_codec.Openai_responses ->
+    body
+  | Provider_http_codec.Anthropic_messages | Provider_http_codec.Ollama_chat ->
+    Http_client.inject_stream_param body
+  | Provider_http_codec.Openai_chat | Provider_http_codec.Glm_chat ->
+    (* OpenAI-compatible streaming returns token usage only when the request
+       also sets stream_options.include_usage. Anthropic and Ollama carry usage
+       natively, so they keep stream:true only. *)
+    Http_client.inject_stream_and_options body
+;;
+
+(* Serialize the exact body shape used by the built-in HTTP transport without
+   applying the declared byte ceiling. Callers either inspect the resulting
+   metadata or pass the body through [admit_final_serialized_body] before I/O.
+   Clearing the ceiling cannot change provider wire JSON because the field is
+   local admission configuration, not a serialized provider parameter. *)
+let serialize_final_http_request_unadmitted
+      ~stream
+      ~(config : Provider_config.t)
+      ~messages
+      ~tools
+  =
+  let serialization_config = { config with max_request_body_bytes = None } in
+  Result.map
+    (fun (http_codec, body) ->
+       let body = if stream then finalize_stream_body ~http_codec body else body in
+       http_codec, body)
+    (serialize_http_request ~stream ~config:serialization_config ~messages ~tools)
+;;
+
+(* Streaming serializers may add transport fields after the provider body
+   builder returns (for example [stream_options.include_usage]). Recheck the
+   caller-declared byte boundary against the exact final body instead of
+   assuming the pre-injection measurement is still authoritative. Sync callers
+   use the same helper so there is one final-wire admission contract. *)
+let admit_final_serialized_body ~(config : Provider_config.t) body =
+  let actual_bytes = String.length body in
+  match config.max_request_body_bytes with
+  | Some limit_bytes when actual_bytes > limit_bytes ->
+    Error (Http_client.request_body_too_large_error ~actual_bytes ~limit_bytes)
+  | None | Some _ -> Ok body
+;;
+
+let observe_pre_dispatch_serialization ?request_wire_observer observation =
+  match request_wire_observer with
+  | None -> ()
+  | Some try_observe ->
+    (match Request_wire_observer.observe try_observe observation with
+     | Ok () -> ()
+     | Error failure ->
+       (* Request observation is diagnostic. A full caller-owned queue or an
+          ordinary callback bug cannot reinterpret a request that passed typed
+          provider admission as a provider failure. *)
+       Diag.warn
+         "request_wire_observer"
+         "pre-dispatch serialization observation was not accepted: %s"
+         (Request_wire_observer.show_failure failure))
+;;
+
+let observe_request_wire
+      ?request_wire_observer
+      ~capture_id
+      ~(config : Provider_config.t)
+      ~http_codec
+      ~stream
+      ~body
+      ()
+  =
+  let observation =
+    Request_wire_observer.observation
+      ~capture_id
+      ~provider:(Provider_registry.provider_name_of_config config)
+      ~model:config.model_id
+      ~http_codec:(Provider_http_codec.fingerprint_tag http_codec)
+      ~stream
+      ~body
+  in
+  observe_pre_dispatch_serialization ?request_wire_observer observation
+;;
+
 (** Strip query string and userinfo from a URL before logging.  Built-in
     providers use clean URLs, but [custom:model@url] accepts arbitrary
     user-supplied URLs; a misconfigured one like
