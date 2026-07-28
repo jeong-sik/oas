@@ -290,14 +290,10 @@ let test_elicit_input_illegal_where_it_cannot_suspend () =
   in
   List.iter
     (fun stage ->
-       let result =
-         Hooks.validate_decision ~stage (Hooks.ElicitInput gate_request)
-       in
+       let result = Hooks.validate_decision ~stage (Hooks.ElicitInput gate_request) in
        check
          bool
-         (Printf.sprintf
-            "ElicitInput rejected at %s"
-            (Hooks.hook_stage_to_string stage))
+         (Printf.sprintf "ElicitInput rejected at %s" (Hooks.hook_stage_to_string stage))
          true
          (Result.is_error result))
     stages
@@ -504,9 +500,7 @@ let test_invoke_validated_pre_tool_use_fail_closed_pinned () =
      everything else, which is what this pin exists to hold. Its legality is
      covered by [test_validate_legal_pre_tool_use], and the stages where it
      remains illegal by [test_elicit_input_illegal_where_it_cannot_suspend]. *)
-  let illegal =
-    [ Hooks.AdjustParams Hooks.default_turn_params; Hooks.Nudge "nudge" ]
-  in
+  let illegal = [ Hooks.AdjustParams Hooks.default_turn_params; Hooks.Nudge "nudge" ] in
   List.iter
     (fun decision ->
        let kind_name = Hooks.decision_kind_to_string (Hooks.classify_decision decision) in

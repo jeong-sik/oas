@@ -371,8 +371,8 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent to
           | Agent_tools.Suspended_for_input _, _ -> finish After_tool_results_appended
           | (Continue_after_batch | Terminal_completed _ | Terminal_failed _), None ->
             finish After_tool_results_appended
-          | (Continue_after_batch | Terminal_completed _ | Terminal_failed _), Some injector
-            ->
+          | ( (Continue_after_batch | Terminal_completed _ | Terminal_failed _)
+            , Some injector ) ->
             let* messages =
               Agent_turn.apply_context_injection
                 ~context:agent.context

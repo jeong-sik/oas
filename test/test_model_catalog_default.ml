@@ -42,8 +42,7 @@ let test_ollama_cloud_v1_vendor_rows_preserve_probe_truth () =
        let matches =
          List.filter
            (fun (entry : Model_catalog.model_entry) ->
-              entry.id_prefix = model_id
-              && entry.provider_name = Some "ollama_cloud")
+              entry.id_prefix = model_id && entry.provider_name = Some "ollama_cloud")
            entries
        in
        match matches with
@@ -73,8 +72,7 @@ let test_ollama_cloud_v1_vendor_rows_preserve_probe_truth () =
            bool
            (model_id ^ " inherent thinking has no request control")
            true
-           (entry.thinking_control_format
-            = Some Capability_vocab.No_thinking_control);
+           (entry.thinking_control_format = Some Capability_vocab.No_thinking_control);
          check
            (option bool)
            (model_id ^ " json mode")

@@ -811,9 +811,8 @@ let execute_scheduled_tool
                         ~tool_name:name
                         ~invocation
                         ~detail:
-                          "ElicitInput at pre_tool_use requires a durable \
-                           execution store; without one the suspended call \
-                           cannot be resumed"))
+                          "ElicitInput at pre_tool_use requires a durable execution \
+                           store; without one the suspended call cannot be resumed"))
             }
           | Some provider ->
             (match

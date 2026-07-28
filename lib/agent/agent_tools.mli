@@ -73,7 +73,7 @@ type batch_completion =
       ; input : Yojson.Safe.t
       ; request : Error.input_required
       }
-      (** RFC-OAS-039. Neither continue nor terminal. A [pre_tool_use] hook
+  (** RFC-OAS-039. Neither continue nor terminal. A [pre_tool_use] hook
           returned [ElicitInput], so this call produced no
           {!tool_execution_result} and its [ToolUse] is left unanswered: the
           model is not told a command succeeded that never ran.
