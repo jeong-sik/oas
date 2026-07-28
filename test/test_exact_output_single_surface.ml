@@ -237,7 +237,7 @@ let execution_receipt execution =
 ;;
 
 let execute_once ~net ?clock execution =
-  let before_dispatch candidate =
+  let before_dispatch (candidate : EO.flow_attempt_receipt) =
     Atomic.set execution.receipt (Some candidate.EO.receipt);
     Ok ()
   in
