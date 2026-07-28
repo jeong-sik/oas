@@ -264,8 +264,7 @@ let execute_once ~net ?clock execution =
       ; cause = EO.Attempt_already_started
       ; raw_response = None
       }
-  | Error (EO.Flow_semantic_candidates_exhausted _) ->
-    fail "accepting single-candidate flow exhausted semantic candidates"
+  | Error (EO.Flow_semantic_candidates_exhausted _) -> .
   | Error (EO.Flow_execution_terminal _) ->
     fail "single-candidate flow failed outside exact execution"
 ;;
