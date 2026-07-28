@@ -427,18 +427,6 @@ type flow_start_error = Flow_id_generation_failed of string
     Each attempt owns an opaque call identity and affine execution state. *)
 val start_attempt : ready_plan -> (attempt, start_attempt_error) result
 
-(** Execute the frozen request once. The attempt is single-use: duplicate or
-    concurrent invocation of the same attempt is rejected before a second
-    dispatch. Obtain {!attempt_receipt} before entering a cancellation scope;
-    its phase is monotonic and remains queryable if cancellation escapes this
-    function. The sole invocation performs at most one outward completion HTTP
-    POST. *)
-val execute_once
-  :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> ?clock:_ Eio.Time.clock
-  -> attempt
-  -> (success, execution_error) result
-
 (** Allocate one fresh outer-flow identity and precompute one immutable visit
     for each frozen candidate. This performs no credential selection, request
     admission, call identity allocation, callback, or network effect. A new
