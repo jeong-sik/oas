@@ -8,6 +8,18 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+## [0.229.1](https://github.com/jeong-sik/oas/compare/v0.229.0...v0.229.1) (2026-07-28)
+
+
+### Features
+
+* **provider:** admit and observe the exact final request body ([#2838](https://github.com/jeong-sik/oas/issues/2838)) ([dab626d](https://github.com/jeong-sik/oas/commit/dab626d2b1ef60e3f3707ebe43a544cc98e1b1b7))
+
+
+### Bug Fixes
+
+* **ci:** restore exact-output baseline ([#2839](https://github.com/jeong-sik/oas/issues/2839)) ([12f92b0](https://github.com/jeong-sik/oas/commit/12f92b0641684df4040475d78c95a2dbfdbeafa3))
+
 ## [0.229.0](https://github.com/jeong-sik/oas/compare/v0.228.0...v0.229.0) (2026-07-27)
 
 ### Breaking Changes
