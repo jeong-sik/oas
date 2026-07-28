@@ -233,6 +233,7 @@ let with_server
       ?(status = `OK)
       ?(abort_completion = false)
       ?(response_headers = [])
+      ?(on_completion_request = fun () -> ())
       ~response
       f
   =
@@ -256,6 +257,7 @@ let with_server
         Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"input_tokens":1}|} ())
       else (
         Atomic.incr completion_posts;
+        on_completion_request ();
         Atomic.set
           captures
           ({ path
@@ -290,6 +292,32 @@ let with_server
   , List.rev (Atomic.get captures) )
 ;;
 
+let cancel_execute_once_after_dispatch ~sw ~net ~clock ~request_seen execution =
+  let exception Caller_cancelled in
+  let cancel_context, notify_cancel_context = Eio.Promise.create () in
+  let client_outcome, notify_client_outcome = Eio.Promise.create () in
+  Eio.Fiber.fork ~sw (fun () ->
+    let cancelled =
+      try
+        ignore
+          (Eio.Cancel.sub (fun context ->
+             Eio.Promise.resolve notify_cancel_context context;
+             EO.execute_once ~net execution));
+        false
+      with
+      | Eio.Cancel.Cancelled Caller_cancelled -> true
+    in
+    Eio.Promise.resolve notify_client_outcome cancelled);
+  let await label promise =
+    try Eio.Time.with_timeout_exn clock 1.0 (fun () -> Eio.Promise.await promise) with
+    | Eio.Time.Timeout -> failf "%s was not observed" label
+  in
+  let cancel_context = await "client cancellation context" cancel_context in
+  await "completion request dispatch" request_seen;
+  Eio.Cancel.cancel cancel_context Caller_cancelled;
+  await "client cancellation" client_outcome
+;;
+
 let test_tier_table_and_provider_schema_rejection () =
   let entry id native json =
     catalog_entry
@@ -306,6 +334,7 @@ let test_tier_table_and_provider_schema_rejection () =
   let native_json = plan snapshot "native" EO.Json_syntax |> EO.plan_provenance in
   let native_schema = plan snapshot "native" EO.Provider_schema |> EO.plan_provenance in
   let json_only = plan snapshot "json-only" EO.Json_syntax |> EO.plan_provenance in
+  let text_only = plan snapshot "none" EO.Json_syntax |> EO.plan_provenance in
   check
     bool
     "native preferred for syntax minimum"
@@ -331,28 +360,27 @@ let test_tier_table_and_provider_schema_rejection () =
     "json-only has no effective schema"
     true
     (Option.is_none (EO.plan_provenance_effective_schema_fingerprint json_only));
-  (match
-     EO.admit
-       ~target:(target snapshot "json-only")
-       ~messages:[ msg "json" ]
-       (requirement EO.Provider_schema)
-   with
-   | Error error ->
-     (match EO.admission_error_disposition error with
-      | EO.Output_requirement_rejected -> ()
-      | _ -> fail "provider-schema rejection lost its neutral disposition")
-   | Ok _ -> fail "provider-schema minimum must fail on JSON-only target");
+  check
+    bool
+    "text fallback records syntax assurance"
+    true
+    (EO.plan_provenance_actual_assurance text_only = EO.Json_syntax_only);
+  check
+    bool
+    "text fallback has no effective provider schema"
+    true
+    (Option.is_none (EO.plan_provenance_effective_schema_fingerprint text_only));
   match
     EO.admit
-      ~target:(target snapshot "none")
+      ~target:(target snapshot "json-only")
       ~messages:[ msg "json" ]
-      (requirement EO.Json_syntax)
+      (requirement EO.Provider_schema)
   with
   | Error error ->
     (match EO.admission_error_disposition error with
      | EO.Output_requirement_rejected -> ()
-     | _ -> fail "JSON syntax rejection lost its neutral disposition")
-  | Ok _ -> fail "JSON syntax must fail when target declares no JSON tier"
+     | _ -> fail "provider-schema rejection lost its neutral disposition")
+  | Ok _ -> fail "provider-schema minimum must fail on JSON-only target"
 ;;
 
 let test_deepseek_catalog_is_json_only_before_dispatch () =
@@ -1293,10 +1321,14 @@ let test_parallel_attempts_from_one_plan_do_not_share_identity_or_state () =
 ;;
 
 let test_cancellation_leaves_queryable_monotonic_receipt () =
+  let request_seen, notify_request_seen = Eio.Promise.create () in
   let response = openai_response {|{"name":"accepted"}|} in
-  let (timed_out, phase, duplicate), posts, _, _ =
-    with_server ~response_delay_s:0.1 ~response
-    @@ fun ~sw:_ ~net ~clock ~base_url ->
+  let (cancelled, phase, duplicate), posts, _, _ =
+    with_server
+      ~response_delay_s:0.1
+      ~on_completion_request:(fun () -> Eio.Promise.resolve notify_request_seen ())
+      ~response
+    @@ fun ~sw ~net ~clock ~base_url ->
     let entry =
       catalog_entry
         ~id:"cancel-surface"
@@ -1311,18 +1343,14 @@ let test_cancellation_leaves_queryable_monotonic_receipt () =
     let ready = plan snapshot "cancel-surface" EO.Json_syntax in
     let execution = attempt ready in
     let receipt = EO.attempt_receipt execution in
-    let timed_out =
-      match
-        Eio.Time.with_timeout clock 0.01 (fun () -> Ok (EO.execute_once ~net execution))
-      with
-      | Error `Timeout -> true
-      | Ok (Ok _ | Error _) -> false
+    let cancelled =
+      cancel_execute_once_after_dispatch ~sw ~net ~clock ~request_seen execution
     in
     let phase = EO.receipt_phase receipt in
     let duplicate = EO.execute_once ~net execution in
-    timed_out, phase, duplicate
+    cancelled, phase, duplicate
   in
-  check bool "caller cancellation observed" true timed_out;
+  check bool "caller cancellation observed" true cancelled;
   check int "cancelled attempt dispatched once" 1 posts;
   check
     bool
@@ -1670,9 +1698,13 @@ let test_identity_survives_success_error_and_cancellation () =
        (EO.call_id_to_string error.call_id)
        (EO.receipt_call_id error.receipt |> EO.call_id_to_string)
    | Ok _ -> fail "identity error fixture should fail");
-  let (cancel_provenance, cancel_receipt, timed_out), posts, _, _ =
-    with_server ~response_delay_s:0.1 ~response:(openai_response {|{"name":"accepted"}|})
-    @@ fun ~sw:_ ~net ~clock ~base_url ->
+  let request_seen, notify_request_seen = Eio.Promise.create () in
+  let (cancel_provenance, cancel_receipt, cancelled), posts, _, _ =
+    with_server
+      ~response_delay_s:0.1
+      ~on_completion_request:(fun () -> Eio.Promise.resolve notify_request_seen ())
+      ~response:(openai_response {|{"name":"accepted"}|})
+    @@ fun ~sw ~net ~clock ~base_url ->
     let entry =
       catalog_entry
         ~id:"identity-cancel-surface"
@@ -1688,18 +1720,12 @@ let test_identity_survives_success_error_and_cancellation () =
     let provenance = EO.plan_provenance ready in
     let execution = attempt ready in
     let receipt = EO.attempt_receipt execution in
-    let timed_out =
-      try
-        match
-          Eio.Time.with_timeout_exn clock 0.01 (fun () -> EO.execute_once ~net execution)
-        with
-        | Ok _ | Error _ -> false
-      with
-      | Eio.Time.Timeout -> true
+    let cancelled =
+      cancel_execute_once_after_dispatch ~sw ~net ~clock ~request_seen execution
     in
-    provenance, receipt, timed_out
+    provenance, receipt, cancelled
   in
-  check bool "identity cancellation observed" true timed_out;
+  check bool "identity cancellation observed" true cancelled;
   check int "identity cancellation dispatches once" 1 posts;
   check_receipt_provenance "cancellation" cancel_provenance cancel_receipt
 ;;

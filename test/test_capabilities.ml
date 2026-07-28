@@ -858,21 +858,25 @@ let test_ollama_cloud_v1_vendor_models_resolve_exact_capabilities () =
        with
        | None -> failf "ollama_cloud/%s should resolve exactly" model_id
        | Some c ->
-         check
-           (option int)
-           (model_id ^ " context")
-           (Some 262_144)
-           c.max_context_tokens;
+         check (option int) (model_id ^ " context") (Some 262_144) c.max_context_tokens;
          check bool (model_id ^ " tools") true c.supports_tools;
          check bool (model_id ^ " reasoning") true c.supports_reasoning;
          check bool (model_id ^ " extended thinking") true c.supports_extended_thinking;
-         check bool (model_id ^ " no reasoning budget control") false c.supports_reasoning_budget;
+         check
+           bool
+           (model_id ^ " no reasoning budget control")
+           false
+           c.supports_reasoning_budget;
          check_thinking_control
            (model_id ^ " inherent thinking has no request control")
            Capabilities.No_thinking_control
            c.thinking_control_format;
          check bool (model_id ^ " json mode") true c.supports_response_format_json;
-         check bool (model_id ^ " no native schema guarantee") false c.supports_structured_output;
+         check
+           bool
+           (model_id ^ " no native schema guarantee")
+           false
+           c.supports_structured_output;
          check bool (model_id ^ " multimodal") true c.supports_multimodal_inputs;
          check bool (model_id ^ " image input") true c.supports_image_input;
          check bool (model_id ^ " native streaming") true c.supports_native_streaming)

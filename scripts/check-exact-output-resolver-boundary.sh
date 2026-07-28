@@ -7,7 +7,6 @@ required_basenames=(
   exact_output.ml
   exact_output_flow.ml
   exact_output_flow_contract.ml
-  exact_output_domain_settlement.ml
   exact_output_resolver.ml
   exact_output_catalog_binding.ml
   exact_output_flow_admission.ml
@@ -572,7 +571,6 @@ scan_public_error_accessors() {
 exact_output_source=""
 exact_output_flow_source=""
 exact_output_flow_contract_source=""
-exact_output_domain_settlement_source=""
 exact_output_flow_admission_source=""
 exact_output_ready_admission_source=""
 resolver_source=""
@@ -589,10 +587,6 @@ for source_file in "${source_files[@]}"; do
       ;;
     exact_output_flow_contract.ml)
       exact_output_flow_contract_source="$source_file"
-      downstream_sources+=("$source_file")
-      ;;
-    exact_output_domain_settlement.ml)
-      exact_output_domain_settlement_source="$source_file"
       downstream_sources+=("$source_file")
       ;;
     exact_output_flow_admission.ml)
@@ -832,11 +826,21 @@ scan_code \
   "preference lifecycle implementation escaped its private facade" \
   'let[[:space:]]+(commit_and_retire_flow_preference_scope|recover_flow_preferences)' \
   "$exact_output_source"
-scan_code \
-  "provider, model, pricing, credential, or legacy policy entered preference lifecycle facade" \
-  'Provider|provider|Model|model|Pricing|pricing|Credential|credential|Legacy|legacy|Migration|migration' \
-  "$module_dir/exact_output_preference_lifecycle_facade.ml" \
-  "$module_dir/exact_output_preference_lifecycle_facade.mli"
+for retired_module in \
+  exact_output_domain_settlement \
+  exact_output_scope_retirement \
+  exact_output_preference_recovery \
+  exact_output_preference_lifecycle_facade
+do
+  for suffix in ml mli; do
+    if [[ -e "$module_dir/$retired_module.$suffix" ]]; then
+      echo \
+        "exact-output boundary violation: retired module returned: $retired_module.$suffix" \
+        >&2
+      exit 1
+    fi
+  done
+done
 scan_code \
   "secondary target projection exposed by the canonical facade" \
   'type[[:space:]]+(resolver_snapshot|selected_target|target_identity)[[:space:]]*=|val[[:space:]]+(target_(identity_id|provider_id|model_id|base_url|request_path)|selected_target_(provider_id|model_id|base_url|request_path)|target_identity_(provider_id|model_id|base_url|request_path))|Invalid_target_ref[[:space:]]+of[[:space:]]+string' \
@@ -855,10 +859,6 @@ for private_module in \
   exact_output_plan \
   exact_output_execution \
   exact_output_flow \
-  exact_output_domain_settlement \
-  exact_output_scope_retirement \
-  exact_output_preference_recovery \
-  exact_output_preference_lifecycle_facade \
   exact_output_generation_receipt \
   exact_output_provider_trace \
   exact_output_resolver \
@@ -890,10 +890,6 @@ scan_code \
   "private exact-output flow acquired provider, model, tier, pricing, retry, cascade, or string policy" \
   'Provider|provider|Model|model|Tier|tier|Pricing|pricing|Retry|retry|Cascade|cascade|String\.|Str\.|Re\.' \
   "$exact_output_flow_source"
-scan_code \
-  "durable exact-output settlement acquired provider, model, tier, pricing, retry, or cascade policy" \
-  'Provider|provider|Model|model|Tier|tier|Pricing|pricing|Retry|retry|Cascade|cascade' \
-  "$exact_output_domain_settlement_source"
 require_code_sequence \
   "canonical facade lost outer exact-flow execution" \
   'val[[:space:]]+execute_flow_once[[:space:]]*:' \

@@ -17,16 +17,12 @@
   http_client_phase_observer
   exact_output_catalog_binding
   exact_output_call_id
-  exact_output_domain_settlement
   exact_output_resolver
   exact_output_execution
   exact_output_gemini_schema
   exact_output_flow
   exact_output_flow_admission
   exact_output_flow_contract
-  exact_output_scope_retirement
-  exact_output_preference_recovery
-  exact_output_preference_lifecycle_facade
   exact_output_generation_receipt
   exact_output_provider_trace
   exact_output_ready_admission
