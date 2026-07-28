@@ -233,9 +233,7 @@ let input_request =
   { Hooks.question = "authorize this command?"; schema = None; timeout_s = None }
 ;;
 
-let tool_approval_prompt =
-  { Hooks.question = "authorize this command?"; timeout_s = None }
-;;
+let tool_approval_prompt = { Hooks.question = "authorize this command?" }
 
 let test_validate_legal_pre_tool_use () =
   (* RFC-OAS-039: only the typed approval decision is legal after the model
@@ -403,7 +401,7 @@ let test_classify_and_to_string () =
     ; Hooks.Block "blocked", "Block"
     ; Hooks.AdjustParams Hooks.default_turn_params, "AdjustParams"
     ; Hooks.ElicitInput { question = "q"; schema = None; timeout_s = None }, "ElicitInput"
-    ; Hooks.ElicitToolApproval { question = "q"; timeout_s = None }, "ElicitToolApproval"
+    ; Hooks.ElicitToolApproval { question = "q" }, "ElicitToolApproval"
     ; Hooks.Nudge "n", "Nudge"
     ; Hooks.HookFailed { stage = Hooks.Before_turn; detail = "boom" }, "HookFailed"
     ]
@@ -430,6 +428,34 @@ let contains_substring ~needle haystack =
   let h = String.length haystack in
   let rec loop i = i + n <= h && (String.sub haystack i n = needle || loop (i + 1)) in
   n = 0 || loop 0
+;;
+
+let settle_tool_approval callback =
+  Agent_tool_pre_execution_gate.settle
+    ~tool_approval:callback
+    ~event_bus:None
+    ~agent_name:"test-agent"
+    ~invocation:(invocation ())
+    ~tool_name:"gated"
+    ~input:(`Assoc [])
+    (Hooks.ElicitToolApproval { question = "Approve?" })
+;;
+
+let test_tool_approval_callback_failure_is_typed () =
+  match settle_tool_approval (fun _ -> failwith "approval unavailable") with
+  | Agent_tool_pre_execution_gate.Reject { stage = Hooks.Pre_tool_use; detail } ->
+    check
+      bool
+      "callback failure retained"
+      true
+      (contains_substring ~needle:"approval unavailable" detail)
+  | _ -> fail "expected typed pre-tool rejection"
+;;
+
+let test_tool_approval_reserved_exception_propagates () =
+  match settle_tool_approval (fun _ -> raise Sys.Break) with
+  | exception Sys.Break -> ()
+  | _ -> fail "reserved callback exception was flattened"
 ;;
 
 let capture_traceln f =
@@ -702,6 +728,14 @@ let () =
             "fail-closed without hook_name returns HookFailed"
             `Quick
             test_invoke_validated_fail_closed_without_hook_name
+        ; test_case
+            "tool approval callback failure is typed"
+            `Quick
+            test_tool_approval_callback_failure_is_typed
+        ; test_case
+            "tool approval reserved exception propagates"
+            `Quick
+            test_tool_approval_reserved_exception_propagates
         ] )
     ]
 ;;

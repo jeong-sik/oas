@@ -54,12 +54,21 @@ let settle
          }
      | Some callback ->
        let request = { Hooks.prompt; invocation; tool_name; input } in
-       let approval = callback request in
-       publish_approval ?correlation_id ?run_id ~event_bus ~agent_name request approval;
-       (match approval with
-        | Hooks.Approved -> Admit
-        | Hooks.Denied -> Block "Tool execution was denied by the caller"
-        | Hooks.Timed_out -> Block "Tool execution approval timed out"))
+       (match callback request with
+        | exception exception_ ->
+          Llm_provider.Reserved_exn.reraise_if_reserved exception_;
+          Reject
+            { stage = Hooks.Pre_tool_use
+            ; detail =
+                "tool_approval callback raised before tool execution: "
+                ^ Printexc.to_string exception_
+            }
+        | approval ->
+          publish_approval ?correlation_id ?run_id ~event_bus ~agent_name request approval;
+          (match approval with
+           | Hooks.Approved -> Admit
+           | Hooks.Denied -> Block "Tool execution was denied by the caller"
+           | Hooks.Timed_out -> Block "Tool execution approval timed out")))
   | (Hooks.AdjustParams _ | Hooks.ElicitInput _ | Hooks.Nudge _) as decision ->
     Reject
       { stage = Hooks.Pre_tool_use

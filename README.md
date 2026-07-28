@@ -201,7 +201,8 @@ the agent. A caller that has already settled an external-effect decision may
 return `Hooks.Block reason` from `PreToolUse`, or `Hooks.ElicitToolApproval`
 and configure `Builder.with_tool_approval` when the exact call needs caller
 input. `Hooks.ElicitInput` is generic user input and cannot authorize a tool;
-OAS does not own approval,
+the approval callback must settle synchronously. OAS does not install a timer
+or durable pause at that boundary and does not own approval,
 judging, risk levels, or HITL orchestration.
 
 ## Build and test

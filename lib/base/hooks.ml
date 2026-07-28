@@ -153,10 +153,7 @@ type elicitation_callback = elicitation_request -> elicitation_response
     that value is user input, not execution authority. Keep the prompt and the
     exact runtime request distinct so malformed data is unrepresentable at the
     authorization boundary. *)
-type tool_approval_prompt =
-  { question : string
-  ; timeout_s : float option
-  }
+type tool_approval_prompt = { question : string }
 
 type tool_approval_request =
   { prompt : tool_approval_prompt

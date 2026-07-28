@@ -1,4 +1,4 @@
-# RFC-OAS-039: Settle pre-tool input before execution
+# RFC-OAS-039: Synchronous exact-tool approval before execution
 
 | | |
 |---|---|
@@ -20,6 +20,13 @@ the tool invocation is opened.
   executing the tool.
 - A missing callback fails closed as `Hook_execution_failed`; no invocation or
   effect is started.
+
+This is deliberately a synchronous authorization gate, not an SDK-owned
+durable suspension. OAS installs no timer, stores no pending approval request,
+and exposes no resume token here. The callback must settle any remote prompt,
+deadline, or restart policy before it returns; `Timed_out` reports a deadline
+already enforced by the caller. A callback that does not return blocks its
+dispatch fiber by contract.
 
 The before-turn `Agent.provide_input` API is intentionally not reused. It
 appends a `User` message and has different transcript semantics.
@@ -63,6 +70,10 @@ closed before its callback or any effect runs. The approval result is not
 appended as a `User` message. A refusal is represented as the same
 model-visible, deterministic failure shape used by `Hooks.Block`, and no tool
 lifecycle event is emitted for an effect that never started.
+
+A non-reserved callback exception is a typed `Hook_execution_failed` result
+before invocation. Runtime cancellation and other reserved exceptions continue
+to propagate through the surrounding structured-concurrency scope.
 
 ## 3. Fail-closed boundary
 

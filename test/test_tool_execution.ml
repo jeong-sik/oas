@@ -97,7 +97,7 @@ let execute_result_with_tools_in_env
 let test_pre_tool_approval_callback_settles_gate () =
   Eio_main.run
   @@ fun env ->
-  let prompt = { Hooks.question = "Approve exact tool call?"; timeout_s = None } in
+  let prompt = { Hooks.question = "Approve exact tool call?" } in
   let hooks =
     { Hooks.empty with pre_tool_use = Some (fun _ -> Hooks.ElicitToolApproval prompt) }
   in

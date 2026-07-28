@@ -158,7 +158,10 @@ val find_and_execute_tool
     [Hooks.Approved] admits the exact call; [Denied] and [Timed_out] return
     deterministic blocked tool results. Generic [ElicitInput]/[Answer] never
     grants execution authority. A missing approval callback fails closed as
-    [Hook_failure].
+    [Hook_failure]. OAS installs no timer and persists no pending request at
+    this boundary; [Timed_out] means the caller enforced and reported its own
+    deadline. A non-reserved callback exception becomes [Hook_failure] before
+    execution, while cancellation and other reserved exceptions propagate.
 
     An ordinary tool-handler exception is localized to that call as a
     non-retryable tool result. A terminal tool-handler exception propagates

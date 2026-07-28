@@ -108,11 +108,9 @@ type elicitation_callback = elicitation_request -> elicitation_response
 
 (** Prompt supplied by a [PreToolUse] hook when caller approval is required.
     It deliberately has no generic JSON schema: authorization is a closed
-    protocol, not an arbitrary elicitation answer. *)
-type tool_approval_prompt =
-  { question : string
-  ; timeout_s : float option
-  }
+    protocol, not an arbitrary elicitation answer. OAS does not install a timer
+    or persist a pending approval request at this synchronous boundary. *)
+type tool_approval_prompt = { question : string }
 
 (** Exact immutable tool occurrence presented to the caller-owned approval
     boundary. [input] is the invocation input selected by the provider. *)
@@ -129,7 +127,10 @@ type tool_approval =
   | Denied
   | Timed_out
 
-(** Caller-owned settlement callback for an exact tool occurrence. *)
+(** Caller-owned synchronous settlement callback for an exact tool occurrence.
+    It must return a closed decision. If the caller needs a timeout, remote
+    prompt, or restart recovery, it must settle those concerns before returning;
+    [Timed_out] reports a timeout already enforced by the caller. *)
 type tool_approval_callback = tool_approval_request -> tool_approval
 
 (** Closed set of lifecycle stages accepted by the hook decision matrix. *)
