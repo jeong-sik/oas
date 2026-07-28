@@ -348,6 +348,7 @@ let complete_stream_http
       ?observe_wire_chunk
       ?capture_id
       ?request_wire_observer
+      ?admitted_body
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ?(metrics = Metrics.get_global ())
       ?(connection_cache : Http_client.cache option)
@@ -362,11 +363,31 @@ let complete_stream_http
     | Error _ as error -> error
     | Ok () ->
       Result.bind
-        (serialize_final_http_request_unadmitted ~stream:true ~config ~messages ~tools)
+        (match admitted_body with
+         | None ->
+           serialize_final_http_request_unadmitted ~stream:true ~config ~messages ~tools
+         | Some admitted_body ->
+           let evidence =
+             Prepared_completion_request.admitted_body_evidence admitted_body
+           in
+           if evidence.stream
+           then
+             Ok
+               ( Prepared_completion_request.admitted_body_http_codec admitted_body
+               , Prepared_completion_request.admitted_body_contents admitted_body )
+           else
+             Error
+               (Http_client.AcceptRejected
+                  { reason =
+                      "sync admitted body cannot be dispatched through the streaming path"
+                  }))
         (fun (http_codec, body_str) ->
-           Result.map
-             (fun final_body -> http_codec, final_body)
-             (admit_final_serialized_body ~config body_str))
+           match admitted_body with
+           | Some _ -> Ok (http_codec, body_str)
+           | None ->
+             Result.map
+               (fun final_body -> http_codec, final_body)
+               (admit_final_serialized_body ~config body_str))
   in
   match request with
   | Error err -> Error err
@@ -388,14 +409,20 @@ let complete_stream_http
         | Anthropic | Kimi | OpenAI_compat | Ollama | Glm | DashScope ->
           config.base_url ^ config.request_path
       in
-      observe_request_wire
-        ?request_wire_observer
-        ~capture_id
-        ~config
-        ~http_codec
-        ~stream:true
-        ~body:body_with_stream
-        ();
+      (match admitted_body with
+       | Some admitted_body ->
+         observe_pre_dispatch_serialization
+           ?request_wire_observer
+           (Prepared_completion_request.admitted_body_evidence admitted_body)
+       | None ->
+         observe_request_wire
+           ?request_wire_observer
+           ~capture_id
+           ~config
+           ~http_codec
+           ~stream:true
+           ~body:body_with_stream
+           ());
       let requested_at = Unix.gettimeofday () in
       let latency_counter =
         match latency_counter with

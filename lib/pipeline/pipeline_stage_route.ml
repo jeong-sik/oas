@@ -220,6 +220,7 @@ let dispatch_sync
         ~tools
         ~trace_context
         ?body_timeout_s:agent.options.body_timeout_s
+        ?request_wire_observer:agent.pre_dispatch_serialization_observer
         ()
       |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
     in
@@ -241,7 +242,7 @@ let dispatch_sync
         |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
       with
       | Error error -> Error error
-      | Ok () ->
+      | Ok serialized ->
         (match preflight_serving_constraint ~binding ~now_unix_s prepared with
          | Error error -> Error error
          | Ok () ->
@@ -254,7 +255,7 @@ let dispatch_sync
                    ~net:agent.net
                    ?clock
                    ?timeout_s:agent.options.body_timeout_s
-                   prepared
+                   serialized
                with
                | Error error ->
                  Error
@@ -278,6 +279,7 @@ let dispatch_sync
                       ?transport:agent.options.transport
                       admitted
                       ?body_timeout_s:agent.options.body_timeout_s
+                      ?request_wire_observer:agent.pre_dispatch_serialization_observer
                       ()
                     |> Result.map_error
                          (Provider_failure_attribution.of_http_error ~binding)))))
@@ -330,6 +332,7 @@ let dispatch_stream
         ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
         ?first_event_timeout_s:agent.options.first_event_timeout_s
         ?body_timeout_s:agent.options.body_timeout_s
+        ?request_wire_observer:agent.pre_dispatch_serialization_observer
         ()
       |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
     in
@@ -354,7 +357,7 @@ let dispatch_stream
         |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
       with
       | Error error -> Error error
-      | Ok () ->
+      | Ok serialized ->
         (match preflight_serving_constraint ~binding ~now_unix_s prepared with
          | Error error -> Error error
          | Ok () ->
@@ -367,7 +370,7 @@ let dispatch_stream
                    ~net:agent.net
                    ?clock
                    ?timeout_s:agent.options.body_timeout_s
-                   prepared
+                   serialized
                with
                | Error error ->
                  Error
@@ -392,6 +395,7 @@ let dispatch_stream
                       admitted
                       ~on_event
                       ?on_telemetry
+                      ?request_wire_observer:agent.pre_dispatch_serialization_observer
                       ()
                     |> Result.map_error
                          (Provider_failure_attribution.of_http_error ~binding)))))

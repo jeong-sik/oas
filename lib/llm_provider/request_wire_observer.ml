@@ -1,7 +1,10 @@
 (** See [request_wire_observer.mli]. *)
 
+type phase = Pre_dispatch_serialization [@@deriving yojson, show]
+
 type observation =
-  { capture_id : string option
+  { phase : phase
+  ; capture_id : string option
   ; provider : string
   ; model : string
   ; http_codec : string
@@ -31,7 +34,8 @@ type failure =
 let body_sha256 body = Digestif.SHA256.(to_hex (digest_string body))
 
 let observation ~capture_id ~provider ~model ~http_codec ~stream ~body =
-  { capture_id
+  { phase = Pre_dispatch_serialization
+  ; capture_id
   ; provider
   ; model
   ; http_codec

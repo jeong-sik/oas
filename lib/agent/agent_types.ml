@@ -32,6 +32,7 @@ type context_fit_admission =
   | Enforce_when_supported
 
 type model_input_projection = message list -> (message list, string) result
+type pre_dispatch_serialization_observer = Llm_provider.Request_wire_observer.try_observe
 
 type options =
   { base_url : string
@@ -149,6 +150,7 @@ type t =
   ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : context_fit_admission
   ; model_input_projection : model_input_projection option
+  ; pre_dispatch_serialization_observer : pre_dispatch_serialization_observer option
   ; checkpoint_sink : checkpoint_sink option
   }
 
@@ -289,6 +291,7 @@ let create
       ?provider_config
       ?(context_fit_admission = Disabled)
       ?model_input_projection
+      ?pre_dispatch_serialization_observer
       ?checkpoint_sink
       ()
   =
@@ -319,6 +322,7 @@ let create
   ; provider_config
   ; context_fit_admission
   ; model_input_projection
+  ; pre_dispatch_serialization_observer
   ; checkpoint_sink
   }
 ;;
@@ -342,6 +346,7 @@ let clone ?(copy_context = false) agent =
   ; provider_config = agent.provider_config
   ; context_fit_admission = agent.context_fit_admission
   ; model_input_projection = agent.model_input_projection
+  ; pre_dispatch_serialization_observer = agent.pre_dispatch_serialization_observer
   ; checkpoint_sink = agent.checkpoint_sink
   }
 ;;

@@ -757,6 +757,22 @@ let admit_final_serialized_body ~(config : Provider_config.t) body =
   | None | Some _ -> Ok body
 ;;
 
+let observe_pre_dispatch_serialization ?request_wire_observer observation =
+  match request_wire_observer with
+  | None -> ()
+  | Some try_observe ->
+    (match Request_wire_observer.observe try_observe observation with
+     | Ok () -> ()
+     | Error failure ->
+       (* Request observation is diagnostic. A full caller-owned queue or an
+          ordinary callback bug cannot reinterpret a request that passed typed
+          provider admission as a provider failure. *)
+       Diag.warn
+         "request_wire_observer"
+         "pre-dispatch serialization observation was not accepted: %s"
+         (Request_wire_observer.show_failure failure))
+;;
+
 let observe_request_wire
       ?request_wire_observer
       ~capture_id
@@ -766,28 +782,16 @@ let observe_request_wire
       ~body
       ()
   =
-  match request_wire_observer with
-  | None -> ()
-  | Some try_observe ->
-    let observation =
-      Request_wire_observer.observation
-        ~capture_id
-        ~provider:(Provider_registry.provider_name_of_config config)
-        ~model:config.model_id
-        ~http_codec:(Provider_http_codec.fingerprint_tag http_codec)
-        ~stream
-        ~body
-    in
-    (match Request_wire_observer.observe try_observe observation with
-     | Ok () -> ()
-     | Error failure ->
-       (* Request observation is diagnostic. A full caller-owned queue or an
-          ordinary callback bug cannot reinterpret a request that passed typed
-          provider admission as a provider failure. *)
-       Diag.warn
-         "request_wire_observer"
-         "final request observation was not accepted: %s"
-         (Request_wire_observer.show_failure failure))
+  let observation =
+    Request_wire_observer.observation
+      ~capture_id
+      ~provider:(Provider_registry.provider_name_of_config config)
+      ~model:config.model_id
+      ~http_codec:(Provider_http_codec.fingerprint_tag http_codec)
+      ~stream
+      ~body
+  in
+  observe_pre_dispatch_serialization ?request_wire_observer observation
 ;;
 
 (** Strip query string and userinfo from a URL before logging.  Built-in

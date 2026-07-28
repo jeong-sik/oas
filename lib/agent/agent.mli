@@ -39,6 +39,7 @@ type context_fit_admission = Agent_types.context_fit_admission =
   | Enforce_when_supported
 
 type model_input_projection = Agent_types.model_input_projection
+type pre_dispatch_serialization_observer = Agent_types.pre_dispatch_serialization_observer
 
 type options = Agent_types.options =
   { base_url : string
@@ -108,8 +109,9 @@ val sdk_version : string
     replaces [options.provider]; endpoint, credential, request path, headers,
     and capability overrides are not reconstructed from the legacy option.
 
-    [context_fit_admission] and [model_input_projection] are separate from
-    [options] so callers that construct options records remain source-compatible.
+    [context_fit_admission], [model_input_projection], and
+    [pre_dispatch_serialization_observer] are separate from [options] so callers
+    that construct options records remain source-compatible.
     The optional projection is applied once during turn preparation; native
     request measurement and provider dispatch consume the same projected
     messages. A returned [Error detail] or non-reserved callback exception
@@ -123,6 +125,7 @@ val create
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
   -> ?model_input_projection:model_input_projection
+  -> ?pre_dispatch_serialization_observer:pre_dispatch_serialization_observer
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t
@@ -542,6 +545,7 @@ val resume
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
   -> ?model_input_projection:model_input_projection
+  -> ?pre_dispatch_serialization_observer:pre_dispatch_serialization_observer
   -> ?checkpoint_sink:checkpoint_sink
   -> ?config:Types.agent_config
   -> unit

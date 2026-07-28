@@ -127,6 +127,7 @@ let complete_http
       ?(connection_cache : Http_client.cache option)
       ?capture_id
       ?request_wire_observer
+      ?admitted_body
       ~(config : Provider_config.t)
       ~(messages : Types.message list)
       ~tools
@@ -146,15 +147,36 @@ let complete_http
        | Error _ as error -> error
        | Ok body_deadline ->
          Result.bind
-           (serialize_final_http_request_unadmitted
-              ~stream:false
-              ~config
-              ~messages
-              ~tools)
+           (match admitted_body with
+            | None ->
+              serialize_final_http_request_unadmitted
+                ~stream:false
+                ~config
+                ~messages
+                ~tools
+            | Some admitted_body ->
+              let evidence =
+                Prepared_completion_request.admitted_body_evidence admitted_body
+              in
+              if evidence.stream
+              then
+                Error
+                  (Http_client.AcceptRejected
+                     { reason =
+                         "streaming admitted body cannot be dispatched through the sync \
+                          path"
+                     })
+              else
+                Ok
+                  ( Prepared_completion_request.admitted_body_http_codec admitted_body
+                  , Prepared_completion_request.admitted_body_contents admitted_body ))
            (fun (http_codec, body_str) ->
-              Result.map
-                (fun body_str -> body_deadline, http_codec, body_str)
-                (admit_final_serialized_body ~config body_str)))
+              match admitted_body with
+              | Some _ -> Ok (body_deadline, http_codec, body_str)
+              | None ->
+                Result.map
+                  (fun body_str -> body_deadline, http_codec, body_str)
+                  (admit_final_serialized_body ~config body_str)))
   in
   match preflight with
   | Error err -> Error err, None
@@ -219,14 +241,20 @@ let complete_http
         , None ))
       else (
         let provider_label = provider_name in
-        observe_request_wire
-          ?request_wire_observer
-          ~capture_id
-          ~config
-          ~http_codec
-          ~stream:false
-          ~body:body_str
-          ();
+        (match admitted_body with
+         | Some admitted_body ->
+           observe_pre_dispatch_serialization
+             ?request_wire_observer
+             (Prepared_completion_request.admitted_body_evidence admitted_body)
+         | None ->
+           observe_request_wire
+             ?request_wire_observer
+             ~capture_id
+             ~config
+             ~http_codec
+             ~stream:false
+             ~body:body_str
+             ());
         Diag.debug
           "complete"
           "%s %s → %s (%d bytes)"

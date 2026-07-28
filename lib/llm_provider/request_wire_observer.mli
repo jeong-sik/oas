@@ -1,11 +1,12 @@
 (** Caller-owned observation of one final serialized provider request.
 
     OAS invokes the observer after provider-specific serialization and every
-    stream-field injection have completed, after the exact serialized-body
-    admission check, and immediately before HTTP dispatch. The observation
-    contains only structural identity, byte length, and a SHA-256 digest; the
-    request body, prompts, tool arguments, headers, and credentials are never
-    exposed.
+    stream-field injection have completed and after the exact serialized-body
+    admission check. This is pre-dispatch serialization evidence: it proves
+    which bytes OAS prepared at that boundary, but does not claim that a
+    transport started or completed dispatch. The observation contains only
+    structural identity, byte length, and a SHA-256 digest; the request body,
+    prompts, tool arguments, headers, and credentials are never exposed.
 
     Observation is diagnostic and non-authoritative. Caller rejection or an
     ordinary callback exception is reported as typed failure evidence but does
@@ -15,8 +16,11 @@
     @stability Evolving
     @since 0.230.0 *)
 
+type phase = Pre_dispatch_serialization [@@deriving yojson, show]
+
 type observation =
-  { capture_id : string option
+  { phase : phase
+  ; capture_id : string option
   ; provider : string
   ; model : string
   ; http_codec : string

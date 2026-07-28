@@ -16,6 +16,9 @@
 (** One opaque completion request after all caller-owned projection. *)
 type prepared_request
 
+(** The request paired with the exact admitted built-in HTTP serialization. *)
+type serialized_request
+
 (** The same request paired with provider-native measurement evidence. *)
 type measured_request
 
@@ -63,7 +66,7 @@ val prepare_request
 val admit_request_body
   :  stream:bool
   -> prepared_request
-  -> (unit, Http_client.http_error) result
+  -> (serialized_request, Http_client.http_error) result
 
 (** Validate and measure the exact prepared request through the provider-native
     count protocol. Invalid local configuration fails before admission or I/O;
@@ -76,7 +79,7 @@ val measure_request
   -> ?timeout_s:float
   -> sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> prepared_request
+  -> serialized_request
   -> (measured_request, Count_tokens_sync.completion_request_error) result
 
 (** Resolve the validated positive context-token limit from the explicit

@@ -13,6 +13,7 @@ include Complete_sync
 include Complete_stream
 
 type prepared_request = Prepared_completion_request.t
+type serialized_request = Prepared_completion_request.serialized
 type measured_request = Prepared_completion_request.measured
 type admitted_request = Prepared_completion_request.admitted
 
@@ -75,6 +76,7 @@ let complete_prepared_sync
       ?(metrics : Metrics.t option)
       ?body_timeout_s
       ?request_wire_observer
+      ?admitted_body
       ()
   =
   let request = Prepared_completion_request.request prepared in
@@ -171,6 +173,7 @@ let complete_prepared_sync
                ?connection_cache
                ?capture_id:request.capture_id
                ?request_wire_observer:request.request_wire_observer
+               ?admitted_body
                ~config:request_config
                ~messages
                ~tools
@@ -295,12 +298,14 @@ let complete_admitted
       ?request_wire_observer
       ()
   =
+  let admitted_body = Prepared_completion_request.admitted_body admitted in
   complete_prepared_sync
     ~sw
     ~net
     ?clock
     ?transport
     ~prepared:(Prepared_completion_request.admitted_request admitted)
+    ?admitted_body
     ?cache
     ?connection_cache
     ?metrics
@@ -318,6 +323,7 @@ let complete_prepared_stream
       ?(transport : Llm_transport.t option)
       ?wire_observer
       ?request_wire_observer
+      ?admitted_body
       ~(prepared : Prepared_completion_request.t)
       ~(on_event : Types.sse_event -> unit)
       ?metrics
@@ -409,6 +415,7 @@ let complete_prepared_stream
           ?observe_wire_chunk:request.observe_wire_chunk
           ?capture_id:request.capture_id
           ?request_wire_observer:request.request_wire_observer
+          ?admitted_body
           ~latency_counter
           ?on_telemetry
           ~metrics
@@ -504,6 +511,7 @@ let complete_stream_admitted
       ?on_telemetry
       ()
   =
+  let admitted_body = Prepared_completion_request.admitted_body admitted in
   complete_prepared_stream
     ~sw
     ~net
@@ -512,6 +520,7 @@ let complete_stream_admitted
     ?wire_observer
     ?request_wire_observer
     ~prepared:(Prepared_completion_request.admitted_request admitted)
+    ?admitted_body
     ~on_event
     ?metrics
     ?connection_cache

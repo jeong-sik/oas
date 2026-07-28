@@ -1,11 +1,23 @@
 type t = { request : Llm_transport.completion_request }
 
+type admitted_body =
+  { http_codec : Provider_http_codec.t
+  ; body : string
+  ; evidence : Request_wire_observer.observation
+  }
+
+type serialized =
+  { prepared : t
+  ; admitted_body : admitted_body
+  }
+
 type measurement =
   | Legacy_measurement of Count_tokens_sync.completion_request_measurement
   | Exact_measurement of Exact_output_count_tokens.completion_request_measurement
 
 type measured =
   { prepared : t
+  ; admitted_body : admitted_body option
   ; measurement : measurement
   }
 
@@ -66,17 +78,27 @@ let admit_serialized_body ~stream prepared =
   let config = request.Llm_transport.config in
   let ( let* ) = Result.bind in
   let* () = Complete_common.validate_all config in
-  let* _http_codec, body =
+  let* http_codec, body =
     Complete_common.serialize_final_http_request_unadmitted
       ~stream
       ~config
       ~messages:request.messages
       ~tools:request.tools
   in
-  Result.map (fun _body -> ()) (Complete_common.admit_final_serialized_body ~config body)
+  let* body = Complete_common.admit_final_serialized_body ~config body in
+  let evidence =
+    Request_wire_observer.observation
+      ~capture_id:request.capture_id
+      ~provider:(Provider_registry.provider_name_of_config config)
+      ~model:config.model_id
+      ~http_codec:(Provider_http_codec.fingerprint_tag http_codec)
+      ~stream
+      ~body
+  in
+  Ok { prepared; admitted_body = { http_codec; body; evidence } }
 ;;
 
-let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
+let measure_prepared ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
   let config = prepared.request.Llm_transport.config in
   let measured () =
     Count_tokens_sync.measure_completion_request
@@ -87,7 +109,7 @@ let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
       ~net
       prepared.request
     |> Result.map (fun measurement ->
-      { prepared; measurement = Legacy_measurement measurement })
+      { prepared; admitted_body = None; measurement = Legacy_measurement measurement })
   in
   match Complete_common.validate_all config with
   | Error (Http_client.AcceptRejected { reason }) ->
@@ -97,8 +119,15 @@ let measure ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
   | Ok () -> Provider_admission.with_admission ~config measured
 ;;
 
+let measure ?connection_cache ?clock ?timeout_s ~sw ~net (serialized : serialized) =
+  let prepared = serialized.prepared in
+  Result.map
+    (fun measured -> { measured with admitted_body = Some serialized.admitted_body })
+    (measure_prepared ?connection_cache ?clock ?timeout_s ~sw ~net prepared)
+;;
+
 let attach_measurement prepared measurement =
-  { prepared; measurement = Exact_measurement measurement }
+  { prepared; admitted_body = None; measurement = Exact_measurement measurement }
 ;;
 
 (* Pure single source for the context-token limit. Uses only the caller-owned
@@ -165,3 +194,8 @@ let admit ~now_unix_s ~max_context_tokens measured =
 
 let admitted_request admitted = admitted.measured.prepared
 let admitted_fit admitted = admitted.fit
+let admitted_body admitted = admitted.measured.admitted_body
+let serialized_request (serialized : serialized) = serialized.prepared
+let admitted_body_http_codec admitted_body = admitted_body.http_codec
+let admitted_body_contents admitted_body = admitted_body.body
+let admitted_body_evidence admitted_body = admitted_body.evidence

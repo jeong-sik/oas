@@ -51,10 +51,11 @@ let openai_tool_use_response tool_name input_json =
 ;;
 
 (** Multi-response mock: returns responses in order, cycling. *)
-let start_multi_mock ~sw ~net ~port (responses : string list) =
+let start_multi_mock ?(on_body = fun _ -> ()) ~sw ~net ~port (responses : string list) =
   let idx = Atomic.make 0 in
   let handler _conn _req body =
-    let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    let body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    on_body body;
     let n = List.length responses in
     let i = Atomic.fetch_and_add idx 1 in
     let resp = List.nth responses (i mod n) in
@@ -74,7 +75,15 @@ let start_multi_mock ~sw ~net ~port (responses : string list) =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-let make_agent ~net ?(tools = []) ?hooks ?tool_choice ?(model_id = "mock-model") base_url =
+let make_agent
+      ~net
+      ?(tools = [])
+      ?hooks
+      ?tool_choice
+      ?pre_dispatch_serialization_observer
+      ?(model_id = "mock-model")
+      base_url
+  =
   let config =
     { (Types.default_config ~model:"test-model") with name = "test-agent"; tool_choice }
   in
@@ -91,7 +100,7 @@ let make_agent ~net ?(tools = []) ?hooks ?tool_choice ?(model_id = "mock-model")
          | None -> Hooks.empty)
     }
   in
-  Agent.create ~net ~config ~tools ~options ()
+  Agent.create ~net ~config ~tools ~options ?pre_dispatch_serialization_observer ()
 ;;
 
 let extract_text (resp : Types.api_response) =
@@ -257,9 +266,10 @@ let openai_sse text =
     text
 ;;
 
-let start_sse_mock ~sw ~net ~port sse_body =
+let start_sse_mock ?(on_body = fun _ -> ()) ~sw ~net ~port sse_body =
   let handler _conn _req body =
-    let _ = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    let body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    on_body body;
     let headers = Cohttp.Header.of_list [ "content-type", "text/event-stream" ] in
     Cohttp_eio.Server.respond_string ~status:`OK ~headers ~body:sse_body ()
   in
@@ -296,6 +306,104 @@ let test_agent_run_stream () =
       check bool "events" true (List.length !events > 0);
       Eio.Switch.fail sw Exit
     | Error e -> fail (Error.to_string e)
+  with
+  | Exit -> ()
+;;
+
+let check_pre_dispatch_serialization ~label ~body observations =
+  match List.rev observations with
+  | [ observation ] ->
+    check
+      bool
+      (label ^ " phase")
+      true
+      (observation.Llm_provider.Request_wire_observer.phase
+       = Llm_provider.Request_wire_observer.Pre_dispatch_serialization);
+    check int (label ^ " body bytes") (String.length body) observation.body_bytes;
+    check
+      string
+      (label ^ " body digest")
+      Digestif.SHA256.(to_hex (digest_string body))
+      observation.body_sha256
+  | observations -> failf "%s observer called %d times" label (List.length observations)
+;;
+
+let test_agent_run_observes_pre_dispatch_serialization () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let bodies = ref [] in
+    let observations = ref [] in
+    let url =
+      start_multi_mock
+        ~on_body:(fun body -> bodies := body :: !bodies)
+        ~sw
+        ~net:env#net
+        ~port:20033
+        [ openai_text_response "observed sync" ]
+    in
+    let agent =
+      make_agent
+        ~net:env#net
+        ~pre_dispatch_serialization_observer:(fun observation ->
+          observations := observation :: !observations;
+          Ok ())
+        url
+    in
+    (match Agent.run ~sw agent "observe sync serialization" with
+     | Ok _ -> ()
+     | Error error -> fail (Error.to_string error));
+    (match List.rev !bodies with
+     | [ body ] ->
+       check_pre_dispatch_serialization
+         ~label:"Agent.run compatibility"
+         ~body
+         !observations
+     | bodies -> failf "sync server received %d bodies" (List.length bodies));
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_agent_run_stream_observes_pre_dispatch_serialization () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let bodies = ref [] in
+    let observations = ref [] in
+    let url =
+      start_sse_mock
+        ~on_body:(fun body -> bodies := body :: !bodies)
+        ~sw
+        ~net:env#net
+        ~port:20034
+        (openai_sse "observed stream")
+    in
+    let agent =
+      make_agent
+        ~net:env#net
+        ~pre_dispatch_serialization_observer:(fun observation ->
+          observations := observation :: !observations;
+          Ok ())
+        url
+    in
+    (match
+       Agent.run_stream ~sw ~on_event:(fun _ -> ()) agent "observe stream serialization"
+     with
+     | Ok _ -> ()
+     | Error error -> fail (Error.to_string error));
+    (match List.rev !bodies with
+     | [ body ] ->
+       check_pre_dispatch_serialization
+         ~label:"Agent.run_stream compatibility"
+         ~body
+         !observations
+     | bodies -> failf "stream server received %d bodies" (List.length bodies));
+    Eio.Switch.fail sw Exit
   with
   | Exit -> ()
 ;;
@@ -530,7 +638,19 @@ let () =
         ; test_case "tool error" `Quick test_agent_run_tool_error
         ; test_case "pre_tool hook" `Quick test_agent_run_pre_tool_hook
         ] )
-    ; "streaming", [ test_case "run_stream" `Quick test_agent_run_stream ]
+    ; ( "streaming"
+      , [ test_case "run_stream" `Quick test_agent_run_stream
+        ; test_case
+            "run_stream pre-dispatch serialization observer"
+            `Quick
+            test_agent_run_stream_observes_pre_dispatch_serialization
+        ] )
     ; "hooks", [ test_case "hooks" `Quick test_agent_run_with_hooks ]
+    ; ( "observation"
+      , [ test_case
+            "run pre-dispatch serialization observer"
+            `Quick
+            test_agent_run_observes_pre_dispatch_serialization
+        ] )
     ]
 ;;

@@ -612,6 +612,7 @@ let run_handoff_target ~sw ?clock agent (target : Handoff.handoff_target) prompt
       ~tools:target.tools
       ~context_fit_admission:agent.context_fit_admission
       ?model_input_projection:agent.model_input_projection
+      ?pre_dispatch_serialization_observer:agent.pre_dispatch_serialization_observer
       ~options:
         { default_options with
           base_url = agent.options.base_url
@@ -695,6 +696,7 @@ let resume
       ?provider_config
       ?(context_fit_admission = Disabled)
       ?model_input_projection
+      ?pre_dispatch_serialization_observer
       ?checkpoint_sink
       ?config
       ()
@@ -717,6 +719,7 @@ let resume
   ; provider_config
   ; context_fit_admission
   ; model_input_projection
+  ; pre_dispatch_serialization_observer
   ; checkpoint_sink
   }
 ;;

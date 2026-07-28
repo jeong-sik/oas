@@ -5,8 +5,10 @@
     The public {!Complete} module exposes these states opaquely. *)
 
 type t
+type serialized
 type measured
 type admitted
+type admitted_body
 
 type context_fit =
   { input_tokens : int
@@ -42,8 +44,13 @@ val prepare
 val request : t -> Llm_transport.completion_request
 
 (** Serialize and admit the exact final completion body without network I/O.
-    Streaming admission includes transport-owned stream-field injection. *)
-val admit_serialized_body : stream:bool -> t -> (unit, Http_client.http_error) result
+    Streaming admission includes transport-owned stream-field injection. The
+    returned immutable state owns the exact codec, body, and digest that an
+    admitted built-in HTTP dispatch must consume. *)
+val admit_serialized_body
+  :  stream:bool
+  -> t
+  -> (serialized, Http_client.http_error) result
 
 val measure
   :  ?connection_cache:Http_client.cache
@@ -51,7 +58,7 @@ val measure
   -> ?timeout_s:float
   -> sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> t
+  -> serialized
   -> (measured, Count_tokens_sync.completion_request_error) result
 
 val attach_measurement
@@ -79,3 +86,8 @@ val admit
 
 val admitted_request : admitted -> t
 val admitted_fit : admitted -> context_fit
+val admitted_body : admitted -> admitted_body option
+val serialized_request : serialized -> t
+val admitted_body_http_codec : admitted_body -> Provider_http_codec.t
+val admitted_body_contents : admitted_body -> string
+val admitted_body_evidence : admitted_body -> Request_wire_observer.observation

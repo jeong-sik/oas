@@ -83,6 +83,12 @@ let config
     ()
 ;;
 
+let serialize_sync prepared =
+  match Complete.admit_request_body ~stream:false prepared with
+  | Ok serialized -> serialized
+  | Error _ -> fail "request serialization admission failed"
+;;
+
 let kimi_config ?max_context base_url =
   { (config ~kind:Provider_config.Kimi ?max_context base_url) with
     response_format = Off
@@ -103,17 +109,22 @@ let response =
 let build_admission_agent
       ?model_input_projection
       ?body_timeout_s
+      ?pre_dispatch_serialization_observer
       ~net
       ~provider_config
-      ~transport
+      ?transport
       ()
   =
   let builder =
     Agent_sdk.Builder.create ~net ~model:provider_config.Provider_config.model_id
     |> Agent_sdk.Builder.with_provider_config provider_config
     |> Agent_sdk.Builder.with_context_fit_admission Agent_sdk.Agent.Enforce_when_supported
-    |> Agent_sdk.Builder.with_transport transport
     |> Agent_sdk.Builder.without_event_bus
+  in
+  let builder =
+    match transport with
+    | None -> builder
+    | Some transport -> Agent_sdk.Builder.with_transport transport builder
   in
   let builder =
     match model_input_projection with
@@ -124,6 +135,12 @@ let build_admission_agent
     match body_timeout_s with
     | None -> builder
     | Some timeout_s -> Agent_sdk.Builder.with_body_timeout timeout_s builder
+  in
+  let builder =
+    match pre_dispatch_serialization_observer with
+    | None -> builder
+    | Some observer ->
+      Agent_sdk.Builder.with_pre_dispatch_serialization_observer observer builder
   in
   builder
   |> Agent_sdk.Builder.build_safe
@@ -253,6 +270,90 @@ let with_mock ~status ~response f =
     f ~sw ~net ~base_url)
 ;;
 
+let admitted_anthropic_stream_response =
+  "event: message_start\n\
+   data: \
+   {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"model\":\"input-count-fixture\",\"content\":[],\"stop_reason\":null,\"usage\":{\"input_tokens\":10,\"output_tokens\":0}}}\n\n\
+   event: content_block_start\n\
+   data: \
+   {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n\n\
+   event: content_block_delta\n\
+   data: \
+   {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"accepted\"}}\n\n\
+   event: content_block_stop\n\
+   data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+   event: message_delta\n\
+   data: \
+   {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":1}}\n\n\
+   event: message_stop\n\
+   data: {\"type\":\"message_stop\"}\n\n"
+;;
+
+let admitted_anthropic_sync_response =
+  {|{"id":"msg-1","type":"message","role":"assistant","model":"input-count-fixture","content":[{"type":"text","text":"accepted"}],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":1}}|}
+;;
+
+let with_admitted_http_mock ~stream f =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let port = fresh_port () in
+  let completion_body = ref None in
+  let handler _conn request body =
+    let body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
+    let path = Cohttp.Request.uri request |> Uri.path in
+    if String.ends_with ~suffix:"/count_tokens" path
+    then Cohttp_eio.Server.respond_string ~status:`OK ~body:{|{"input_tokens":10}|} ()
+    else (
+      completion_body := Some body;
+      let headers =
+        if stream
+        then Cohttp.Header.of_list [ "content-type", "text/event-stream" ]
+        else Cohttp.Header.init ()
+      in
+      let response =
+        if stream
+        then admitted_anthropic_stream_response
+        else admitted_anthropic_sync_response
+      in
+      Cohttp_eio.Server.respond_string ~status:`OK ~headers ~body:response ())
+  in
+  let socket =
+    Eio.Net.listen
+      net
+      ~sw
+      ~backlog:4
+      ~reuse_addr:true
+      (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+  in
+  let server = Cohttp_eio.Server.make ~callback:handler () in
+  Eio.Fiber.fork_daemon ~sw (fun () ->
+    Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+  let base_url = Printf.sprintf "http://127.0.0.1:%d" port in
+  let result = f ~sw ~net ~base_url in
+  result, !completion_body
+;;
+
+let check_pre_dispatch_serialization ~label ~body observations =
+  match List.rev observations with
+  | [ observation ] ->
+    check
+      bool
+      (label ^ " phase")
+      true
+      (observation.Request_wire_observer.phase
+       = Request_wire_observer.Pre_dispatch_serialization);
+    check int (label ^ " body bytes") (String.length body) observation.body_bytes;
+    check
+      string
+      (label ^ " body digest")
+      Digestif.SHA256.(to_hex (digest_string body))
+      observation.body_sha256
+  | observations -> failf "%s observer called %d times" label (List.length observations)
+;;
+
 let test_transport_success () =
   let result, (path, headers, body) =
     with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
@@ -342,7 +443,7 @@ let test_prepared_measure_admit_dispatch () =
         ()
     in
     let measured =
-      match Complete.measure_request ~sw ~net prepared with
+      match Complete.measure_request ~sw ~net (serialize_sync prepared) with
       | Ok measured -> measured
       | Error _ -> fail "expected prepared request measurement"
     in
@@ -401,7 +502,7 @@ let test_prepared_context_overflow_is_typed () =
         ~tools:[ tool ]
         ()
     in
-    match Complete.measure_request ~sw ~net prepared with
+    match Complete.measure_request ~sw ~net (serialize_sync prepared) with
     | Error _ -> fail "expected prepared request measurement"
     | Ok measured ->
       (match Complete.resolve_context_limit prepared with
@@ -428,7 +529,9 @@ let test_prepared_admission_resolves_catalog_context_limit () =
       |> Option.get
     in
     let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
-    let measured = Complete.measure_request ~sw ~net prepared |> Result.get_ok in
+    let measured =
+      Complete.measure_request ~sw ~net (serialize_sync prepared) |> Result.get_ok
+    in
     let max_context_tokens = Complete.resolve_context_limit prepared |> Result.get_ok in
     Complete.admit_request ~now_unix_s:0 ~max_context_tokens measured, expected
   in
@@ -771,7 +874,7 @@ let test_stream_body_admission_precedes_measurement () =
   check bool "stream body rejection makes no completion request" false dispatched
 ;;
 
-let test_measurement_validates_before_io () =
+let test_serialization_admission_validates_before_io () =
   Eio_main.run
   @@ fun env ->
   Eio.Switch.run
@@ -780,8 +883,8 @@ let test_measurement_validates_before_io () =
     config ~request_path:"/v1/responses" ~max_concurrent_requests:0 "http://127.0.0.1:1"
   in
   let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
-  match Complete.measure_request ~sw ~net:(Eio.Stdenv.net env) prepared with
-  | Error (Count_tokens_sync.Invalid_completion_request detail) ->
+  match Complete.admit_request_body ~stream:false prepared with
+  | Error (Http_client.AcceptRejected { reason = detail }) ->
     check bool "validation identifies local config" true (String.length detail > 0);
     check
       bool
@@ -797,7 +900,7 @@ let test_measurement_uses_provider_admission () =
     @@ fun ~sw ~net ~base_url ->
     let cfg = config ~max_context:512 ~max_concurrent_requests:1 base_url in
     let prepared = Complete.prepare_request ~config:cfg ~messages ~tools:[ tool ] () in
-    let result = Complete.measure_request ~sw ~net prepared in
+    let result = Complete.measure_request ~sw ~net (serialize_sync prepared) in
     result, Provider_admission.snapshot_for ~config:cfg
   in
   match result with
@@ -865,6 +968,51 @@ let test_agent_stream_route_uses_prepared_admission () =
     check string "stream response" "accepted" (Types.visible_text_of_response actual);
     check string "stream dispatch model" "input-count-fixture" request.config.model_id;
     check int "stream dispatch messages" 1 (List.length request.messages)
+;;
+
+let run_admitted_agent_observer ~stream =
+  let observations = ref [] in
+  let (result, observations), completion_body =
+    with_admitted_http_mock ~stream
+    @@ fun ~sw ~net ~base_url ->
+    let provider_config = config ~max_context:512 base_url in
+    let agent =
+      build_admission_agent
+        ~net
+        ~provider_config
+        ~pre_dispatch_serialization_observer:(fun observation ->
+          observations := observation :: !observations;
+          Ok ())
+        ()
+    in
+    let result =
+      if stream
+      then
+        Agent_sdk.Agent.run_stream
+          ~sw
+          ~on_event:(fun _ -> ())
+          agent
+          "observe admitted stream serialization"
+      else Agent_sdk.Agent.run ~sw agent "observe admitted sync serialization"
+    in
+    result, !observations
+  in
+  (match result with
+   | Ok _ -> ()
+   | Error error -> fail (Agent_sdk.Error.to_string error));
+  match completion_body with
+  | None -> fail "admitted Agent path did not reach completion dispatch"
+  | Some body -> body, observations
+;;
+
+let test_agent_admitted_sync_observer_sees_dispatched_body () =
+  let body, observations = run_admitted_agent_observer ~stream:false in
+  check_pre_dispatch_serialization ~label:"Agent.run admitted" ~body observations
+;;
+
+let test_agent_admitted_stream_observer_sees_dispatched_body () =
+  let body, observations = run_admitted_agent_observer ~stream:true in
+  check_pre_dispatch_serialization ~label:"Agent.run_stream admitted" ~body observations
 ;;
 
 let test_agent_projection_is_shared_by_measurement_and_dispatch () =
@@ -1220,9 +1368,9 @@ let () =
             `Quick
             test_unmeasurable_constraint_fails_typed_without_dispatch
         ; test_case
-            "measurement validates before I/O"
+            "serialization admission validates before I/O"
             `Quick
-            test_measurement_validates_before_io
+            test_serialization_admission_validates_before_io
         ; test_case
             "measurement uses provider admission"
             `Quick
@@ -1235,6 +1383,14 @@ let () =
             "Agent stream route uses prepared admission"
             `Quick
             test_agent_stream_route_uses_prepared_admission
+        ; test_case
+            "Agent admitted sync observes dispatched serialization"
+            `Quick
+            test_agent_admitted_sync_observer_sees_dispatched_body
+        ; test_case
+            "Agent admitted stream observes dispatched serialization"
+            `Quick
+            test_agent_admitted_stream_observer_sees_dispatched_body
         ; test_case
             "Agent projection is shared by measurement and dispatch"
             `Quick

@@ -38,6 +38,8 @@ type context_fit_admission =
     before request measurement or dispatch. Canonical Agent state is unchanged. *)
 type model_input_projection = Types.message list -> (Types.message list, string) result
 
+type pre_dispatch_serialization_observer = Llm_provider.Request_wire_observer.try_observe
+
 type options =
   { base_url : string
   ; provider : Provider.config option
@@ -170,6 +172,7 @@ type t =
   ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : context_fit_admission
   ; model_input_projection : model_input_projection option
+  ; pre_dispatch_serialization_observer : pre_dispatch_serialization_observer option
   ; checkpoint_sink : checkpoint_sink option
   }
 
@@ -205,6 +208,7 @@ val create
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
   -> ?model_input_projection:model_input_projection
+  -> ?pre_dispatch_serialization_observer:pre_dispatch_serialization_observer
   -> ?checkpoint_sink:checkpoint_sink
   -> unit
   -> t
