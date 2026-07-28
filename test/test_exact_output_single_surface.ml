@@ -306,6 +306,7 @@ let test_tier_table_and_provider_schema_rejection () =
   let native_json = plan snapshot "native" EO.Json_syntax |> EO.plan_provenance in
   let native_schema = plan snapshot "native" EO.Provider_schema |> EO.plan_provenance in
   let json_only = plan snapshot "json-only" EO.Json_syntax |> EO.plan_provenance in
+  let text_only = plan snapshot "none" EO.Json_syntax |> EO.plan_provenance in
   check
     bool
     "native preferred for syntax minimum"
@@ -331,28 +332,27 @@ let test_tier_table_and_provider_schema_rejection () =
     "json-only has no effective schema"
     true
     (Option.is_none (EO.plan_provenance_effective_schema_fingerprint json_only));
-  (match
-     EO.admit
-       ~target:(target snapshot "json-only")
-       ~messages:[ msg "json" ]
-       (requirement EO.Provider_schema)
-   with
-   | Error error ->
-     (match EO.admission_error_disposition error with
-      | EO.Output_requirement_rejected -> ()
-      | _ -> fail "provider-schema rejection lost its neutral disposition")
-   | Ok _ -> fail "provider-schema minimum must fail on JSON-only target");
+  check
+    bool
+    "text fallback records syntax assurance"
+    true
+    (EO.plan_provenance_actual_assurance text_only = EO.Json_syntax_only);
+  check
+    bool
+    "text fallback has no effective provider schema"
+    true
+    (Option.is_none (EO.plan_provenance_effective_schema_fingerprint text_only));
   match
     EO.admit
-      ~target:(target snapshot "none")
+      ~target:(target snapshot "json-only")
       ~messages:[ msg "json" ]
-      (requirement EO.Json_syntax)
+      (requirement EO.Provider_schema)
   with
   | Error error ->
     (match EO.admission_error_disposition error with
      | EO.Output_requirement_rejected -> ()
-     | _ -> fail "JSON syntax rejection lost its neutral disposition")
-  | Ok _ -> fail "JSON syntax must fail when target declares no JSON tier"
+     | _ -> fail "provider-schema rejection lost its neutral disposition")
+  | Ok _ -> fail "provider-schema minimum must fail on JSON-only target"
 ;;
 
 let test_deepseek_catalog_is_json_only_before_dispatch () =
