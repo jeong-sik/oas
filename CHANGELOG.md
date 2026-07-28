@@ -15,9 +15,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **hooks:** Stable pre-tool approval now requires Hooks.ElicitToolApproval and Builder.with_tool_approval; generic ElicitInput/with_elicitation is BeforeTurn-only.
 
-* **exact-output:** `Exact_output.execute_once` is no longer public; migrate to
-  `Exact_output.execute_flow_once`, supplying its flow callbacks and semantic
-  `validate` function ([#2844](https://github.com/jeong-sik/oas/issues/2844))
+* **exact-output:** `Exact_output.execute_once` is no longer public; freeze
+  caller-selected candidates with `snapshot_flow`, create one affine flow with
+  `start_flow`, then call `execute_flow_once` with caller-owned callbacks and
+  semantic `validate` ([#2844](https://github.com/jeong-sik/oas/issues/2844))
   ([9d01ab7](https://github.com/jeong-sik/oas/commit/9d01ab7c9cf8450bd619dd5fdf168c03fc5ed1ca)).
 
 `Hooks.PreToolUse` no longer accepts generic `ElicitInput` as tool execution
