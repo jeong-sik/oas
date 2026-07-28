@@ -8,21 +8,6 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
-### Breaking Changes
-
-`Hooks.PreToolUse` no longer accepts generic `ElicitInput` as tool execution
-authority. Existing callers must keep `ElicitInput`/`with_elicitation` at
-`BeforeTurn`, and migrate exact tool approval to
-`ElicitToolApproval { question }` plus `Builder.with_tool_approval`. The
-approval callback is synchronous and caller-owned; only `Approved` executes the
-exact invocation, while `Denied`, `Timed_out`, a missing callback, and callback
-failure open no effect. OAS does not install a timer, persist a pending approval,
-or issue a resume token at this boundary.
-
-Exhaustive consumers must also handle `ElicitToolApproval`,
-`K_ElicitToolApproval`, and `ToolApprovalCompleted`, and direct `Agent.options`
-record construction must provide the new `tool_approval` field.
-
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
 
