@@ -181,6 +181,95 @@ let plan snapshot selector minimum_guarantee =
   plan_for_schema snapshot selector schema minimum_guarantee
 ;;
 
+let flow_from_admitted_target ~id ~messages requirement admitted_target =
+  let candidate =
+    match EO.make_flow_candidate ~id ~admitted_target with
+    | Ok candidate -> candidate
+    | Error EO.Blank_flow_candidate_id ->
+      failf "target ref %s produced a blank flow candidate" id
+  in
+  match EO.snapshot_flow ~first:candidate ~rest:[] ~messages requirement with
+  | Ok flow -> flow
+  | Error _ -> failf "target ref %s did not produce a single-candidate flow" id
+;;
+
+let flow_for_schema snapshot selector domain_schema minimum_guarantee =
+  let admitted_target =
+    match EO.admit_target_ref snapshot selector with
+    | Ok admitted -> admitted
+    | Error _ -> failf "target ref %s was not admitted for a flow" selector
+  in
+  flow_from_admitted_target
+    ~id:selector
+    ~messages:[ msg "return one object" ]
+    (requirement_for domain_schema minimum_guarantee)
+    admitted_target
+;;
+
+let flow snapshot selector minimum_guarantee =
+  flow_for_schema snapshot selector schema minimum_guarantee
+;;
+
+type single_execution =
+  { flow : EO.flow_attempt
+  ; receipt : EO.receipt option Atomic.t
+  }
+
+let attempt ready =
+  match EO.start_flow ready with
+  | Ok flow -> { flow; receipt = Atomic.make None }
+  | Error (EO.Flow_id_generation_failed detail) ->
+    failf "exact flow identity allocation failed: %s" detail
+;;
+
+type no_semantic_rejection = |
+
+let accept_transport success
+  : (EO.flow_success, no_semantic_rejection) EO.semantic_verdict
+  =
+  EO.Accept success
+;;
+
+let execution_receipt execution =
+  match Atomic.get execution.receipt with
+  | Some receipt -> receipt
+  | None -> fail "single-candidate flow did not allocate an execution receipt"
+;;
+
+let execute_once ~net ?clock execution =
+  let before_dispatch candidate =
+    Atomic.set execution.receipt (Some candidate.EO.receipt);
+    Ok ()
+  in
+  match
+    EO.execute_flow_once
+      ~net
+      ?clock
+      ~before_measurement_dispatch:(fun _ -> Ok ())
+      ~on_measurement_terminal:(fun _ -> Ok ())
+      ~before_dispatch
+      ~before_advance:(fun ~failed:_ ~next:_ -> Ok ())
+      ~validate:accept_transport
+      execution.flow
+  with
+  | Ok success -> Ok (EO.flow_success_output success.accepted)
+  | Error
+      (EO.Flow_execution_terminal
+         { cause = EO.Flow_exact_execution_failed { cause; _ }; _ }) -> Error cause
+  | Error (EO.Flow_execution_terminal { cause = EO.Flow_attempt_already_started _; _ }) ->
+    let receipt = execution_receipt execution in
+    Error
+      { EO.call_id = EO.receipt_call_id receipt
+      ; receipt
+      ; cause = EO.Attempt_already_started
+      ; raw_response = None
+      }
+  | Error (EO.Flow_semantic_candidates_exhausted _) ->
+    fail "accepting single-candidate flow exhausted semantic candidates"
+  | Error (EO.Flow_execution_terminal _) ->
+    fail "single-candidate flow failed outside exact execution"
+;;
+
 let fresh_port () =
   let socket = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
   Unix.setsockopt socket Unix.SO_REUSEADDR true;
@@ -302,7 +391,7 @@ let cancel_execute_once_after_dispatch ~sw ~net ~clock ~request_seen execution =
         ignore
           (Eio.Cancel.sub (fun context ->
              Eio.Promise.resolve notify_cancel_context context;
-             EO.execute_once ~net execution));
+             execute_once ~net execution));
         false
       with
       | Eio.Cancel.Cancelled Caller_cancelled -> true
@@ -637,13 +726,6 @@ let assert_absent json field =
   | _ -> fail "captured request body must be a JSON object"
 ;;
 
-let attempt ready =
-  match EO.start_attempt ready with
-  | Ok attempt -> attempt
-  | Error (EO.Call_id_generation_failed detail) ->
-    failf "exact attempt identity allocation failed: %s" detail
-;;
-
 let test_no_measure_one_post_and_wire_authority () =
   let run ?(domain_schema = schema) ~id ~kind ~path ~response inspect =
     let (provenance, plan_fingerprint, result), completion_posts, token_posts, captures =
@@ -661,9 +743,10 @@ let test_no_measure_one_post_and_wire_authority () =
       with_catalog [ entry ]
       @@ fun snapshot ->
       let ready = plan_for_schema snapshot id domain_schema EO.Json_syntax in
-      ( EO.plan_provenance ready
-      , EO.plan_fingerprint ready
-      , EO.execute_once ~net (attempt ready) )
+      let execution =
+        flow_for_schema snapshot id domain_schema EO.Json_syntax |> attempt
+      in
+      EO.plan_provenance ready, EO.plan_fingerprint ready, execute_once ~net execution
     in
     check int (id ^ " completion posts") 1 completion_posts;
     check int (id ^ " token posts") 0 token_posts;
@@ -804,9 +887,7 @@ let test_provider_trace_fingerprint_anchors_normalized_headers_and_body () =
       in
       with_catalog [ entry ]
       @@ fun snapshot ->
-      EO.execute_once
-        ~net
-        (attempt (plan snapshot "provider-trace-surface" EO.Json_syntax))
+      execute_once ~net (attempt (flow snapshot "provider-trace-surface" EO.Json_syntax))
     in
     check int "provider trace uses one POST" 1 posts;
     match result with
@@ -860,7 +941,7 @@ let test_response_received_error_evidence_matrix () =
       in
       with_catalog [ entry ]
       @@ fun snapshot ->
-      EO.execute_once ~net (attempt (plan snapshot "error-surface" EO.Json_syntax))
+      execute_once ~net (attempt (flow snapshot "error-surface" EO.Json_syntax))
     in
     check int (label ^ " dispatches once") 1 posts;
     match result with
@@ -927,7 +1008,7 @@ let test_public_receipt_phase_matrix () =
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
-    EO.execute_once ~net (attempt (plan snapshot "pre-dispatch-surface" EO.Json_syntax))
+    execute_once ~net (attempt (flow snapshot "pre-dispatch-surface" EO.Json_syntax))
   in
   check int "pre-dispatch has zero POSTs" 0 pre_posts;
   (match pre_result with
@@ -954,7 +1035,7 @@ let test_public_receipt_phase_matrix () =
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
-    EO.execute_once ~net (attempt (plan snapshot "abort-surface" EO.Json_syntax))
+    execute_once ~net (attempt (flow snapshot "abort-surface" EO.Json_syntax))
   in
   check int "abort observes one POST" 1 abort_posts;
   (match abort_result with
@@ -980,7 +1061,7 @@ let test_public_receipt_phase_matrix () =
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
-    EO.execute_once ~net (attempt (plan snapshot "rate-surface" EO.Json_syntax))
+    execute_once ~net (attempt (flow snapshot "rate-surface" EO.Json_syntax))
   in
   check int "429 observes one POST" 1 rate_posts;
   (match rate_result with
@@ -1011,15 +1092,13 @@ let test_public_receipt_phase_matrix () =
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
-    let ready = plan snapshot "terminal-surface" EO.Json_syntax in
-    let execution = attempt ready in
-    check_receipt
-      "not-started"
-      ~phase:EO.Not_started
-      ~dispatch_count:0
-      ~http_status:None
-      (EO.attempt_receipt execution);
-    EO.execute_once ~net execution
+    let execution = flow snapshot "terminal-surface" EO.Json_syntax |> attempt in
+    check
+      int
+      "flow starts without an allocated attempt"
+      0
+      (List.length (EO.flow_attempt_evidence execution.flow).attempts);
+    execute_once ~net execution
   in
   check int "terminal observes one POST" 1 terminal_posts;
   match terminal_result with
@@ -1052,9 +1131,9 @@ let test_reasoning_response_bytes_do_not_enter_json_output () =
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
-    EO.execute_once
+    execute_once
       ~net
-      (attempt (plan snapshot "reasoning-response-surface" EO.Json_syntax))
+      (attempt (flow snapshot "reasoning-response-surface" EO.Json_syntax))
   in
   check int "reasoning response dispatches once" 1 posts;
   match result with
@@ -1177,9 +1256,7 @@ let test_normalization_error_classes () =
       in
       with_catalog [ entry ]
       @@ fun snapshot ->
-      EO.execute_once
-        ~net
-        (attempt (plan snapshot "normalization-surface" EO.Json_syntax))
+      execute_once ~net (attempt (flow snapshot "normalization-surface" EO.Json_syntax))
     in
     check int (label ^ " dispatches once") 1 posts;
     match result with
@@ -1234,13 +1311,12 @@ let test_attempt_rejects_concurrent_duplicate_before_second_dispatch () =
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
-    let ready = plan snapshot "concurrent-surface" EO.Json_syntax in
-    let execution = attempt ready in
+    let execution = flow snapshot "concurrent-surface" EO.Json_syntax |> attempt in
     let first_promise, first_resolver = Eio.Promise.create () in
     let second_promise, second_resolver = Eio.Promise.create () in
     Eio.Fiber.both
-      (fun () -> EO.execute_once ~net execution |> Eio.Promise.resolve first_resolver)
-      (fun () -> EO.execute_once ~net execution |> Eio.Promise.resolve second_resolver);
+      (fun () -> execute_once ~net execution |> Eio.Promise.resolve first_resolver)
+      (fun () -> execute_once ~net execution |> Eio.Promise.resolve second_resolver);
     Eio.Promise.await first_promise, Eio.Promise.await second_promise
   in
   check int "one concurrent completion post" 1 posts;
@@ -1273,37 +1349,28 @@ let test_parallel_attempts_from_one_plan_do_not_share_identity_or_state () =
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
-    let ready = plan snapshot "parallel-attempt-surface" EO.Json_syntax in
+    let ready = flow snapshot "parallel-attempt-surface" EO.Json_syntax in
     let first_attempt = attempt ready in
     let second_attempt = attempt ready in
-    let first_receipt = EO.attempt_receipt first_attempt in
-    let second_receipt = EO.attempt_receipt second_attempt in
-    let first_id = EO.receipt_call_id first_receipt |> EO.call_id_to_string in
-    let second_id = EO.receipt_call_id second_receipt |> EO.call_id_to_string in
+    let first_promise, first_resolver = Eio.Promise.create () in
+    let second_promise, second_resolver = Eio.Promise.create () in
+    Eio.Fiber.both
+      (fun () -> execute_once ~net first_attempt |> Eio.Promise.resolve first_resolver)
+      (fun () -> execute_once ~net second_attempt |> Eio.Promise.resolve second_resolver);
+    let first = Eio.Promise.await first_promise in
+    let second = Eio.Promise.await second_promise in
+    let first_id =
+      execution_receipt first_attempt |> EO.receipt_call_id |> EO.call_id_to_string
+    in
+    let second_id =
+      execution_receipt second_attempt |> EO.receipt_call_id |> EO.call_id_to_string
+    in
     check
       bool
       "parallel call identities differ"
       true
       (not (String.equal first_id second_id));
-    check_receipt
-      "first parallel attempt starts fresh"
-      ~phase:EO.Not_started
-      ~dispatch_count:0
-      ~http_status:None
-      first_receipt;
-    check_receipt
-      "second parallel attempt starts fresh"
-      ~phase:EO.Not_started
-      ~dispatch_count:0
-      ~http_status:None
-      second_receipt;
-    let first_promise, first_resolver = Eio.Promise.create () in
-    let second_promise, second_resolver = Eio.Promise.create () in
-    Eio.Fiber.both
-      (fun () -> EO.execute_once ~net first_attempt |> Eio.Promise.resolve first_resolver)
-      (fun () ->
-         EO.execute_once ~net second_attempt |> Eio.Promise.resolve second_resolver);
-    first_id, Eio.Promise.await first_promise, second_id, Eio.Promise.await second_promise
+    first_id, first, second_id, second
   in
   check int "parallel attempts dispatch independently" 2 posts;
   let check_success label expected_id = function
@@ -1340,14 +1407,13 @@ let test_cancellation_leaves_queryable_monotonic_receipt () =
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
-    let ready = plan snapshot "cancel-surface" EO.Json_syntax in
-    let execution = attempt ready in
-    let receipt = EO.attempt_receipt execution in
+    let execution = flow snapshot "cancel-surface" EO.Json_syntax |> attempt in
     let cancelled =
       cancel_execute_once_after_dispatch ~sw ~net ~clock ~request_seen execution
     in
+    let receipt = execution_receipt execution in
     let phase = EO.receipt_phase receipt in
-    let duplicate = EO.execute_once ~net execution in
+    let duplicate = execute_once ~net execution in
     cancelled, phase, duplicate
   in
   check bool "caller cancellation observed" true cancelled;
@@ -1434,18 +1500,17 @@ let test_body_cancellation_retains_response_status () =
     in
     with_catalog [ entry ]
     @@ fun snapshot ->
-    let ready = plan snapshot "body-cancel-surface" EO.Json_syntax in
-    let execution = attempt ready in
-    let receipt = EO.attempt_receipt execution in
+    let execution = flow snapshot "body-cancel-surface" EO.Json_syntax |> attempt in
     let timed_out =
       try
         match
-          Eio.Time.with_timeout_exn clock 0.05 (fun () -> EO.execute_once ~net execution)
+          Eio.Time.with_timeout_exn clock 0.05 (fun () -> execute_once ~net execution)
         with
         | Ok _ | Error _ -> false
       with
       | Eio.Time.Timeout -> true
     in
+    let receipt = execution_receipt execution in
     timed_out, EO.receipt_phase receipt, EO.receipt_http_status receipt
   in
   check bool "body cancellation observed" true timed_out;
@@ -1520,18 +1585,7 @@ let test_overlay_endpoint_and_credential_are_materialized () =
     @@ fun snapshot ->
     frozen_base_url := "https://rotated.invalid";
     frozen_credential := "rotated-surface-secret";
-    let selected = target snapshot "environment-surface" in
-    let ready =
-      match
-        EO.admit
-          ~target:selected
-          ~messages:[ msg "environment" ]
-          (requirement EO.Json_syntax)
-      with
-      | Ok ready -> ready
-      | Error _ -> fail "environment target should admit"
-    in
-    EO.execute_once ~net (attempt ready)
+    flow snapshot "environment-surface" EO.Json_syntax |> attempt |> execute_once ~net
   in
   check int "environment target dispatches once" 1 posts;
   (match result with
@@ -1623,8 +1677,19 @@ let test_credential_rotation_keeps_snapshot_bound_wire_authority () =
       | Ok ready -> ready
       | Error _ -> fail "credential rotation target should admit a request"
     in
-    let result_a = EO.execute_once ~net (attempt (ready target_a)) in
-    let result_b = EO.execute_once ~net (attempt (ready target_b)) in
+    ignore (ready target_a : EO.ready_plan);
+    ignore (ready target_b : EO.ready_plan);
+    let execute id admitted_target =
+      flow_from_admitted_target
+        ~id
+        ~messages:[ msg "credential rotation" ]
+        (requirement EO.Json_syntax)
+        admitted_target
+      |> attempt
+      |> execute_once ~net
+    in
+    let result_a = execute "credential-rotation-a" handle_a in
+    let result_b = execute "credential-rotation-b" handle_b in
     result_a, result_b
   in
   check int "two frozen credential plans dispatch once each" 2 posts;
@@ -1666,7 +1731,8 @@ let test_identity_survives_success_error_and_cancellation () =
       with_catalog [ entry ]
       @@ fun snapshot ->
       let ready = plan snapshot "identity-surface" EO.Json_syntax in
-      EO.plan_provenance ready, EO.execute_once ~net (attempt ready)
+      let execution = flow snapshot "identity-surface" EO.Json_syntax |> attempt in
+      EO.plan_provenance ready, execute_once ~net execution
     in
     check int "identity path dispatches once" 1 posts;
     provenance, result
@@ -1718,11 +1784,11 @@ let test_identity_survives_success_error_and_cancellation () =
     @@ fun snapshot ->
     let ready = plan snapshot "identity-cancel-surface" EO.Json_syntax in
     let provenance = EO.plan_provenance ready in
-    let execution = attempt ready in
-    let receipt = EO.attempt_receipt execution in
+    let execution = flow snapshot "identity-cancel-surface" EO.Json_syntax |> attempt in
     let cancelled =
       cancel_execute_once_after_dispatch ~sw ~net ~clock ~request_seen execution
     in
+    let receipt = execution_receipt execution in
     provenance, receipt, cancelled
   in
   check bool "identity cancellation observed" true cancelled;
@@ -1826,7 +1892,10 @@ let test_gemini_any_of_nullable_enum_admitted_unchanged () =
         | Error _ -> failf "%s Gemini anyOf schema must admit" label
         | Ok ready -> ready
       in
-      EO.plan_provenance ready, EO.execute_once ~net (attempt ready)
+      let execution =
+        flow_for_schema snapshot id domain_schema EO.Provider_schema |> attempt
+      in
+      EO.plan_provenance ready, execute_once ~net execution
     in
     check int (label ^ " Gemini generation POST") 1 completion_posts;
     check int (label ^ " Gemini token POST") 0 token_posts;
