@@ -166,7 +166,7 @@ Available hooks (post-v0.154.0):
 | `before_turn` | `hook_event -> hook_decision` | Continue, request caller input, or append a caller nudge |
 | `before_turn_params` | `hook_event -> hook_decision` | Continue or provide exact per-turn parameters |
 | `after_turn` | `hook_event -> hook_decision` | Observe the completed provider response |
-| `pre_tool_use` | `hook_event -> hook_decision` | Continue or explicitly block a tool invocation at the embedding boundary |
+| `pre_tool_use` | `hook_event -> hook_decision` | Continue, explicitly block, or request input for an exact tool invocation at the embedding boundary |
 | `post_tool_use` | `hook_event -> hook_decision` | Observe a tool result |
 | `post_tool_use_failure` | `hook_event -> hook_decision` | Observe a typed tool failure |
 | `on_stop` | `hook_event -> hook_decision` | Observe the terminal stop reason |

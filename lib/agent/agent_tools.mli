@@ -153,8 +153,10 @@ val find_and_execute_tool
     - Tools without a declared descriptor default to [Tool_contract.Serial].
 
     For each [ToolUse] block, applies the [PreToolUse] hook before execution.
-    OAS does not adjudicate external effects; an embedding application must
-    settle any such decision before the call reaches this function.
+    [ElicitInput] is settled synchronously through the caller-owned
+    [elicitation] callback before any invocation is opened. [Answer _] admits
+    the exact call; [Declined] and [Timeout] return deterministic blocked tool
+    results. A missing callback fails closed as [Hook_failure].
 
     An ordinary tool-handler exception is localized to that call as a
     non-retryable tool result. A terminal tool-handler exception propagates
@@ -190,6 +192,7 @@ val execute_tools
   :  context:Context.t
   -> tools:Tool.t list
   -> hooks:Hooks.hooks
+  -> ?elicitation:Hooks.elicitation_callback
   -> event_bus:Event_bus.t option
   -> ?journal:Durable_event.journal
   -> tracer:Tracing.t

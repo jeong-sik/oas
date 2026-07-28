@@ -92,6 +92,7 @@ let execute_tools_with_trace agent active_run ~turn ?before_tool_execution tool_
     ~context:agent.context
     ~tools
     ~hooks:agent.options.hooks
+    ?elicitation:agent.options.elicitation
     ~event_bus:agent.options.event_bus
     ?journal:agent.options.journal
     ~tracer:agent.options.tracer

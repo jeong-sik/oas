@@ -176,7 +176,7 @@ val empty : hooks
     before_turn          |    Y     |              |      Y      |   Y   |
     before_turn_params   |    Y     |      Y       |             |       |
     after_turn           |    Y     |              |             |       |
-    pre_tool_use         |    Y     |              |             |       |   Y
+    pre_tool_use         |    Y     |              |      Y      |       |   Y
     post_tool_use        |    Y     |              |             |       |
     post_tool_use_failure|    Y     |              |             |       |
     on_stop              |    Y     |              |             |       |

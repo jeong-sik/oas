@@ -549,6 +549,7 @@ let execute_scheduled_tool
       ~tool_index
       ~(hooks : Hooks.hooks)
       ~event_bus
+      ?elicitation
       ?journal
       ~tracer
       ~agent_name
@@ -743,6 +744,69 @@ let execute_scheduled_tool
       in
       outcome ()
     | Ok None ->
+      let execute_admitted () =
+        let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
+        try
+          let dispatch =
+            with_tool_span (fun () ->
+              match execution_provider with
+              | Some provider ->
+                (match
+                   Execution_agent_scope.open_invocation
+                     provider
+                     ~invocation
+                     ~tool_name:name
+                     ~input
+                 with
+                 | Error error -> durability_failure error
+                 | Ok durable_invocation -> execute_durable durable_invocation)
+              | None ->
+                observe_before_completion (fun () ->
+                  observe_started ~tool_name:name ~input;
+                  match journal with
+                  | Some j ->
+                    Agent_execution_event_writer.append
+                      j
+                      (Tool_called
+                         { turn = Tool_contract.Invocation.turn invocation
+                         ; tool_name = name
+                         ; idempotency_key = idem_key
+                         ; input_hash = Digest.string (Yojson.Safe.to_string input)
+                         ; timestamp = Unix.gettimeofday ()
+                         })
+                  | None -> ());
+                let pending, duration_ms_tool = begin_effect ~tool_name:name ~input in
+                let dispatch = finish_effect pending ~tool_name:name in
+                observe_after_completion (fun () ->
+                  match journal with
+                  | Some j ->
+                    Agent_execution_event_writer.append
+                      j
+                      (Tool_completed
+                         { turn = Tool_contract.Invocation.turn invocation
+                         ; tool_name = name
+                         ; idempotency_key = idem_key
+                         ; output_json = `String dispatch.result.content
+                         ; is_error =
+                             Types.tool_result_outcome_is_error dispatch.result.outcome
+                         ; duration_ms = duration_ms_tool
+                         ; timestamp = Unix.gettimeofday ()
+                         })
+                  | None -> ());
+                dispatch)
+          in
+          completed_dispatch := Some dispatch;
+          outcome ()
+        with
+        | Abort_tool_dispatch -> outcome ()
+        | Hook_observer_raised (exception_, backtrace) ->
+          record_caught_exception exception_ backtrace;
+          outcome ()
+        | exception_ ->
+          let backtrace = Printexc.get_raw_backtrace () in
+          record_caught_exception exception_ backtrace;
+          outcome ()
+      in
       let decision =
         invoke_hook
           ?on_hook_invoked
@@ -758,8 +822,16 @@ let execute_scheduled_tool
              ; accumulated_cost_usd = usage.Types.estimated_cost_usd
              })
       in
-      (match decision with
-       | Hooks.Block reason ->
+      (match
+         Agent_tool_pre_execution_gate.settle
+           ?elicitation
+           ?correlation_id
+           ?run_id
+           ~event_bus
+           ~agent_name
+           decision
+       with
+       | Agent_tool_pre_execution_gate.Block reason ->
          (* Intentional caller rejection is a model-visible tool result, but it is
          not a tool execution. No Tool_called/Tool_completed lifecycle evidence
          is emitted for a call that never crossed the caller's gate. *)
@@ -769,7 +841,7 @@ let execute_scheduled_tool
          ; completion = Continue_after_batch
          ; failure = None
          }
-       | Hooks.HookFailed { stage; detail } ->
+       | Agent_tool_pre_execution_gate.Reject { stage; detail } ->
          { index
          ; completed_result = None
          ; completion = Continue_after_batch
@@ -783,86 +855,7 @@ let execute_scheduled_tool
                      ~invocation
                      ~detail))
          }
-       | (Hooks.AdjustParams _ | Hooks.ElicitInput _ | Hooks.Nudge _) as decision ->
-         { index
-         ; completed_result = None
-         ; completion = Continue_after_batch
-         ; failure =
-             Some
-               (Hook_failure
-                  (hook_execution_error
-                     ~hook_name:"pre_tool_use"
-                     ~stage:Hooks.Pre_tool_use
-                     ~tool_name:name
-                     ~invocation
-                     ~detail:
-                       (Printf.sprintf
-                          "illegal decision %s escaped hook validation"
-                          (Hooks.decision_kind_to_string
-                             (Hooks.classify_decision decision)))))
-         }
-       | Hooks.Continue ->
-         let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
-         (try
-            let dispatch =
-              with_tool_span (fun () ->
-                match execution_provider with
-                | Some provider ->
-                  (match
-                     Execution_agent_scope.open_invocation
-                       provider
-                       ~invocation
-                       ~tool_name:name
-                       ~input
-                   with
-                   | Error error -> durability_failure error
-                   | Ok durable_invocation -> execute_durable durable_invocation)
-                | None ->
-                  observe_before_completion (fun () ->
-                    observe_started ~tool_name:name ~input;
-                    match journal with
-                    | Some j ->
-                      Agent_execution_event_writer.append
-                        j
-                        (Tool_called
-                           { turn = Tool_contract.Invocation.turn invocation
-                           ; tool_name = name
-                           ; idempotency_key = idem_key
-                           ; input_hash = Digest.string (Yojson.Safe.to_string input)
-                           ; timestamp = Unix.gettimeofday ()
-                           })
-                    | None -> ());
-                  let pending, duration_ms_tool = begin_effect ~tool_name:name ~input in
-                  let dispatch = finish_effect pending ~tool_name:name in
-                  observe_after_completion (fun () ->
-                    match journal with
-                    | Some j ->
-                      Agent_execution_event_writer.append
-                        j
-                        (Tool_completed
-                           { turn = Tool_contract.Invocation.turn invocation
-                           ; tool_name = name
-                           ; idempotency_key = idem_key
-                           ; output_json = `String dispatch.result.content
-                           ; is_error =
-                               Types.tool_result_outcome_is_error dispatch.result.outcome
-                           ; duration_ms = duration_ms_tool
-                           ; timestamp = Unix.gettimeofday ()
-                           })
-                    | None -> ());
-                  dispatch)
-            in
-            completed_dispatch := Some dispatch;
-            outcome ()
-          with
-          | Abort_tool_dispatch -> outcome ()
-          | Hook_observer_raised (exception_, backtrace) ->
-            record_caught_exception exception_ backtrace;
-            outcome ()
-          | exception_ ->
-            let backtrace = Printexc.get_raw_backtrace () in
-            record_caught_exception exception_ backtrace;
-            outcome ()))
+       | Agent_tool_pre_execution_gate.Admit -> execute_admitted ())
   with
   | Hook_observer_raised (exception_, backtrace) ->
     record_caught_exception exception_ backtrace;
@@ -877,6 +870,7 @@ let execute_tools
       ~context
       ~tools
       ~(hooks : Hooks.hooks)
+      ?elicitation
       ~event_bus
       ?journal
       ~tracer
@@ -907,6 +901,7 @@ let execute_tools
       ~tool_index
       ~hooks
       ~event_bus
+      ?elicitation
       ?journal
       ~tracer
       ~agent_name

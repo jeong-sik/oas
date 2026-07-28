@@ -50,6 +50,7 @@ let execute_result_with_tools_in_env
       env
       ~tools
       ~hooks
+      ?elicitation
       ?event_bus
       ?journal
       ?before_tool_execution
@@ -59,7 +60,7 @@ let execute_result_with_tools_in_env
       tool_uses
   =
   let net = Eio.Stdenv.net env in
-  let options = { Agent.default_options with hooks } in
+  let options = { Agent.default_options with hooks; elicitation } in
   let agent =
     Agent.create
       ~config:(Types.default_config ~model:"test-model")
@@ -78,6 +79,7 @@ let execute_result_with_tools_in_env
     ~context:(Agent.context agent)
     ~tools:(Tool_set.to_list (Agent.tools agent))
     ~hooks:opts.hooks
+    ?elicitation:opts.elicitation
     ~event_bus
     ?journal
     ~tracer:opts.tracer
@@ -89,6 +91,106 @@ let execute_result_with_tools_in_env
     ?on_tool_execution_finished
     ?on_hook_invoked
     tool_uses
+;;
+
+let test_pre_tool_elicitation_callback_settles_gate () =
+  Eio_main.run
+  @@ fun env ->
+  let request =
+    { Hooks.question = "Approve exact tool call?"; schema = None; timeout_s = None }
+  in
+  let hooks =
+    { Hooks.empty with pre_tool_use = Some (fun _ -> Hooks.ElicitInput request) }
+  in
+  let run response =
+    let executed = ref 0 in
+    let event_bus = Event_bus.create () in
+    let event_config =
+      Event_bus.subscription_config ~capacity:4 ~overflow:Event_bus.Drop_newest
+      |> Result.get_ok
+    in
+    let subscription = Event_bus.subscribe ~config:event_config event_bus in
+    let tool =
+      Tool.create ~name:"gated" ~description:"gated tool" ~parameters:[] (fun _ ->
+        incr executed;
+        Ok { Types.content = "executed"; _meta = None })
+    in
+    let result =
+      execute_result_with_tools_in_env
+        env
+        ~tools:[ tool ]
+        ~hooks
+        ~elicitation:(fun _ -> response)
+        ~event_bus
+        [ ToolUse { id = "gated-1"; name = "gated"; input = `Assoc [] } ]
+    in
+    !executed, result, Event_bus.drain subscription
+  in
+  let approved_count, approved, approved_events = run (Hooks.Answer (`Bool true)) in
+  check int "approved call executes once" 1 approved_count;
+  (match approved_events with
+   | { Event_bus.payload =
+         Event_bus.ElicitationCompleted
+           { question = "Approve exact tool call?"
+           ; response = Hooks.Answer (`Bool true)
+           ; _
+           }
+     ; _
+     }
+     :: _ -> ()
+   | _ -> fail "approved gate did not publish its typed elicitation response");
+  (match approved with
+   | Ok { Agent_tools.completed_results = [ result ]; completion = Continue_after_batch }
+     ->
+     check
+       bool
+       "approved result succeeds"
+       false
+       (Types.tool_result_outcome_is_error result.outcome)
+   | Ok _ -> fail "approved gate returned an unexpected report"
+   | Error _ -> fail "approved gate failed");
+  List.iter
+    (fun response ->
+       let count, rejected, events = run response in
+       check int "rejected call does not execute" 0 count;
+       (match events with
+        | { Event_bus.payload = Event_bus.ElicitationCompleted observed; _ } :: _ ->
+          check bool "rejected response is preserved" true (observed.response = response)
+        | _ -> fail "rejected gate did not publish its typed elicitation response");
+       match rejected with
+       | Ok
+           { Agent_tools.completed_results =
+               [ { outcome = Tool_failed { failure_kind = Non_retryable_tool_error; _ }
+                 ; _
+                 }
+               ]
+           ; completion = Continue_after_batch
+           } -> ()
+       | Ok _ -> fail "rejected gate did not return a typed tool failure"
+       | Error _ -> fail "rejected gate failed")
+    [ Hooks.Declined; Hooks.Timeout ];
+  let missing_callback_count = ref 0 in
+  let missing_callback_tool =
+    Tool.create ~name:"gated" ~description:"gated tool" ~parameters:[] (fun _ ->
+      incr missing_callback_count;
+      Ok { Types.content = "must-not-run"; _meta = None })
+  in
+  (match
+     execute_result_with_tools_in_env
+       env
+       ~tools:[ missing_callback_tool ]
+       ~hooks
+       [ ToolUse { id = "gated-missing"; name = "gated"; input = `Assoc [] } ]
+   with
+   | Error
+       { Agent_tools.cause =
+           Agent_tools.Hook_failure
+             (Agent_tools.Hook_execution_failed { stage = Hooks.Pre_tool_use; _ })
+       ; _
+       } -> ()
+   | Error _ -> fail "missing callback returned the wrong typed failure"
+   | Ok _ -> fail "missing callback did not fail closed");
+  check int "missing callback opens no effect" 0 !missing_callback_count
 ;;
 
 let execute_with_tools_in_env
@@ -1238,6 +1340,10 @@ let () =
             "Block is a typed deterministic failure"
             `Quick
             test_block_is_deterministic_failure
+        ; test_case
+            "elicitation callback settles pre-tool gate"
+            `Quick
+            test_pre_tool_elicitation_callback_settles_gate
         ] )
     ; ( "routing"
       , [ test_case
