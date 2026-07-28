@@ -87,7 +87,7 @@ let stage_input ?raw_trace_run ?clock ~turn agent =
          ~tool_name:None
          ~tool_use_id:None
          ~detail)
-  | Hooks.AdjustParams _ | Hooks.Block _ ->
+  | Hooks.AdjustParams _ | Hooks.ElicitToolApproval _ | Hooks.Block _ ->
     (* Reject illegal hook decisions with a typed error instead of crashing.
        [Hooks.invoke_validated] normally filters these out; this branch guards
        against a validation bypass or future hook matrix drift. [Block] is

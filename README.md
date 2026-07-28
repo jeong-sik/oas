@@ -116,7 +116,7 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | `Agent` | Multi-turn agent loop with automatic tool_use handling (abstract `Agent.t`) |
 | `Tool` / `Tool_set` | Tool definition, JSON Schema generation, O(1) lookup |
 | `Builder` | Fluent API for agent construction with `build_safe` validation |
-| `Hooks` | Generic lifecycle callbacks; `PreToolUse` accepts exact caller-owned `Continue`, `Block`, or `ElicitInput` decisions |
+| `Hooks` | Generic lifecycle callbacks; `PreToolUse` accepts exact caller-owned `Continue`, `Block`, or `ElicitToolApproval` decisions |
 | `Context` | Cross-turn shared state (scoped key-value store, `Yojson.Safe.t` values) |
 | `Error` / `Error_domain` | 2-level structured errors: 8 domain variants + Internal, poly-variant mapping |
 | `Log` | Structured logging with level filtering and composable sinks |
@@ -198,8 +198,11 @@ let my_hooks = { Hooks.empty with
 OAS sends the caller-supplied `Tool_set` to the provider unchanged. A product
 that needs tool exposure policy applies its own typed gate before constructing
 the agent. A caller that has already settled an external-effect decision may
-return `Hooks.Block reason` from `PreToolUse`, or `Hooks.ElicitInput request`
-when the exact call needs caller input; OAS does not own approval,
+return `Hooks.Block reason` from `PreToolUse`, or `Hooks.ElicitToolApproval`
+and configure `Builder.with_tool_approval` when the exact call needs caller
+input. `Hooks.ElicitInput` is generic user input and cannot authorize a tool;
+the approval callback must settle synchronously. OAS does not install a timer
+or durable pause at that boundary and does not own approval,
 judging, risk levels, or HITL orchestration.
 
 ## Build and test

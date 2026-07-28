@@ -81,6 +81,12 @@ type payload =
       ; question : string
       ; response : Hooks.elicitation_response
       }
+  | ToolApprovalCompleted of
+      { agent_name : string
+      ; invocation : Tool_contract.Invocation.t
+      ; tool_name : string
+      ; approval : Hooks.tool_approval
+      }
   | InferenceTelemetry of
       { agent_name : string
       ; turn : int
@@ -121,6 +127,7 @@ let payload_kind = function
   | HandoffRequested _ -> "handoff_requested"
   | HandoffCompleted _ -> "handoff_completed"
   | ElicitationCompleted _ -> "elicitation_completed"
+  | ToolApprovalCompleted _ -> "tool_approval_completed"
   | InferenceTelemetry _ -> "inference_telemetry"
   | Custom (name, _) -> Printf.sprintf "custom:%s" name
 ;;
@@ -252,6 +259,7 @@ let rec matches filter event =
      | HandoffRequested r -> r.from_agent = name || r.to_agent = name
      | HandoffCompleted r -> r.from_agent = name || r.to_agent = name
      | ElicitationCompleted r -> r.agent_name = name
+     | ToolApprovalCompleted r -> r.agent_name = name
      | InferenceTelemetry r -> r.agent_name = name
      | Custom _ -> true)
   | Tools_only ->
@@ -266,6 +274,7 @@ let rec matches filter event =
      | HandoffRequested _
      | HandoffCompleted _
      | ElicitationCompleted _
+     | ToolApprovalCompleted _
      | InferenceTelemetry _
      | Custom _ -> false)
   | Topic topic ->
@@ -282,6 +291,7 @@ let rec matches filter event =
      | HandoffRequested _
      | HandoffCompleted _
      | ElicitationCompleted _
+     | ToolApprovalCompleted _
      | InferenceTelemetry _ -> false)
   | Correlation id -> String.equal event.meta.correlation_id id
   | Run id -> String.equal event.meta.run_id id

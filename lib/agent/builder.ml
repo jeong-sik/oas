@@ -46,6 +46,7 @@ type t =
   ; event_bus : Event_bus.t option
   ; skill_registry : Skill_registry.t option
   ; elicitation : Hooks.elicitation_callback option
+  ; tool_approval : Hooks.tool_approval_callback option
   ; description : string option
   ; periodic_callbacks : Agent.periodic_callback list
   ; contract : Contract.t
@@ -107,6 +108,7 @@ let create ~net ~model =
     event_bus = Some (Event_bus.create ())
   ; skill_registry = None
   ; elicitation = None
+  ; tool_approval = None
   ; description = None
   ; periodic_callbacks = []
   ; contract = Contract.empty
@@ -227,6 +229,7 @@ let with_body_timeout s b = { b with body_timeout_s = Some s }
 let with_context_injector injector b = { b with context_injector = Some injector }
 let with_skill_registry reg b = { b with skill_registry = Some reg }
 let with_elicitation cb b = { b with elicitation = Some cb }
+let with_tool_approval cb b = { b with tool_approval = Some cb }
 let with_description desc b = { b with description = Some desc }
 
 let with_periodic_callback cb b =
@@ -289,6 +292,7 @@ let build b =
     ; event_bus = b.event_bus
     ; skill_registry = b.skill_registry
     ; elicitation = b.elicitation
+    ; tool_approval = b.tool_approval
     ; description = b.description
     ; periodic_callbacks = b.periodic_callbacks
     ; slot_id = b.slot_id

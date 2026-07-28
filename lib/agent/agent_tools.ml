@@ -78,21 +78,6 @@ let unknown_tool_failure ~requested ~available =
 
 let resolve_tool_call tool_index name input = name, input, find_in_index tool_index name
 
-let tool_failure_result ~invocation ~name ~input ~content ~error_class =
-  { invocation
-  ; tool_name = name
-  ; input
-  ; content
-  ; outcome =
-      Tool_failed
-        { failure_kind = Non_retryable_tool_error; error_class = Some error_class }
-  }
-;;
-
-let blocked_tool_result ~invocation ~name ~input ~content =
-  tool_failure_result ~invocation ~name ~input ~content ~error_class:Types.Deterministic
-;;
-
 let schedule_tool_use ~tool_index index (id, name, input) =
   let execution_mode, completion =
     match find_in_index tool_index name with
@@ -534,13 +519,6 @@ let find_and_execute_tool
   | Hook_observer_raised (exn, backtrace) -> reraise_hook_observer exn backtrace
 ;;
 
-type scheduled_tool_outcome =
-  { index : int
-  ; completed_result : tool_execution_result option
-  ; completion : batch_completion
-  ; failure : execution_failure_cause option
-  }
-
 exception Abort_tool_dispatch
 
 let execute_scheduled_tool
@@ -549,7 +527,7 @@ let execute_scheduled_tool
       ~tool_index
       ~(hooks : Hooks.hooks)
       ~event_bus
-      ?elicitation
+      ?tool_approval
       ?journal
       ~tracer
       ~agent_name
@@ -724,6 +702,51 @@ let execute_scheduled_tool
          { invocation; detail = Execution_agent_scope.error_to_string error });
     raise Abort_tool_dispatch
   in
+  let settle_existing_block durable result =
+    match Agent_tool_pre_execution_gate.settle_existing_block durable result with
+    | Ok result -> result
+    | Error error -> durability_failure error
+  in
+  let settle_gate ?settle_blocked execute_admitted =
+    let decision =
+      invoke_hook
+        ?on_hook_invoked
+        ~tracer
+        ~agent_name
+        ~turn_count
+        ~hook_name:"pre_tool_use"
+        hooks.pre_tool_use
+        (Hooks.PreToolUse
+           { invocation
+           ; tool_name = name
+           ; input
+           ; accumulated_cost_usd = usage.Types.estimated_cost_usd
+           })
+    in
+    let settlement =
+      Agent_tool_pre_execution_gate.settle
+        ?tool_approval
+        ?correlation_id
+        ?run_id
+        ~event_bus
+        ~agent_name
+        ~invocation
+        ~tool_name:name
+        ~input
+        decision
+    in
+    match
+      Agent_tool_pre_execution_gate.scheduled_settlement
+        ?settle_blocked
+        ~index
+        ~invocation
+        ~tool_name:name
+        ~input
+        settlement
+    with
+    | Agent_tool_pre_execution_gate.Run_admitted -> execute_admitted ()
+    | Agent_tool_pre_execution_gate.Return_outcome outcome -> outcome
+  in
   try
     let execution_provider = Execution_context.provider_attempt () in
     let existing =
@@ -734,15 +757,16 @@ let execute_scheduled_tool
     in
     match existing with
     | Error error -> durability_failure error
-    | Ok (Some durable_invocation) ->
-      (* An existing durable occurrence proves the pre-tool gate already
-         admitted this exact call. Replaying it must not invoke the gate or any
-         lifecycle observer again. If no attempt was committed, [execute_phased]
-         starts the effect once; an in-flight attempt fails closed. *)
-      let (_ : tool_dispatch) =
-        with_tool_span (fun () -> execute_durable durable_invocation)
+    | Ok (Some durable) ->
+      let execute_existing () =
+        let (_ : tool_dispatch) = with_tool_span (fun () -> execute_durable durable) in
+        outcome ()
       in
-      outcome ()
+      (match Execution_agent_scope.invocation_progress durable with
+       | Error error -> durability_failure error
+       | Ok Execution_agent_scope.Invocation_unattempted ->
+         settle_gate ~settle_blocked:(settle_existing_block durable) execute_existing
+       | Ok Execution_agent_scope.Invocation_attempted_or_settled -> execute_existing ())
     | Ok None ->
       let execute_admitted () =
         let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
@@ -807,55 +831,7 @@ let execute_scheduled_tool
           record_caught_exception exception_ backtrace;
           outcome ()
       in
-      let decision =
-        invoke_hook
-          ?on_hook_invoked
-          ~tracer
-          ~agent_name
-          ~turn_count
-          ~hook_name:"pre_tool_use"
-          hooks.pre_tool_use
-          (Hooks.PreToolUse
-             { invocation
-             ; tool_name = name
-             ; input
-             ; accumulated_cost_usd = usage.Types.estimated_cost_usd
-             })
-      in
-      (match
-         Agent_tool_pre_execution_gate.settle
-           ?elicitation
-           ?correlation_id
-           ?run_id
-           ~event_bus
-           ~agent_name
-           decision
-       with
-       | Agent_tool_pre_execution_gate.Block reason ->
-         (* Intentional caller rejection is a model-visible tool result, but it is
-         not a tool execution. No Tool_called/Tool_completed lifecycle evidence
-         is emitted for a call that never crossed the caller's gate. *)
-         { index
-         ; completed_result =
-             Some (blocked_tool_result ~invocation ~name ~input ~content:reason)
-         ; completion = Continue_after_batch
-         ; failure = None
-         }
-       | Agent_tool_pre_execution_gate.Reject { stage; detail } ->
-         { index
-         ; completed_result = None
-         ; completion = Continue_after_batch
-         ; failure =
-             Some
-               (Hook_failure
-                  (hook_execution_error
-                     ~hook_name:"pre_tool_use"
-                     ~stage
-                     ~tool_name:name
-                     ~invocation
-                     ~detail))
-         }
-       | Agent_tool_pre_execution_gate.Admit -> execute_admitted ())
+      settle_gate execute_admitted
   with
   | Hook_observer_raised (exception_, backtrace) ->
     record_caught_exception exception_ backtrace;
@@ -870,7 +846,7 @@ let execute_tools
       ~context
       ~tools
       ~(hooks : Hooks.hooks)
-      ?elicitation
+      ?tool_approval
       ~event_bus
       ?journal
       ~tracer
@@ -901,7 +877,7 @@ let execute_tools
       ~tool_index
       ~hooks
       ~event_bus
-      ?elicitation
+      ?tool_approval
       ?journal
       ~tracer
       ~agent_name
@@ -913,16 +889,16 @@ let execute_tools
       ?on_tool_execution_finished
       ?on_hook_invoked
   in
-  let collect_batch outcomes =
+  let collect_batch (outcomes : scheduled_tool_outcome list) =
     let completed =
       List.filter_map
-        (fun outcome ->
+        (fun (outcome : scheduled_tool_outcome) ->
            Option.map (fun result -> outcome.index, result) outcome.completed_result)
         outcomes
     in
     let failure =
       List.fold_left
-        (fun selected outcome ->
+        (fun selected (outcome : scheduled_tool_outcome) ->
            match outcome.failure with
            | None -> selected
            | Some candidate -> prefer_failure selected candidate)
@@ -931,7 +907,7 @@ let execute_tools
     in
     let completion =
       List.fold_left
-        (fun selected outcome ->
+        (fun selected (outcome : scheduled_tool_outcome) ->
            match selected, outcome.completion with
            | (Terminal_completed _ | Terminal_failed _), _ -> selected
            | Continue_after_batch, candidate -> candidate)

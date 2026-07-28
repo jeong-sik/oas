@@ -71,6 +71,23 @@ let test_hook_decision_to_string () =
   Alcotest.(check string) "string" "elicit_input" s
 ;;
 
+let test_hook_decision_tool_approval () =
+  let prompt : Hooks.tool_approval_prompt = { question = "Approve exact tool call?" } in
+  let decision = Hooks.ElicitToolApproval prompt in
+  match decision with
+  | Hooks.ElicitToolApproval returned ->
+    Alcotest.(check string) "question" "Approve exact tool call?" returned.question
+  | _ -> Alcotest.fail "expected ElicitToolApproval"
+;;
+
+let test_hook_decision_tool_approval_to_string () =
+  let decision = Hooks.ElicitToolApproval { question = "Approve exact tool call?" } in
+  Alcotest.(check string)
+    "string"
+    "elicit_tool_approval"
+    (Agent_lifecycle.hook_decision_to_string decision)
+;;
+
 (* ── Elicitation callback ──────────────────────────────── *)
 
 let test_elicitation_callback_answer () =
@@ -151,7 +168,11 @@ let test_event_bus_filter_agent () =
 
 let test_agent_options_elicitation_default () =
   let opts = Agent.default_options in
-  Alcotest.(check bool) "default none" true (Option.is_none opts.elicitation)
+  Alcotest.(check bool) "generic default none" true (Option.is_none opts.elicitation);
+  Alcotest.(check bool)
+    "tool approval default none"
+    true
+    (Option.is_none opts.tool_approval)
 ;;
 
 let test_agent_elicit_input_without_callback_pauses () =
@@ -222,6 +243,11 @@ let () =
     ; ( "hook_decision"
       , [ test_case "ElicitInput variant" `Quick test_hook_decision_elicit_input
         ; test_case "to_string" `Quick test_hook_decision_to_string
+        ; test_case "ElicitToolApproval variant" `Quick test_hook_decision_tool_approval
+        ; test_case
+            "tool approval to_string"
+            `Quick
+            test_hook_decision_tool_approval_to_string
         ] )
     ; ( "callback"
       , [ test_case "answer" `Quick test_elicitation_callback_answer

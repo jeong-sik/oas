@@ -192,7 +192,7 @@ let resolve_turn_params ~hooks ~messages ~turn ~invoke_hook =
      | Hooks.AdjustParams params -> Ok params
      | Hooks.Continue -> Ok Hooks.default_turn_params
      | Hooks.HookFailed { stage; detail } -> Error (Hook_failed { stage; detail })
-     | Hooks.ElicitInput _ | Hooks.Nudge _ | Hooks.Block _ ->
+     | Hooks.ElicitInput _ | Hooks.ElicitToolApproval _ | Hooks.Nudge _ | Hooks.Block _ ->
        Error (Illegal_decision decision))
 ;;
 

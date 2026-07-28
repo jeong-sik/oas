@@ -153,10 +153,15 @@ val find_and_execute_tool
     - Tools without a declared descriptor default to [Tool_contract.Serial].
 
     For each [ToolUse] block, applies the [PreToolUse] hook before execution.
-    [ElicitInput] is settled synchronously through the caller-owned
-    [elicitation] callback before any invocation is opened. [Answer _] admits
-    the exact call; [Declined] and [Timeout] return deterministic blocked tool
-    results. A missing callback fails closed as [Hook_failure].
+    [ElicitToolApproval] is settled synchronously through the caller-owned
+    [tool_approval] callback before any invocation is opened. Only
+    [Hooks.Approved] admits the exact call; [Denied] and [Timed_out] return
+    deterministic blocked tool results. Generic [ElicitInput]/[Answer] never
+    grants execution authority. A missing approval callback fails closed as
+    [Hook_failure]. OAS installs no timer and persists no pending request at
+    this boundary; [Timed_out] means the caller enforced and reported its own
+    deadline. A non-reserved callback exception becomes [Hook_failure] before
+    execution, while cancellation and other reserved exceptions propagate.
 
     An ordinary tool-handler exception is localized to that call as a
     non-retryable tool result. A terminal tool-handler exception propagates
@@ -192,7 +197,7 @@ val execute_tools
   :  context:Context.t
   -> tools:Tool.t list
   -> hooks:Hooks.hooks
-  -> ?elicitation:Hooks.elicitation_callback
+  -> ?tool_approval:Hooks.tool_approval_callback
   -> event_bus:Event_bus.t option
   -> ?journal:Durable_event.journal
   -> tracer:Tracing.t

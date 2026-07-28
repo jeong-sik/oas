@@ -426,6 +426,15 @@ module Transaction : sig
     -> unit
     -> Execution_event.t list t
 
+  (** Atomically materialize a blocked ToolResult and close an invocation that
+      has no effect attempt. This cannot settle an attempted or closed
+      invocation. *)
+  val settle_unattempted_tool_invocation
+    :  invocation:Execution_event.Node_id.t
+    -> result:Llm_provider.Types.content_block
+    -> unit
+    -> Execution_event.t list t
+
   val finish_run
     :  ?causes:Execution_event.cause list
     -> run:run

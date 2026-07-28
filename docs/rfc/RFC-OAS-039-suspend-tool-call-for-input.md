@@ -1,4 +1,4 @@
-# RFC-OAS-039: Settle pre-tool input before execution
+# RFC-OAS-039: Synchronous exact-tool approval before execution
 
 | | |
 |---|---|
@@ -11,15 +11,22 @@
 ## 0. Summary
 
 `Pre_tool_use` is the first hook stage that knows the exact tool occurrence and
-input. This RFC admits `ElicitInput` at that stage and settles it through the
-existing caller-configured `options.elicitation` callback before the tool
-invocation is opened.
+input. This RFC admits `ElicitToolApproval` at that stage and settles it
+through the separate caller-configured `options.tool_approval` callback before
+the tool invocation is opened.
 
-- `Answer _` authorizes the exact call.
-- `Declined` and `Timeout` produce a typed non-retryable `ToolResult` without
+- Only the closed `Approved` result authorizes the exact call.
+- `Denied` and `Timed_out` produce a typed non-retryable `ToolResult` without
   executing the tool.
 - A missing callback fails closed as `Hook_execution_failed`; no invocation or
   effect is started.
+
+This is deliberately a synchronous authorization gate, not an SDK-owned
+durable suspension. OAS installs no timer, stores no pending approval request,
+and exposes no resume token here. The callback must settle any remote prompt,
+deadline, or restart policy before it returns; `Timed_out` reports a deadline
+already enforced by the caller. A callback that does not return blocks its
+dispatch fiber by contract.
 
 The before-turn `Agent.provide_input` API is intentionally not reused. It
 appends a `User` message and has different transcript semantics.
@@ -40,23 +47,33 @@ The legal decisions are:
 
 ```ocaml
 | Before_turn  -> [ K_Continue; K_ElicitInput; K_Nudge ]
-| Pre_tool_use -> [ K_Continue; K_Block; K_ElicitInput ]
+| Pre_tool_use -> [ K_Continue; K_Block; K_ElicitToolApproval ]
 ```
 
-When a `Pre_tool_use` hook returns `ElicitInput request`,
-`Agent_tools.execute_tools` consults the configured callback:
+When a `Pre_tool_use` hook returns `ElicitToolApproval prompt`,
+`Agent_tools.execute_tools` creates an immutable request containing that prompt,
+the exact invocation, tool name, and input, then consults the configured typed
+callback:
 
 ```ocaml
-match options.elicitation request with
-| Answer _ -> execute_the_exact_call ()
-| Declined -> blocked_tool_result "Tool execution was declined by the caller"
-| Timeout -> blocked_tool_result "Tool execution approval timed out"
+match options.tool_approval exact_request with
+| Approved -> execute_the_exact_call ()
+| Denied -> blocked_tool_result "Tool execution was denied by the caller"
+| Timed_out -> blocked_tool_result "Tool execution approval timed out"
 ```
 
-The callback result is a typed gate response. It is not appended as a `User`
-message. A refusal is represented as the same model-visible, deterministic
-failure shape used by `Hooks.Block`, and no tool lifecycle event is emitted for
-an effect that never started.
+Generic `Answer of Yojson.Safe.t` and a JSON Schema are deliberately absent from
+this boundary. They express user input, not execution authority; accepting a
+schema-shaped JSON value would reintroduce an untyped approval protocol. A
+generic `ElicitInput` returned at `Pre_tool_use` is stage-illegal and fails
+closed before its callback or any effect runs. The approval result is not
+appended as a `User` message. A refusal is represented as the same
+model-visible, deterministic failure shape used by `Hooks.Block`, and no tool
+lifecycle event is emitted for an effect that never started.
+
+A non-reserved callback exception is a typed `Hook_execution_failed` result
+before invocation. Runtime cancellation and other reserved exceptions continue
+to propagate through the surrounding structured-concurrency scope.
 
 ## 3. Fail-closed boundary
 
@@ -80,23 +97,23 @@ exist, a missing callback fails before `open_invocation`.
 ## 4. Public contract
 
 The hook decision matrix in `Hooks`, the README, and the event catalog all list
-`ElicitInput` as legal at `Pre_tool_use`.
+`ElicitToolApproval` as legal at `Pre_tool_use`.
 
 The configured callback is honored consistently at both legal elicitation
 stages, with stage-specific transcript behavior:
 
 - `Before_turn`: an `Answer` may add a user message before provider dispatch.
-- `Pre_tool_use`: an `Answer` authorizes the exact call and adds no user
-  message.
+- `Pre_tool_use`: an `Approved` result authorizes the exact call and adds no
+  user message.
 
 ## 5. Verification
 
 Focused tests must prove:
 
-1. `ElicitInput` is legal at `Pre_tool_use` and remains illegal at every other
-   unsupported stage.
-2. `Answer` executes the exact call once.
-3. `Declined` and `Timeout` execute it zero times and return a typed
+1. `ElicitToolApproval` is legal at `Pre_tool_use` and remains illegal at every
+   other unsupported stage; generic `ElicitInput` is rejected there.
+2. `Approved` executes the exact call once.
+3. `Denied` and `Timed_out` execute it zero times and return a typed
    non-retryable failure.
 4. Missing callback support fails closed before invocation/effect execution.
 5. The public hook matrix and user-facing documentation agree with runtime

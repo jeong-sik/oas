@@ -60,6 +60,13 @@ type tool_dispatch =
   ; deferred_failure : deferred_failure option
   }
 
+type scheduled_tool_outcome =
+  { index : int
+  ; completed_result : tool_execution_result option
+  ; completion : batch_completion
+  ; failure : execution_failure_cause option
+  }
+
 type pending_tool_dispatch =
   { result : tool_execution_result
   ; finish_observers : unit -> tool_dispatch

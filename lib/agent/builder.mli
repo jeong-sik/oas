@@ -108,6 +108,12 @@ val with_first_event_timeout : float -> t -> t
 val with_body_timeout : float -> t -> t
 
 val with_elicitation : Hooks.elicitation_callback -> t -> t
+
+(** Configure the closed typed approval boundary used only by
+    [Hooks.ElicitToolApproval] at [PreToolUse]. The callback settles
+    synchronously; OAS does not install a timeout or durable pause. *)
+val with_tool_approval : Hooks.tool_approval_callback -> t -> t
+
 val with_description : string -> t -> t
 val with_periodic_callback : Agent.periodic_callback -> t -> t
 val with_periodic_callbacks : Agent.periodic_callback list -> t -> t

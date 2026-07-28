@@ -88,6 +88,7 @@ let hook_decision_to_string = function
   | Hooks.Continue -> "continue"
   | Hooks.AdjustParams _ -> "adjust_params"
   | Hooks.ElicitInput _ -> "elicit_input"
+  | Hooks.ElicitToolApproval _ -> "elicit_tool_approval"
   | Hooks.Nudge _ -> "nudge"
   | Hooks.HookFailed _ -> "hook_failed"
   | Hooks.Block _ -> "block"

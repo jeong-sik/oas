@@ -32,6 +32,10 @@ type execution =
   | Executed of tool_result * Execution_journal.cursor * int
   | Replayed of tool_result
 
+type invocation_progress =
+  | Invocation_unattempted
+  | Invocation_attempted_or_settled
+
 type abort_reason =
   | Failed of Execution_event.failure
   | Cancelled of
@@ -149,6 +153,20 @@ val find_invocation
   -> tool_name:string
   -> input:Yojson.Safe.t
   -> (invocation option, error) result
+
+(** Classify whether a durable invocation has crossed the effect-attempt
+    boundary. An unattempted invocation carries no approval authority by
+    itself: callers upgrading from an older admission protocol must run the
+    current gate again before execution. *)
+val invocation_progress : invocation -> (invocation_progress, error) result
+
+(** Persist a model-visible blocked result without opening an effect attempt.
+    Only an open invocation classified as [Invocation_unattempted] is accepted. *)
+val settle_unattempted_invocation
+  :  invocation
+  -> content:string
+  -> outcome:Llm_provider.Types.tool_result_outcome
+  -> (unit, error) result
 
 val provider_invocations_settled : provider_attempt -> (bool, error) result
 
