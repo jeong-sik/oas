@@ -1987,10 +1987,19 @@ let test_unattempted_legacy_invocation_requires_typed_readmission () =
              | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
            in
            let binding =
+             let provider_config =
+               Llm_provider.Provider_config.make
+                 ~kind:Llm_provider.Provider_config.OpenAI_compat
+                 ~model_id:"test-model"
+                 ~base_url:"http://legacy-approval.invalid"
+                 ~api_key:""
+                 ~request_path:"/v1/chat/completions"
+                 ()
+             in
              match
                Internal_binding.of_provider_config
                  ~transport:Internal_binding.Injected
-                 (Provider_mock.to_provider_config ())
+                 provider_config
              with
              | Ok binding -> binding
              | Error detail -> Alcotest.fail detail
@@ -2072,16 +2081,14 @@ let test_unattempted_legacy_invocation_requires_typed_readmission () =
            Alcotest.(check int) "denied legacy effect stays closed" 0 !effect_count;
            match report with
            | Ok
-               { Agent_tools.completed_results =
-                   [ { outcome = Types.Tool_failed _; _ } ]
+               { Agent_tools.completed_results = [ { outcome = Types.Tool_failed _; _ } ]
                ; _
                } -> ()
            | Ok _ -> Alcotest.fail "typed denial did not produce a blocked ToolResult"
            | Error _ -> Alcotest.fail "typed denial returned an execution error")
        with
        | Ok () -> ()
-       | Error failure ->
-         Alcotest.fail (Internal_writer.scope_failure_to_string failure))
+       | Error failure -> Alcotest.fail (Internal_writer.scope_failure_to_string failure))
 ;;
 
 (* A context injector appends User-role messages during a turn (see

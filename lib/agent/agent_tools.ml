@@ -753,9 +753,6 @@ let execute_scheduled_tool
         decision
     with
     | Agent_tool_pre_execution_gate.Block reason ->
-      (* Intentional caller rejection is a model-visible tool result, but it is
-         not a tool execution. No Tool_called/Tool_completed lifecycle evidence
-         is emitted for a call that never crossed the caller's gate. *)
       { index
       ; completed_result =
           Some (blocked_tool_result ~invocation ~name ~input ~content:reason)
@@ -788,25 +785,15 @@ let execute_scheduled_tool
     in
     match existing with
     | Error error -> durability_failure error
-    | Ok (Some durable_invocation) ->
-      (match Execution_agent_scope.invocation_progress durable_invocation with
+    | Ok (Some durable) ->
+      let execute_existing () =
+        let (_ : tool_dispatch) = with_tool_span (fun () -> execute_durable durable) in
+        outcome ()
+      in
+      (match Execution_agent_scope.invocation_progress durable with
        | Error error -> durability_failure error
-       | Ok Execution_agent_scope.Invocation_unattempted ->
-         (* A durable occurrence created by an older protocol may predate typed
-            approval. With no committed effect attempt, re-run the current gate
-            before allowing execution. *)
-         settle_gate (fun () ->
-           let (_ : tool_dispatch) =
-             with_tool_span (fun () -> execute_durable durable_invocation)
-           in
-           outcome ())
-       | Ok Execution_agent_scope.Invocation_attempted_or_settled ->
-         (* Once an attempt exists, replay/unknown-effect handling is owned by
-            the durable settlement layer and must not invoke the gate again. *)
-         let (_ : tool_dispatch) =
-           with_tool_span (fun () -> execute_durable durable_invocation)
-         in
-         outcome ())
+       | Ok Execution_agent_scope.Invocation_unattempted -> settle_gate execute_existing
+       | Ok Execution_agent_scope.Invocation_attempted_or_settled -> execute_existing ())
     | Ok None ->
       let execute_admitted () =
         let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
