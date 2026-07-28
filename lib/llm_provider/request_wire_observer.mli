@@ -1,4 +1,4 @@
-(** Caller-owned observation of one final serialized provider request.
+(** Caller-owned pre-dispatch serialization evidence for one provider request.
 
     OAS invokes the observer after provider-specific serialization and every
     stream-field injection have completed and after the exact serialized-body
@@ -14,7 +14,7 @@
     typed provider configuration (for example [max_request_body_bytes]).
 
     @stability Evolving
-    @since 0.230.0 *)
+    @since 0.229.0 *)
 
 type phase = Pre_dispatch_serialization [@@deriving yojson, show]
 
@@ -33,7 +33,7 @@ type observation =
 type rejection = { reason : string } [@@deriving yojson, show]
 
 (** A synchronous offer into caller-owned observation state. Callers should
-    keep the callback bounded because it runs immediately before dispatch. *)
+    keep the callback bounded because it runs before dispatch is attempted. *)
 type try_observe = observation -> (unit, rejection) result
 
 type failure_cause =

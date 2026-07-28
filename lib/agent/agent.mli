@@ -115,7 +115,11 @@ val sdk_version : string
     The optional projection is applied once during turn preparation; native
     request measurement and provider dispatch consume the same projected
     messages. A returned [Error detail] or non-reserved callback exception
-    fails the turn as {!Error.HookExecutionFailed}. *)
+    fails the turn as {!Error.HookExecutionFailed}.
+
+    [pre_dispatch_serialization_observer] receives metadata-only evidence for
+    the admitted provider body before built-in HTTP dispatch is attempted. It
+    does not prove that transport dispatch started or completed. *)
 val create
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> config:Types.agent_config
@@ -533,9 +537,10 @@ val run_with_handoffs_blocks_detailed
     {!options}; pass it explicitly when resumed turns should continue emitting
     crash-recovery checkpoints. An explicit [provider_config] replaces
     [options.provider] under the same exact-carrier contract as {!create}.
-    [context_fit_admission] and [model_input_projection] must be supplied again
-    when a resumed Agent should retain opt-in provider-fit enforcement and
-    caller-owned provider-message projection. *)
+    [context_fit_admission], [model_input_projection], and
+    [pre_dispatch_serialization_observer] must be supplied again when a resumed
+    Agent should retain opt-in provider-fit enforcement, caller-owned
+    provider-message projection, and pre-dispatch serialization evidence. *)
 val resume
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> checkpoint:Checkpoint.t

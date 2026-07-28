@@ -358,8 +358,13 @@ let complete_stream_http
       ~(on_event : Types.sse_event -> unit)
       ()
   =
+  let validation =
+    match admitted_body with
+    | Some _ -> Ok ()
+    | None -> validate_all config
+  in
   let request =
-    match validate_all config with
+    match validation with
     | Error _ as error -> error
     | Ok () ->
       Result.bind

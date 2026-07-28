@@ -89,8 +89,13 @@ let complete_prepared_sync
   let config = request.Llm_transport.config in
   let messages = request.messages in
   let tools = request.tools in
+  let validation =
+    match admitted_body, transport with
+    | Some _, None -> Ok ()
+    | None, _ | Some _, Some _ -> validate_all config
+  in
   let preflight =
-    match validate_all config with
+    match validation with
     | Error err -> Error err
     | Ok () ->
       Http_client.resolve_explicit_deadline
@@ -335,7 +340,12 @@ let complete_prepared_stream
   let config = request.Llm_transport.config in
   let messages = request.messages in
   let tools = request.tools in
-  match validate_all config with
+  let validation =
+    match admitted_body, transport with
+    | Some _, None -> Ok ()
+    | None, _ | Some _, Some _ -> validate_all config
+  in
+  match validation with
   | Error err -> Error err
   | Ok () ->
     let on_event = emit_stream_event on_event in

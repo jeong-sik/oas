@@ -61,8 +61,10 @@ val prepare_request
 
 (** Serialize and admit the exact final completion body before any optional
     provider-native token-measurement round-trip. [stream = true] includes every
-    transport-owned stream-field injection. The check is pure and returns the
-    same typed [Request_body_too_large] failure as final HTTP dispatch. *)
+    transport-owned stream-field injection. The returned immutable artifact
+    freezes the codec, body bytes, and digest consumed by a later admitted
+    built-in HTTP dispatch. The check is pure and returns the same typed
+    [Request_body_too_large] failure as final HTTP dispatch. *)
 val admit_request_body
   :  stream:bool
   -> prepared_request
@@ -271,11 +273,11 @@ val complete_admitted
     is non-sensitive. Callers must retain observations as sensitive data.
 
     [request_wire_observer], when present, receives one metadata-only
-    observation of the final serialized body after stream-field injection and
-    exact byte admission, immediately before HTTP dispatch. It contains the
-    exact byte length and SHA-256 digest but no body or headers. Rejection and
-    ordinary observer exceptions are diagnostic and do not change the provider
-    result.
+    pre-dispatch serialization observation after stream-field injection and
+    exact byte admission, before HTTP dispatch is attempted. It contains the
+    exact byte length and SHA-256 digest but no body or headers. It does not
+    prove that transport dispatch started or completed. Rejection and ordinary
+    observer exceptions are diagnostic and do not change the provider result.
 
     Supports both Anthropic native SSE and OpenAI-compatible SSE formats,
     dispatched by {!Provider_config.t.kind}.
@@ -343,8 +345,9 @@ val complete_stream
   -> (Types.api_response, Http_client.http_error) result
 
 (** Streaming counterpart of {!complete_admitted}. Capture identity and idle
-    deadline are fixed when the request is prepared. Wire observation remains
-    an OAS-owned operational sink and cannot alter provider payload fields. *)
+    deadline are fixed when the request is prepared. Pre-dispatch serialization
+    observation remains an OAS-owned operational sink and cannot alter provider
+    payload fields. *)
 val complete_stream_admitted
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t

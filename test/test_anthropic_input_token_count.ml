@@ -354,6 +354,100 @@ let check_pre_dispatch_serialization ~label ~body observations =
   | observations -> failf "%s observer called %d times" label (List.length observations)
 ;;
 
+let thinking_catalog anthropic_thinking_control =
+  let contents =
+    Printf.sprintf
+      {|
+[[models]]
+id_prefix = "frozen-catalog-model"
+base = "anthropic"
+anthropic_thinking_control = "%s"
+max_context_tokens = 512
+max_output_tokens = 64
+|}
+      anthropic_thinking_control
+  in
+  match Model_catalog.of_toml_string ~source:"frozen admitted body test" contents with
+  | Ok catalog -> catalog
+  | Error detail -> fail detail
+;;
+
+let test_admitted_body_is_frozen_across_catalog_mutation () =
+  let previous_catalog = Model_catalog.global () in
+  Fun.protect
+    ~finally:(fun () ->
+      match previous_catalog with
+      | Some catalog -> Model_catalog.set_global catalog
+      | None -> Model_catalog.clear_global ())
+    (fun () ->
+       Model_catalog.set_global (thinking_catalog "manual_budget");
+       let observations = ref [] in
+       let (result, admitted_evidence, fresh_serialization), completion_body =
+         with_admitted_http_mock ~stream:false
+         @@ fun ~sw ~net ~base_url ->
+         let cfg =
+           { (config ~max_context:512 base_url) with
+             model_id = "frozen-catalog-model"
+           ; enable_thinking = Some true
+           ; thinking_budget = Some 1024
+           ; response_format = Off
+           ; output_schema = None
+           }
+         in
+         let prepared = Complete.prepare_request ~config:cfg ~messages () in
+         let admitted_evidence =
+           Complete.inspect_serialized_request ~stream:false ~config:cfg ~messages ()
+           |> Result.get_ok
+         in
+         let serialized =
+           Complete.admit_request_body ~stream:false prepared |> Result.get_ok
+         in
+         let measured = Complete.measure_request ~sw ~net serialized |> Result.get_ok in
+         let admitted =
+           Complete.admit_request ~now_unix_s:0 ~max_context_tokens:512 measured
+           |> Result.get_ok
+         in
+         Model_catalog.set_global (thinking_catalog "always_adaptive");
+         let fresh_serialization =
+           Complete.inspect_serialized_request ~stream:false ~config:cfg ~messages ()
+         in
+         let result =
+           Complete.complete_admitted
+             ~sw
+             ~net
+             ~request_wire_observer:(fun observation ->
+               observations := observation :: !observations;
+               Ok ())
+             admitted
+             ()
+         in
+         result, admitted_evidence, fresh_serialization
+       in
+       (match fresh_serialization with
+        | Error _ -> ()
+        | Ok _ -> fail "catalog mutation did not invalidate fresh serialization");
+       (match result with
+        | Ok _ -> ()
+        | Error _ -> fail "frozen admitted body was reserialized before dispatch");
+       match completion_body with
+       | None -> fail "frozen admitted body did not reach completion dispatch"
+       | Some body ->
+         check
+           int
+           "frozen admission bytes"
+           admitted_evidence.Request_wire_observer.body_bytes
+           (String.length body);
+         check
+           string
+           "frozen admission digest"
+           admitted_evidence.body_sha256
+           Digestif.SHA256.(to_hex (digest_string body));
+         check_pre_dispatch_serialization
+           ~label:"frozen admitted body"
+           ~body
+           !observations)
+;;
+
 let test_transport_success () =
   let result, (path, headers, body) =
     with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
@@ -1391,6 +1485,10 @@ let () =
             "Agent admitted stream observes dispatched serialization"
             `Quick
             test_agent_admitted_stream_observer_sees_dispatched_body
+        ; test_case
+            "admitted body is frozen across catalog mutation"
+            `Quick
+            test_admitted_body_is_frozen_across_catalog_mutation
         ; test_case
             "Agent projection is shared by measurement and dispatch"
             `Quick

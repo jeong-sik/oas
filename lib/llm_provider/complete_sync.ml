@@ -133,8 +133,13 @@ let complete_http
       ~tools
       ()
   =
+  let validation =
+    match admitted_body with
+    | Some _ -> Ok ()
+    | None -> validate_all config
+  in
   let preflight =
-    match validate_all config with
+    match validation with
     | Error err -> Error err
     | Ok () ->
       (match

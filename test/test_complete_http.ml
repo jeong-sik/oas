@@ -372,7 +372,7 @@ let test_complete_request_body_limit_rejects_before_io () =
          ~on_event:(fun _ -> ())
          ());
     check int "request-body admission performs no HTTP request" 0 !request_count;
-    check int "rejected body is not reported as dispatched" 0 !observed_request_count;
+    check int "rejected body produces no serialization evidence" 0 !observed_request_count;
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()
