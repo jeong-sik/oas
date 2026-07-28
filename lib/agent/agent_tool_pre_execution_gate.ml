@@ -96,7 +96,7 @@ let settle
       }
 ;;
 
-let settle_existing_rejection
+let settle_existing_block
       durable
       (result : Agent_tool_execution_types.tool_execution_result)
   =
@@ -107,12 +107,12 @@ let settle_existing_rejection
   |> Result.map (fun () -> result)
 ;;
 
-let scheduled_settlement ?settle_rejected ~index ~invocation ~tool_name ~input = function
+let scheduled_settlement ?settle_blocked ~index ~invocation ~tool_name ~input = function
   | Admit -> Run_admitted
   | Block reason ->
     let result = blocked_tool_result ~invocation ~tool_name ~input ~content:reason in
     let result =
-      match settle_rejected with
+      match settle_blocked with
       | None -> result
       | Some settle -> settle result
     in
@@ -123,14 +123,6 @@ let scheduled_settlement ?settle_rejected ~index ~invocation ~tool_name ~input =
       ; failure = None
       }
   | Reject { stage; detail } ->
-    let rejected = blocked_tool_result ~invocation ~tool_name ~input ~content:detail in
-    (match settle_rejected with
-     | None -> ()
-     | Some settle ->
-       let (_settled : Agent_tool_execution_types.tool_execution_result) =
-         settle rejected
-       in
-       ());
     Return_outcome
       { index
       ; completed_result = None
