@@ -997,9 +997,14 @@ let execute_tools
            (* RFC-OAS-039: a suspension outranks every other outcome, and the
            first one wins. The turn ends holding an unanswered ToolUse, so it
            cannot also be reported as a completed deliverable — that transcript
-           would reach the provider with an unpaired tool_use. A terminal tool
-           cannot share a batch with other calls
-           ([Agent_tool_batch_plan.Rejected_terminal_mix]), so the pairing this
+           would reach the provider with an unpaired tool_use.
+
+           The suspension-against-terminal pairing is unreachable rather than
+           merely unlikely: [Agent_tool_batch_plan.create] admits a terminal
+           call only as [1, [ tool_use ]] — the sole scheduled call — and sends
+           every other terminal combination to [Rejected_terminal_mix]
+           (agent_tool_batch_plan.ml:38-46). A plan containing a terminal call
+           therefore has exactly one batch of exactly one call. What this
            precedence actually decides is suspension against a sibling that
            ran. *)
            | Suspended_for_input _, _ -> selected

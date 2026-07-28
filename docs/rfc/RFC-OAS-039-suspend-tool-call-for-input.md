@@ -112,6 +112,17 @@ The variant is additive and changes no behaviour for the three existing ones. On
 
 Test-side arms therefore have to be found by hand, not by the compiler. Enumerated: `test/test_tool_execution.ml` (3 matches, at the `Continue_after_batch` / `Terminal_*` arms) and `test/test_pipeline.ml` (turn-outcome matches). `test_pipeline.ml:34` and the `Terminal_failed` occurrences in `agent_execution_runner.{ml,mli}` and `agent.{ml,mli}` belong to `terminal_outcome`, a different type, and are unaffected.
 
+**A suspension in a concurrent batch does not lose the siblings that ran.** `pipeline.ml:329-343` appends `make_tool_results results` to `state.messages` and writes the `After_tool_results_appended` checkpoint *before* any error is surfaced — the existing rule stated there as "commit completed effects before surfacing a terminal hook or observer failure". `make_tool_results` maps over produced results, not over `ToolUse` blocks, so the suspended call contributes nothing and the siblings contribute normally. The resulting transcript is
+
+```
+assistant: [ ToolUse A ; ToolUse B ]
+tool:      [ ToolResult A ]            (* B unanswered *)
+```
+
+which is the intended shape: one unanswered `ToolUse`, every completed effect recorded. This property is inherited, not introduced, and it is load-bearing — moving the suspension error ahead of that append would strand a sibling's effect exactly the way the deferral-as-success bug strands the deferred one.
+
+**Suspension against a terminal call is unreachable, not merely unlikely.** `agent_tool_batch_plan.create` admits a terminal call only as `1, [ tool_use ]` — the sole scheduled call — and routes every other terminal combination to `Rejected_terminal_mix` (`agent_tool_batch_plan.ml:38-46`). A plan containing a terminal call therefore has exactly one batch of exactly one call, so the two outcomes cannot co-occur. The fold's precedence between them is stated for totality, not because the pairing arises.
+
 ### 3.3 Resume is the durable-invocation path, not `provide_input`
 
 `Agent.provide_input` cannot be reused here. Its implementation is:
