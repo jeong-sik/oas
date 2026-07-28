@@ -107,18 +107,10 @@ let settle_existing_block
   |> Result.map (fun () -> result)
 ;;
 
-let scheduled_settlement
-      ?settle_blocked
-      ~index
-      ~invocation
-      ~tool_name
-      ~input
-  = function
+let scheduled_settlement ?settle_blocked ~index ~invocation ~tool_name ~input = function
   | Admit -> Run_admitted
   | Block reason ->
-    let result =
-      blocked_tool_result ~invocation ~tool_name ~input ~content:reason
-    in
+    let result = blocked_tool_result ~invocation ~tool_name ~input ~content:reason in
     let result =
       match settle_blocked with
       | None -> result

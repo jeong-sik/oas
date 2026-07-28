@@ -889,16 +889,16 @@ let execute_tools
       ?on_tool_execution_finished
       ?on_hook_invoked
   in
-  let collect_batch outcomes =
+  let collect_batch (outcomes : scheduled_tool_outcome list) =
     let completed =
       List.filter_map
-        (fun outcome ->
+        (fun (outcome : scheduled_tool_outcome) ->
            Option.map (fun result -> outcome.index, result) outcome.completed_result)
         outcomes
     in
     let failure =
       List.fold_left
-        (fun selected outcome ->
+        (fun selected (outcome : scheduled_tool_outcome) ->
            match outcome.failure with
            | None -> selected
            | Some candidate -> prefer_failure selected candidate)
@@ -907,7 +907,7 @@ let execute_tools
     in
     let completion =
       List.fold_left
-        (fun selected outcome ->
+        (fun selected (outcome : scheduled_tool_outcome) ->
            match selected, outcome.completion with
            | (Terminal_completed _ | Terminal_failed _), _ -> selected
            | Continue_after_batch, candidate -> candidate)
