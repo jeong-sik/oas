@@ -702,12 +702,12 @@ let execute_scheduled_tool
          { invocation; detail = Execution_agent_scope.error_to_string error });
     raise Abort_tool_dispatch
   in
-  let settle_existing_block durable result =
-    match Agent_tool_pre_execution_gate.settle_existing_block durable result with
+  let settle_existing_rejection durable result =
+    match Agent_tool_pre_execution_gate.settle_existing_rejection durable result with
     | Ok result -> result
     | Error error -> durability_failure error
   in
-  let settle_gate ?settle_blocked execute_admitted =
+  let settle_gate ?settle_rejected execute_admitted =
     let decision =
       invoke_hook
         ?on_hook_invoked
@@ -737,7 +737,7 @@ let execute_scheduled_tool
     in
     match
       Agent_tool_pre_execution_gate.scheduled_settlement
-        ?settle_blocked
+        ?settle_rejected
         ~index
         ~invocation
         ~tool_name:name
@@ -765,7 +765,7 @@ let execute_scheduled_tool
       (match Execution_agent_scope.invocation_progress durable with
        | Error error -> durability_failure error
        | Ok Execution_agent_scope.Invocation_unattempted ->
-         settle_gate ~settle_blocked:(settle_existing_block durable) execute_existing
+         settle_gate ~settle_rejected:(settle_existing_rejection durable) execute_existing
        | Ok Execution_agent_scope.Invocation_attempted_or_settled -> execute_existing ())
     | Ok None ->
       let execute_admitted () =

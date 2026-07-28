@@ -13,6 +13,8 @@ module Internal_writer = Internal.Execution_lane_writer
 module Internal_scope = Internal.Execution_agent_scope
 module Internal_binding = Binding_identity
 module Internal_settlement = Internal.Execution_tool_settlement
+module Internal_pre_tool_gate = Internal.Agent_tool_pre_execution_gate
+module Internal_tool_types = Internal.Agent_tool_execution_types
 
 let invocation tool_use_id =
   let schedule : Tool_contract.schedule =
@@ -1951,6 +1953,34 @@ let test_agent_run_reports_unknown_effect_for_operator_repair () =
   test_agent_run_resumes_tool_without_duplicate_effects ~settled:false ()
 ;;
 
+let test_legacy_hook_rejection_runs_durable_settlement () =
+  let settled = ref false in
+  let outcome =
+    match
+      Internal_pre_tool_gate.scheduled_settlement
+        ~settle_rejected:(fun result ->
+          settled := true;
+          result)
+        ~index:0
+        ~invocation:(invocation "legacy-rejected-tool-use")
+        ~tool_name:"durable_tool"
+        ~input:(`Assoc [])
+        (Internal_pre_tool_gate.Reject
+           { stage = Hooks.Pre_tool_use; detail = "typed gate rejected" })
+    with
+    | Internal_pre_tool_gate.Run_admitted ->
+      Alcotest.fail "rejected legacy invocation was admitted"
+    | Internal_pre_tool_gate.Return_outcome outcome -> outcome
+  in
+  Alcotest.(check bool) "durable settlement ran" true !settled;
+  match outcome with
+  | { Internal_tool_types.completed_result = None
+    ; failure = Some (Internal_tool_types.Hook_failure _)
+    ; _
+    } -> ()
+  | _ -> Alcotest.fail "rejected legacy invocation returned the wrong typed failure"
+;;
+
 (* A legacy journal could contain an invocation opened after an untyped
    [Answer (`Bool false)] and crash before committing the effect attempt. The
    invocation node alone is not current typed approval authority: resume must
@@ -3692,6 +3722,10 @@ let () =
             "unattempted legacy invocation requires typed readmission"
             `Quick
             test_unattempted_legacy_invocation_requires_typed_readmission
+        ; Alcotest.test_case
+            "legacy hook rejection runs durable settlement"
+            `Quick
+            test_legacy_hook_rejection_runs_durable_settlement
         ; Alcotest.test_case
             "Agent.run resume matches original prompt not injected User message"
             `Quick
