@@ -81,9 +81,7 @@ let test_hook_decision_tool_approval () =
 ;;
 
 let test_hook_decision_tool_approval_to_string () =
-  let decision =
-    Hooks.ElicitToolApproval { question = "Approve exact tool call?" }
-  in
+  let decision = Hooks.ElicitToolApproval { question = "Approve exact tool call?" } in
   Alcotest.(check string)
     "string"
     "elicit_tool_approval"

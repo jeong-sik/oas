@@ -430,34 +430,6 @@ let contains_substring ~needle haystack =
   n = 0 || loop 0
 ;;
 
-let settle_tool_approval callback =
-  Agent_tool_pre_execution_gate.settle
-    ~tool_approval:callback
-    ~event_bus:None
-    ~agent_name:"test-agent"
-    ~invocation:(invocation ())
-    ~tool_name:"gated"
-    ~input:(`Assoc [])
-    (Hooks.ElicitToolApproval { question = "Approve?" })
-;;
-
-let test_tool_approval_callback_failure_is_typed () =
-  match settle_tool_approval (fun _ -> failwith "approval unavailable") with
-  | Agent_tool_pre_execution_gate.Reject { stage = Hooks.Pre_tool_use; detail } ->
-    check
-      bool
-      "callback failure retained"
-      true
-      (contains_substring ~needle:"approval unavailable" detail)
-  | _ -> fail "expected typed pre-tool rejection"
-;;
-
-let test_tool_approval_reserved_exception_propagates () =
-  match settle_tool_approval (fun _ -> raise Sys.Break) with
-  | exception Sys.Break -> ()
-  | _ -> fail "reserved callback exception was flattened"
-;;
-
 let capture_traceln f =
   Eio_main.run
   @@ fun env ->
@@ -728,14 +700,6 @@ let () =
             "fail-closed without hook_name returns HookFailed"
             `Quick
             test_invoke_validated_fail_closed_without_hook_name
-        ; test_case
-            "tool approval callback failure is typed"
-            `Quick
-            test_tool_approval_callback_failure_is_typed
-        ; test_case
-            "tool approval reserved exception propagates"
-            `Quick
-            test_tool_approval_reserved_exception_propagates
         ] )
     ]
 ;;

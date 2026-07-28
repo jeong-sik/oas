@@ -247,6 +247,60 @@ let test_pre_tool_approval_callback_settles_gate () =
     ]
 ;;
 
+let approval_failure_fixture env callback =
+  let executed = ref 0 in
+  let tool =
+    Tool.create ~name:"gated" ~description:"gated tool" ~parameters:[] (fun _ ->
+      incr executed;
+      Ok { Types.content = "must-not-run"; _meta = None })
+  in
+  let hooks =
+    { Hooks.empty with
+      pre_tool_use = Some (fun _ -> Hooks.ElicitToolApproval { question = "Approve?" })
+    }
+  in
+  let result =
+    execute_result_with_tools_in_env
+      env
+      ~tools:[ tool ]
+      ~hooks
+      ~tool_approval:callback
+      [ ToolUse { id = "gated-callback"; name = "gated"; input = `Assoc [] } ]
+  in
+  !executed, result
+;;
+
+let test_pre_tool_approval_callback_failure_is_typed () =
+  Eio_main.run
+  @@ fun env ->
+  let executed, result =
+    approval_failure_fixture env (fun _ -> failwith "approval unavailable")
+  in
+  check int "callback failure opens no effect" 0 executed;
+  match result with
+  | Error
+      { Agent_tools.cause =
+          Agent_tools.Hook_failure
+            (Agent_tools.Hook_execution_failed { stage = Hooks.Pre_tool_use; detail; _ })
+      ; _
+      } ->
+    check
+      bool
+      "callback failure detail is retained"
+      true
+      (contains_substring ~needle:"approval unavailable" detail)
+  | Error _ -> fail "callback failure returned the wrong typed error"
+  | Ok _ -> fail "callback failure did not fail closed"
+;;
+
+let test_pre_tool_approval_reserved_exception_propagates () =
+  Eio_main.run
+  @@ fun env ->
+  match approval_failure_fixture env (fun _ -> raise Sys.Break) with
+  | exception Sys.Break -> ()
+  | _ -> fail "reserved callback exception was flattened"
+;;
+
 let execute_with_tools_in_env
       env
       ~tools
@@ -1398,6 +1452,14 @@ let () =
             "typed approval callback settles pre-tool gate"
             `Quick
             test_pre_tool_approval_callback_settles_gate
+        ; test_case
+            "approval callback failure is typed"
+            `Quick
+            test_pre_tool_approval_callback_failure_is_typed
+        ; test_case
+            "approval reserved exception propagates"
+            `Quick
+            test_pre_tool_approval_reserved_exception_propagates
         ] )
     ; ( "routing"
       , [ test_case
