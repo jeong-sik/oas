@@ -14,17 +14,6 @@ type batch_completion =
       ; effect_disposition : Tool_contract.failure_effect_disposition
       ; detail : string
       }
-  (* RFC-OAS-039. Neither continue nor terminal: this batch stopped at a call
-     the caller's gate would not authorize yet, and [invocation] produced no
-     [tool_execution_result]. The turn ends with that [ToolUse] unanswered, so
-     no [Tool_succeeded] is reported for a command that did not run. The host
-     answers [request] through [Agent.provide_input]. *)
-  | Suspended_for_input of
-      { invocation : Tool_contract.Invocation.t
-      ; tool_name : string
-      ; input : Yojson.Safe.t
-      ; request : Error.input_required
-      }
 
 type execution_report =
   { completed_results : tool_execution_result list

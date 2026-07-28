@@ -549,6 +549,7 @@ let execute_scheduled_tool
       ~tool_index
       ~(hooks : Hooks.hooks)
       ~event_bus
+      ?elicitation
       ?journal
       ~tracer
       ~agent_name
@@ -743,6 +744,69 @@ let execute_scheduled_tool
       in
       outcome ()
     | Ok None ->
+      let execute_admitted () =
+        let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
+        try
+          let dispatch =
+            with_tool_span (fun () ->
+              match execution_provider with
+              | Some provider ->
+                (match
+                   Execution_agent_scope.open_invocation
+                     provider
+                     ~invocation
+                     ~tool_name:name
+                     ~input
+                 with
+                 | Error error -> durability_failure error
+                 | Ok durable_invocation -> execute_durable durable_invocation)
+              | None ->
+                observe_before_completion (fun () ->
+                  observe_started ~tool_name:name ~input;
+                  match journal with
+                  | Some j ->
+                    Agent_execution_event_writer.append
+                      j
+                      (Tool_called
+                         { turn = Tool_contract.Invocation.turn invocation
+                         ; tool_name = name
+                         ; idempotency_key = idem_key
+                         ; input_hash = Digest.string (Yojson.Safe.to_string input)
+                         ; timestamp = Unix.gettimeofday ()
+                         })
+                  | None -> ());
+                let pending, duration_ms_tool = begin_effect ~tool_name:name ~input in
+                let dispatch = finish_effect pending ~tool_name:name in
+                observe_after_completion (fun () ->
+                  match journal with
+                  | Some j ->
+                    Agent_execution_event_writer.append
+                      j
+                      (Tool_completed
+                         { turn = Tool_contract.Invocation.turn invocation
+                         ; tool_name = name
+                         ; idempotency_key = idem_key
+                         ; output_json = `String dispatch.result.content
+                         ; is_error =
+                             Types.tool_result_outcome_is_error dispatch.result.outcome
+                         ; duration_ms = duration_ms_tool
+                         ; timestamp = Unix.gettimeofday ()
+                         })
+                  | None -> ());
+                dispatch)
+          in
+          completed_dispatch := Some dispatch;
+          outcome ()
+        with
+        | Abort_tool_dispatch -> outcome ()
+        | Hook_observer_raised (exception_, backtrace) ->
+          record_caught_exception exception_ backtrace;
+          outcome ()
+        | exception_ ->
+          let backtrace = Printexc.get_raw_backtrace () in
+          record_caught_exception exception_ backtrace;
+          outcome ()
+      in
       let decision =
         invoke_hook
           ?on_hook_invoked
@@ -758,8 +822,16 @@ let execute_scheduled_tool
              ; accumulated_cost_usd = usage.Types.estimated_cost_usd
              })
       in
-      (match decision with
-       | Hooks.Block reason ->
+      (match
+         Agent_tool_pre_execution_gate.settle
+           ?elicitation
+           ?correlation_id
+           ?run_id
+           ~event_bus
+           ~agent_name
+           decision
+       with
+       | Agent_tool_pre_execution_gate.Block reason ->
          (* Intentional caller rejection is a model-visible tool result, but it is
          not a tool execution. No Tool_called/Tool_completed lifecycle evidence
          is emitted for a call that never crossed the caller's gate. *)
@@ -769,7 +841,7 @@ let execute_scheduled_tool
          ; completion = Continue_after_batch
          ; failure = None
          }
-       | Hooks.HookFailed { stage; detail } ->
+       | Agent_tool_pre_execution_gate.Reject { stage; detail } ->
          { index
          ; completed_result = None
          ; completion = Continue_after_batch
@@ -783,142 +855,7 @@ let execute_scheduled_tool
                      ~invocation
                      ~detail))
          }
-       | Hooks.ElicitInput request ->
-         (* RFC-OAS-039. The caller's gate will not authorize this call yet.
-         Suspend it rather than answer it: [completed_result = None] means no
-         ToolResult is appended, so the model is not told a command succeeded
-         that never ran. No Tool_called/Tool_completed lifecycle evidence is
-         emitted for a call that has not crossed the gate.
-
-         The invocation is OPENED in the durable lane but not executed, which
-         is what makes the suspension addressable: on resume,
-         [find_invocation] above returns [Some] and the gate is not consulted
-         again, so [execute_durable] starts the effect exactly once against the
-         original tool_use_id. Without a provider attempt there is nowhere to
-         record the call, and a suspension with no resume path loses it
-         outright — worse than answering it — so that case fails closed. *)
-         (match execution_provider with
-          | None ->
-            { index
-            ; completed_result = None
-            ; completion = Continue_after_batch
-            ; failure =
-                Some
-                  (Hook_failure
-                     (hook_execution_error
-                        ~hook_name:"pre_tool_use"
-                        ~stage:Hooks.Pre_tool_use
-                        ~tool_name:name
-                        ~invocation
-                        ~detail:
-                          "ElicitInput at pre_tool_use requires a durable execution \
-                           store; without one the suspended call cannot be resumed"))
-            }
-          | Some provider ->
-            (match
-               Execution_agent_scope.open_invocation
-                 provider
-                 ~invocation
-                 ~tool_name:name
-                 ~input
-             with
-             | Error error -> durability_failure error
-             | Ok (_ : Execution_agent_scope.invocation) ->
-               (* [request_id] is the host's correlation key for the answer;
-               the call's own address is the open durable invocation, not this
-               payload. *)
-               let request =
-                 Agent_elicitation.input_required_of_request
-                   ~agent_name
-                   ~turn:turn_count
-                   request
-               in
-               { index
-               ; completed_result = None
-               ; completion =
-                   Suspended_for_input { invocation; tool_name = name; input; request }
-               ; failure = None
-               }))
-       | (Hooks.AdjustParams _ | Hooks.Nudge _) as decision ->
-         { index
-         ; completed_result = None
-         ; completion = Continue_after_batch
-         ; failure =
-             Some
-               (Hook_failure
-                  (hook_execution_error
-                     ~hook_name:"pre_tool_use"
-                     ~stage:Hooks.Pre_tool_use
-                     ~tool_name:name
-                     ~invocation
-                     ~detail:
-                       (Printf.sprintf
-                          "illegal decision %s escaped hook validation"
-                          (Hooks.decision_kind_to_string
-                             (Hooks.classify_decision decision)))))
-         }
-       | Hooks.Continue ->
-         let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
-         (try
-            let dispatch =
-              with_tool_span (fun () ->
-                match execution_provider with
-                | Some provider ->
-                  (match
-                     Execution_agent_scope.open_invocation
-                       provider
-                       ~invocation
-                       ~tool_name:name
-                       ~input
-                   with
-                   | Error error -> durability_failure error
-                   | Ok durable_invocation -> execute_durable durable_invocation)
-                | None ->
-                  observe_before_completion (fun () ->
-                    observe_started ~tool_name:name ~input;
-                    match journal with
-                    | Some j ->
-                      Agent_execution_event_writer.append
-                        j
-                        (Tool_called
-                           { turn = Tool_contract.Invocation.turn invocation
-                           ; tool_name = name
-                           ; idempotency_key = idem_key
-                           ; input_hash = Digest.string (Yojson.Safe.to_string input)
-                           ; timestamp = Unix.gettimeofday ()
-                           })
-                    | None -> ());
-                  let pending, duration_ms_tool = begin_effect ~tool_name:name ~input in
-                  let dispatch = finish_effect pending ~tool_name:name in
-                  observe_after_completion (fun () ->
-                    match journal with
-                    | Some j ->
-                      Agent_execution_event_writer.append
-                        j
-                        (Tool_completed
-                           { turn = Tool_contract.Invocation.turn invocation
-                           ; tool_name = name
-                           ; idempotency_key = idem_key
-                           ; output_json = `String dispatch.result.content
-                           ; is_error =
-                               Types.tool_result_outcome_is_error dispatch.result.outcome
-                           ; duration_ms = duration_ms_tool
-                           ; timestamp = Unix.gettimeofday ()
-                           })
-                    | None -> ());
-                  dispatch)
-            in
-            completed_dispatch := Some dispatch;
-            outcome ()
-          with
-          | Abort_tool_dispatch -> outcome ()
-          | Hook_observer_raised (exception_, backtrace) ->
-            record_caught_exception exception_ backtrace;
-            outcome ()
-          | exception_ ->
-            let backtrace = Printexc.get_raw_backtrace () in
-            record_caught_exception exception_ backtrace;
-            outcome ()))
+       | Agent_tool_pre_execution_gate.Admit -> execute_admitted ())
   with
   | Hook_observer_raised (exception_, backtrace) ->
     record_caught_exception exception_ backtrace;
@@ -933,6 +870,7 @@ let execute_tools
       ~context
       ~tools
       ~(hooks : Hooks.hooks)
+      ?elicitation
       ~event_bus
       ?journal
       ~tracer
@@ -963,6 +901,7 @@ let execute_tools
       ~tool_index
       ~hooks
       ~event_bus
+      ?elicitation
       ?journal
       ~tracer
       ~agent_name
@@ -994,21 +933,6 @@ let execute_tools
       List.fold_left
         (fun selected outcome ->
            match selected, outcome.completion with
-           (* RFC-OAS-039: a suspension outranks every other outcome, and the
-           first one wins. The turn ends holding an unanswered ToolUse, so it
-           cannot also be reported as a completed deliverable — that transcript
-           would reach the provider with an unpaired tool_use.
-
-           The suspension-against-terminal pairing is unreachable rather than
-           merely unlikely: [Agent_tool_batch_plan.create] admits a terminal
-           call only as [1, [ tool_use ]] — the sole scheduled call — and sends
-           every other terminal combination to [Rejected_terminal_mix]
-           (agent_tool_batch_plan.ml:38-46). A plan containing a terminal call
-           therefore has exactly one batch of exactly one call. What this
-           precedence actually decides is suspension against a sibling that
-           ran. *)
-           | Suspended_for_input _, _ -> selected
-           | _, (Suspended_for_input _ as candidate) -> candidate
            | (Terminal_completed _ | Terminal_failed _), _ -> selected
            | Continue_after_batch, candidate -> candidate)
         Continue_after_batch
@@ -1042,22 +966,13 @@ let execute_tools
       let completed = List.rev_append batch_completed completed in
       let completion =
         match completion, batch_completion with
-        | Suspended_for_input _, _ -> completion
-        | _, (Suspended_for_input _ as candidate) -> candidate
         | (Terminal_completed _ | Terminal_failed _), _ -> completion
         | Continue_after_batch, candidate -> candidate
       in
-      (match failure, completion with
-       | Some cause, _ ->
+      (match failure with
+       | Some cause ->
          Error { completed_results = ordered_results completed; completion; cause }
-       (* RFC-OAS-039: stop before the remaining batches. Batches are ordered,
-       and a later one may have been requested on the expectation that the
-       suspended call had already answered. Running it now would execute
-       against a premise the model has not yet been given. *)
-       | None, Suspended_for_input _ ->
-         Ok { completed_results = ordered_results completed; completion }
-       | None, (Continue_after_batch | Terminal_completed _ | Terminal_failed _) ->
-         run_batches (batch_index + 1) completed completion rest)
+       | None -> run_batches (batch_index + 1) completed completion rest)
   in
   match plan with
   | Agent_tool_batch_plan.Rejected_terminal_mix scheduled ->

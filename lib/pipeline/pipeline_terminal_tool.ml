@@ -17,12 +17,6 @@ let unpack_execution_result = function
 let outcome ~response completion checkpoint_stage =
   match completion with
   | Agent_tools.Continue_after_batch -> Ok (ToolsExecuted checkpoint_stage)
-  (* RFC-OAS-039. Reported through the same channel [Before_turn] elicitation
-     already uses, so hosts that handle [InputRequired] need no new case. The
-     suspended call is addressed by its open durable invocation, not by this
-     payload — [request_id] only correlates the host's answer. *)
-  | Agent_tools.Suspended_for_input { request; _ } ->
-    Error (Error.Agent (Error.InputRequired request))
   | Agent_tools.Terminal_completed invocation ->
     Ok (TerminalToolCompleted { invocation; response; checkpoint_stage })
   | Agent_tools.Terminal_failed { invocation; effect_disposition; detail } ->

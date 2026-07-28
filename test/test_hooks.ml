@@ -236,7 +236,7 @@ let gate_request =
 let test_validate_legal_pre_tool_use () =
   (* RFC-OAS-039: [ElicitInput] is legal here so a caller gate that authorizes
      a specific command with a specific input — which it can only judge after
-     the model has chosen both — can suspend the call instead of answering it.
+     the model has chosen both — can consult the configured callback first.
      [Types.tool_result_outcome] offers only [Tool_succeeded] or [Tool_failed],
      so without this the gate would have to report a success that did not
      happen. *)
@@ -273,11 +273,9 @@ let test_validate_illegal_pre_tool_use_stays_closed () =
     decisions
 ;;
 
-let test_elicit_input_illegal_where_it_cannot_suspend () =
-  (* [ElicitInput] means stop and ask the host. It is legal only where there is
-     a unit to stop: a turn ([Before_turn]) or one tool call
-     ([Pre_tool_use]). The observe-only stages run after the thing they would
-     suspend has already happened. *)
+let test_elicit_input_illegal_where_it_cannot_settle_input () =
+  (* [ElicitInput] is legal only before a turn or exact tool call. The
+     observe-only stages run after the action whose input would be settled. *)
   let stages =
     [ Hooks.Before_turn_params
     ; Hooks.After_turn
@@ -337,7 +335,7 @@ let test_validate_illegal_block_at_on_stop () =
 
 (* [test_validate_illegal_elicit_at_pre_tool_use] was deleted by RFC-OAS-039.
    It pinned exactly the closure that RFC removes. Its coverage is not lost:
-   [test_elicit_input_illegal_where_it_cannot_suspend] asserts the same
+   [test_elicit_input_illegal_where_it_cannot_settle_input] asserts the same
    rejection for all seven stages where [ElicitInput] is still illegal, which
    is strictly broader than the single stage this one checked. *)
 
@@ -491,15 +489,15 @@ let test_invoke_validated_illegal_returns_hook_failed () =
 ;;
 
 (** Pin the fail-closed result for every decision that is illegal at
-    pre_tool_use (AdjustParams / ElicitInput / Nudge): the decision returns
+    pre_tool_use (AdjustParams / Nudge): the decision returns
     HookFailed and [on_illegal] receives the stage, the
     rejected decision and a message naming the decision kind. *)
 let test_invoke_validated_pre_tool_use_fail_closed_pinned () =
   (* [ElicitInput] left this list in RFC-OAS-039: it is now legal here and
-     suspends the call instead of failing it. The stage stays fail-closed for
+     consults the configured callback instead of failing it. The stage stays fail-closed for
      everything else, which is what this pin exists to hold. Its legality is
      covered by [test_validate_legal_pre_tool_use], and the stages where it
-     remains illegal by [test_elicit_input_illegal_where_it_cannot_suspend]. *)
+     remains illegal by [test_elicit_input_illegal_where_it_cannot_settle_input]. *)
   let illegal = [ Hooks.AdjustParams Hooks.default_turn_params; Hooks.Nudge "nudge" ] in
   List.iter
     (fun decision ->
@@ -615,9 +613,9 @@ let () =
             `Quick
             test_validate_illegal_pre_tool_use_stays_closed
         ; test_case
-            "illegal: ElicitInput where nothing can suspend"
+            "illegal: ElicitInput where input cannot be settled"
             `Quick
-            test_elicit_input_illegal_where_it_cannot_suspend
+            test_elicit_input_illegal_where_it_cannot_settle_input
         ; test_case
             "legal: observe-only stages"
             `Quick

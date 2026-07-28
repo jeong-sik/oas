@@ -299,13 +299,12 @@ let hook_stage_to_string = function
     Fail-closed: any decision not explicitly listed is rejected. [Block] is
     legal only at [pre_tool_use].
 
-    [ElicitInput] is legal at two stages and means the same thing at both —
-    stop and ask the host — but the unit it stops differs. At [before_turn]
-    it stops the turn before the model runs. At [pre_tool_use] it stops one
-    tool call, leaving its [ToolUse] unanswered (RFC-OAS-039): a caller gate
+    [ElicitInput] is legal at two stages. At [before_turn] it asks before the
+    model runs. At [pre_tool_use] the configured elicitation callback settles
+    the exact call before its invocation is opened (RFC-OAS-039): a caller gate
     that authorizes a specific command with a specific input can only decide
     once both exist, which is after the model has chosen them. Without this,
-    such a gate has to answer the call immediately, and
+    such a gate has to answer the call without caller input, and
     {!Llm_provider.Types.tool_result_outcome} offers only [Tool_succeeded] or
     [Tool_failed] — so a deferral would have to report a success that did not
     happen. *)

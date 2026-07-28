@@ -67,23 +67,6 @@ type batch_completion =
       ; effect_disposition : Tool_contract.failure_effect_disposition
       ; detail : string
       }
-  | Suspended_for_input of
-      { invocation : Tool_contract.Invocation.t
-      ; tool_name : string
-      ; input : Yojson.Safe.t
-      ; request : Error.input_required
-      }
-  (** RFC-OAS-039. Neither continue nor terminal. A [pre_tool_use] hook
-          returned [ElicitInput], so this call produced no
-          {!tool_execution_result} and its [ToolUse] is left unanswered: the
-          model is not told a command succeeded that never ran.
-
-          [invocation] is open in the durable lane with zero committed
-          attempts, which is the suspension's address. Resume re-runs the turn;
-          [find_invocation] then matches, the gate is not re-consulted, and the
-          effect starts exactly once against the original [tool_use_id].
-          Requires an armed execution store — without one the decision fails
-          closed, because a suspension with no resume path loses the call. *)
 
 type execution_report =
   { completed_results : tool_execution_result list
@@ -170,8 +153,10 @@ val find_and_execute_tool
     - Tools without a declared descriptor default to [Tool_contract.Serial].
 
     For each [ToolUse] block, applies the [PreToolUse] hook before execution.
-    OAS does not adjudicate external effects; an embedding application must
-    settle any such decision before the call reaches this function.
+    [ElicitInput] is settled synchronously through the caller-owned
+    [elicitation] callback before any invocation is opened. [Answer _] admits
+    the exact call; [Declined] and [Timeout] return deterministic blocked tool
+    results. A missing callback fails closed as [Hook_failure].
 
     An ordinary tool-handler exception is localized to that call as a
     non-retryable tool result. A terminal tool-handler exception propagates
@@ -207,6 +192,7 @@ val execute_tools
   :  context:Context.t
   -> tools:Tool.t list
   -> hooks:Hooks.hooks
+  -> ?elicitation:Hooks.elicitation_callback
   -> event_bus:Event_bus.t option
   -> ?journal:Durable_event.journal
   -> tracer:Tracing.t
