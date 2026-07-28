@@ -534,13 +534,6 @@ let find_and_execute_tool
   | Hook_observer_raised (exn, backtrace) -> reraise_hook_observer exn backtrace
 ;;
 
-type scheduled_tool_outcome =
-  { index : int
-  ; completed_result : tool_execution_result option
-  ; completion : batch_completion
-  ; failure : execution_failure_cause option
-  }
-
 exception Abort_tool_dispatch
 
 let execute_scheduled_tool
@@ -725,21 +718,9 @@ let execute_scheduled_tool
     raise Abort_tool_dispatch
   in
   let settle_existing_rejection durable result =
-    match
-      Execution_agent_scope.execute_phased
-        durable
-        ~invoke:(fun ~start_child:_ ~tool_name:_ ~input:_ ->
-          (result.content, result.outcome), (fun () -> ()))
-    with
+    match Agent_tool_pre_execution_gate.settle_existing_rejection durable result with
+    | Ok result -> result
     | Error error -> durability_failure error
-    | Ok (Execution_agent_scope.Executed (settled, _, _))
-    | Ok (Execution_agent_scope.Replayed settled) ->
-      { invocation = settled.invocation
-      ; tool_name = settled.tool_name
-      ; input = settled.input
-      ; content = settled.content
-      ; outcome = settled.outcome
-      }
   in
   let settle_gate ?settle_rejected execute_admitted =
     let decision =
@@ -757,7 +738,7 @@ let execute_scheduled_tool
            ; accumulated_cost_usd = usage.Types.estimated_cost_usd
            })
     in
-    match
+    let settlement =
       Agent_tool_pre_execution_gate.settle
         ?tool_approval
         ?correlation_id
@@ -768,40 +749,19 @@ let execute_scheduled_tool
         ~tool_name:name
         ~input
         decision
+    in
+    match
+      Agent_tool_pre_execution_gate.scheduled_settlement
+        ?settle_rejected
+        ~index
+        ~invocation
+        ~tool_name:name
+        ~blocked_result:(fun content ->
+          blocked_tool_result ~invocation ~name ~input ~content)
+        settlement
     with
-    | Agent_tool_pre_execution_gate.Block reason ->
-      let result = blocked_tool_result ~invocation ~name ~input ~content:reason in
-      let result =
-        match settle_rejected with
-        | None -> result
-        | Some settle -> settle result
-      in
-      { index
-      ; completed_result = Some result
-      ; completion = Continue_after_batch
-      ; failure = None
-      }
-    | Agent_tool_pre_execution_gate.Reject { stage; detail } ->
-      (match settle_rejected with
-       | None -> ()
-       | Some settle ->
-         ignore
-           (settle
-              (blocked_tool_result ~invocation ~name ~input ~content:detail)));
-      { index
-      ; completed_result = None
-      ; completion = Continue_after_batch
-      ; failure =
-          Some
-            (Hook_failure
-               (hook_execution_error
-                  ~hook_name:"pre_tool_use"
-                  ~stage
-                  ~tool_name:name
-                  ~invocation
-                  ~detail))
-      }
-    | Agent_tool_pre_execution_gate.Admit -> execute_admitted ()
+    | Agent_tool_pre_execution_gate.Run_admitted -> execute_admitted ()
+    | Agent_tool_pre_execution_gate.Return_outcome outcome -> outcome
   in
   try
     let execution_provider = Execution_context.provider_attempt () in
