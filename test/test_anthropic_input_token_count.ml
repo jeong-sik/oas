@@ -390,17 +390,25 @@ let test_admitted_body_is_frozen_across_catalog_mutation () =
              model_id = "frozen-catalog-model"
            ; enable_thinking = Some true
            ; thinking_budget = Some 1024
+           ; tool_choice = Some Auto
            ; response_format = Off
            ; output_schema = None
            }
          in
          let prepared = Complete.prepare_request ~config:cfg ~messages () in
          let admitted_evidence =
-           Complete.inspect_serialized_request ~stream:false ~config:cfg ~messages ()
-           |> Result.get_ok
+           match
+             Complete.inspect_serialized_request ~stream:false ~config:cfg ~messages ()
+           with
+           | Ok evidence -> evidence
+           | Error (Http_client.AcceptRejected { reason }) -> fail reason
+           | Error _ -> fail "initial frozen-body serialization failed"
          in
          let serialized =
-           Complete.admit_request_body ~stream:false prepared |> Result.get_ok
+           match Complete.admit_request_body ~stream:false prepared with
+           | Ok serialized -> serialized
+           | Error (Http_client.AcceptRejected { reason }) -> fail reason
+           | Error _ -> fail "initial frozen-body admission failed"
          in
          let measured = Complete.measure_request ~sw ~net serialized |> Result.get_ok in
          let admitted =
