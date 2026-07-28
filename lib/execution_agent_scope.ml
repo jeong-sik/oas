@@ -516,13 +516,13 @@ let invocation_progress invocation =
      | Journal.Tool_invocation_state { result = None; _ }, [], Journal.Open ->
        Ok Invocation_unattempted
      | Journal.Tool_invocation_state _, _, _ -> Ok Invocation_attempted_or_settled
-     | ( Journal.Agent_run_state
-       | Journal.Agent_turn_state
-       | Journal.Provider_attempt_state _
-       | Journal.Output_block_state _
-       | Journal.Tool_attempt_state )
+     | ( ( Journal.Agent_run_state
+         | Journal.Agent_turn_state
+         | Journal.Provider_attempt_state _
+         | Journal.Output_block_state _
+         | Journal.Tool_attempt_state )
        , _
-       , _ -> Error (Resume_topology_mismatch "invocation changed node kind"))
+       , _ ) -> Error (Resume_topology_mismatch "invocation changed node kind"))
 ;;
 
 let provider_invocations provider =
