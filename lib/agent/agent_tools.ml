@@ -724,7 +724,24 @@ let execute_scheduled_tool
          { invocation; detail = Execution_agent_scope.error_to_string error });
     raise Abort_tool_dispatch
   in
-  let settle_gate execute_admitted =
+  let settle_existing_rejection durable result =
+    match
+      Execution_agent_scope.execute_phased
+        durable
+        ~invoke:(fun ~start_child:_ ~tool_name:_ ~input:_ ->
+          (result.content, result.outcome), (fun () -> ()))
+    with
+    | Error error -> durability_failure error
+    | Ok (Execution_agent_scope.Executed (settled, _, _))
+    | Ok (Execution_agent_scope.Replayed settled) ->
+      { invocation = settled.invocation
+      ; tool_name = settled.tool_name
+      ; input = settled.input
+      ; content = settled.content
+      ; outcome = settled.outcome
+      }
+  in
+  let settle_gate ?settle_rejected execute_admitted =
     let decision =
       invoke_hook
         ?on_hook_invoked
@@ -753,13 +770,24 @@ let execute_scheduled_tool
         decision
     with
     | Agent_tool_pre_execution_gate.Block reason ->
+      let result = blocked_tool_result ~invocation ~name ~input ~content:reason in
+      let result =
+        match settle_rejected with
+        | None -> result
+        | Some settle -> settle result
+      in
       { index
-      ; completed_result =
-          Some (blocked_tool_result ~invocation ~name ~input ~content:reason)
+      ; completed_result = Some result
       ; completion = Continue_after_batch
       ; failure = None
       }
     | Agent_tool_pre_execution_gate.Reject { stage; detail } ->
+      (match settle_rejected with
+       | None -> ()
+       | Some settle ->
+         ignore
+           (settle
+              (blocked_tool_result ~invocation ~name ~input ~content:detail)));
       { index
       ; completed_result = None
       ; completion = Continue_after_batch
@@ -792,7 +820,10 @@ let execute_scheduled_tool
       in
       (match Execution_agent_scope.invocation_progress durable with
        | Error error -> durability_failure error
-       | Ok Execution_agent_scope.Invocation_unattempted -> settle_gate execute_existing
+       | Ok Execution_agent_scope.Invocation_unattempted ->
+         settle_gate
+           ~settle_rejected:(settle_existing_rejection durable)
+           execute_existing
        | Ok Execution_agent_scope.Invocation_attempted_or_settled -> execute_existing ())
     | Ok None ->
       let execute_admitted () =

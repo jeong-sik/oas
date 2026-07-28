@@ -2079,13 +2079,23 @@ let test_unattempted_legacy_invocation_requires_typed_readmission () =
            in
            Alcotest.(check int) "typed approval runs once" 1 !approval_count;
            Alcotest.(check int) "denied legacy effect stays closed" 0 !effect_count;
-           match report with
-           | Ok
-               { Agent_tools.completed_results = [ { outcome = Types.Tool_failed _; _ } ]
-               ; _
-               } -> ()
-           | Ok _ -> Alcotest.fail "typed denial did not produce a blocked ToolResult"
-           | Error _ -> Alcotest.fail "typed denial returned an execution error")
+           (match report with
+            | Ok
+                { Agent_tools.completed_results = [ { outcome = Types.Tool_failed _; _ } ]
+                ; _
+                } -> ()
+            | Ok _ -> Alcotest.fail "typed denial did not produce a blocked ToolResult"
+            | Error _ -> Alcotest.fail "typed denial returned an execution error");
+           (match
+              Internal_scope.close_provider_attempt
+                provider
+                Internal.Execution_event.Succeeded
+            with
+            | Ok () -> ()
+            | Error error ->
+              Alcotest.fail
+                ("typed denial left the durable invocation open: "
+                 ^ Internal_scope.error_to_string error)))
        with
        | Ok () -> ()
        | Error failure -> Alcotest.fail (Internal_writer.scope_failure_to_string failure))
