@@ -16,6 +16,10 @@ type capability =
   | Checkpoint
   | MCP
   | Elicitation
+  (** The agent has at least one caller-owned elicitation boundary: generic
+      before-turn input, exact pre-tool approval, or both. This capability does
+      not promise remote prompting, suspension, timeout enforcement, or
+      restart-resumable pending state. *)
   | Custom_cap of string
 [@@deriving yojson, show]
 
@@ -78,6 +82,7 @@ type agent_info =
   ; supported_providers : string list
   ; mcp_clients_count : int
   ; has_elicitation : bool
+    (** [true] for generic elicitation, exact tool approval, or both. *)
   ; skills : skill_meta list
   }
 

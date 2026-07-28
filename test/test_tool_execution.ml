@@ -141,12 +141,18 @@ let test_pre_tool_approval_callback_settles_gate () =
      check bool "approval sees the exact tool input" true (`Assoc [] = request.input)
    | None -> fail "approval callback was not invoked");
   (match approved_events with
-   | { Event_bus.payload =
-         Event_bus.ToolApprovalCompleted
-           { tool_name = "gated"; approval = Hooks.Approved; _ }
-     ; _
-     }
-     :: _ -> ()
+   | { Event_bus.payload = Event_bus.ToolApprovalCompleted observed; _ } :: _ ->
+     check string "approval event keeps the exact tool name" "gated" observed.tool_name;
+     check
+       string
+       "approval event keeps the exact tool occurrence"
+       "gated-1"
+       (Tool_contract.Invocation.tool_use_id observed.invocation);
+     check
+       bool
+       "approval event keeps the exact decision"
+       true
+       (observed.approval = Hooks.Approved)
    | _ -> fail "approved gate did not publish its typed approval result");
   (match approved with
    | Ok { Agent_tools.completed_results = [ result ]; completion = Continue_after_batch }
@@ -299,6 +305,14 @@ let test_pre_tool_approval_reserved_exception_propagates () =
   match approval_failure_fixture env (fun _ -> raise Sys.Break) with
   | exception Sys.Break -> ()
   | _ -> fail "reserved callback exception was flattened"
+;;
+
+let test_pre_tool_approval_eio_cancellation_propagates () =
+  Eio_main.run
+  @@ fun env ->
+  match approval_failure_fixture env (fun _ -> raise (Eio.Cancel.Cancelled Exit)) with
+  | exception Eio.Cancel.Cancelled Exit -> ()
+  | _ -> fail "caller cancellation was flattened"
 ;;
 
 let execute_with_tools_in_env
@@ -1460,6 +1474,10 @@ let () =
             "approval reserved exception propagates"
             `Quick
             test_pre_tool_approval_reserved_exception_propagates
+        ; test_case
+            "approval caller cancellation propagates"
+            `Quick
+            test_pre_tool_approval_eio_cancellation_propagates
         ] )
     ; ( "routing"
       , [ test_case
