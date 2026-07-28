@@ -57,6 +57,10 @@ type execution =
   | Executed of tool_result * Journal.cursor * int
   | Replayed of tool_result
 
+type invocation_progress =
+  | Invocation_unattempted
+  | Invocation_attempted_or_settled
+
 type abort_reason =
   | Failed of Event.failure
   | Cancelled of
@@ -500,6 +504,25 @@ let find_invocation provider ~invocation ~tool_name ~input =
             (Resume_topology_mismatch
                "tool occurrence identity differs from the restored Agent checkpoint"))
      | _ :: _ :: _ -> Error (Resume_topology_mismatch "duplicate tool occurrence"))
+;;
+
+let invocation_progress invocation =
+  let scope = invocation.scope in
+  match Writer.find_node scope.writer invocation.locator.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "tool invocation disappeared")
+  | Ok (Some view) ->
+    (match view.materialized, view.children, view.status with
+     | Journal.Tool_invocation_state { result = None; _ }, [], Journal.Open ->
+       Ok Invocation_unattempted
+     | Journal.Tool_invocation_state _, _, _ -> Ok Invocation_attempted_or_settled
+     | ( Journal.Agent_run_state
+       | Journal.Agent_turn_state
+       | Journal.Provider_attempt_state _
+       | Journal.Output_block_state _
+       | Journal.Tool_attempt_state )
+       , _
+       , _ -> Error (Resume_topology_mismatch "invocation changed node kind"))
 ;;
 
 let provider_invocations provider =

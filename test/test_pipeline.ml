@@ -1951,6 +1951,139 @@ let test_agent_run_reports_unknown_effect_for_operator_repair () =
   test_agent_run_resumes_tool_without_duplicate_effects ~settled:false ()
 ;;
 
+(* A legacy journal could contain an invocation opened after an untyped
+   [Answer (`Bool false)] and crash before committing the effect attempt. The
+   invocation node alone is not current typed approval authority: resume must
+   run the current gate again, and a denial must keep the effect closed. *)
+let test_unattempted_legacy_invocation_requires_typed_readmission () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun runtime_sw ->
+  let domain_mgr = Eio.Stdenv.domain_mgr env in
+  let runtime =
+    match Internal_runtime.create ~sw:runtime_sw ~domain_mgr ~domain_count:1 with
+    | Ok runtime -> runtime
+    | Error error -> Alcotest.fail (Internal_runtime.create_error_to_string error)
+  in
+  let codec = Internal_codec.of_runtime runtime in
+  let native_path = Filename.temp_file "oas-legacy-tool-approval-" ".dir" in
+  Sys.remove native_path;
+  let dir = Eio.Path.(Eio.Stdenv.fs env / native_path) in
+  Fun.protect
+    ~finally:(fun () -> Eio.Path.rmtree ~missing_ok:true dir)
+    (fun () ->
+       Eio.Path.mkdirs ~exists_ok:false ~perm:0o700 dir;
+       match
+         Internal_writer.run ~codec ~dir (fun ~sw:_ writer ->
+           let scope =
+             match Internal_scope.start ~writer ~agent_name:"legacy-approval-test" with
+             | Ok scope -> scope
+             | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+           in
+           let turn =
+             match Internal_scope.open_turn scope ~ordinal:0 with
+             | Ok turn -> turn
+             | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+           in
+           let binding =
+             match
+               Internal_binding.of_provider_config
+                 ~transport:Internal_binding.Injected
+                 (Provider_mock.to_provider_config ())
+             with
+             | Ok binding -> binding
+             | Error detail -> Alcotest.fail detail
+           in
+           let provider =
+             match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+             | Ok provider -> provider
+             | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
+           in
+           let tool_input = `Assoc [ "value", `Int 7 ] in
+           let tool_use_id = "legacy-unattempted-tool-use" in
+           record_durable_provider_response
+             provider
+             (durable_tool_response [ tool_use_id, "durable_tool", tool_input ]);
+           let durable_invocation = invocation tool_use_id in
+           (match
+              Internal_scope.open_invocation
+                provider
+                ~invocation:durable_invocation
+                ~tool_name:"durable_tool"
+                ~input:tool_input
+            with
+            | Ok _ -> ()
+            | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
+           let effect_count = ref 0 in
+           let approval_count = ref 0 in
+           let tool =
+             Tool.create
+               ~name:"durable_tool"
+               ~description:"must remain closed after typed denial"
+               ~parameters:[]
+               (fun _ ->
+                  incr effect_count;
+                  Ok { Types.content = "unexpected-effect"; _meta = None })
+           in
+           let hooks =
+             { Hooks.empty with
+               pre_tool_use =
+                 Some
+                   (fun _ ->
+                     Hooks.ElicitToolApproval
+                       { Hooks.question = "Approve legacy durable call?" })
+             }
+           in
+           let agent =
+             Agent.create
+               ~net:(Eio.Stdenv.net env)
+               ~config:(Types.default_config ~model:"test-model")
+               ~tools:[ tool ]
+               ~options:
+                 { Agent.default_options with
+                   hooks
+                 ; tool_approval =
+                     Some
+                       (fun _ ->
+                         incr approval_count;
+                         Hooks.Denied)
+                 }
+               ()
+           in
+           let options = Agent.options agent in
+           let report =
+             Internal.Execution_context.with_provider_attempt provider (fun () ->
+               Agent_tools.execute_tools
+                 ~context:(Agent.context agent)
+                 ~tools:(Tool_set.to_list (Agent.tools agent))
+                 ~hooks:options.hooks
+                 ?tool_approval:options.tool_approval
+                 ~event_bus:options.event_bus
+                 ~tracer:options.tracer
+                 ~agent_name:(Agent.state agent).config.name
+                 ~turn_count:0
+                 ~usage:Types.empty_usage
+                 [ Types.ToolUse
+                     { id = tool_use_id; name = "durable_tool"; input = tool_input }
+                 ])
+           in
+           Alcotest.(check int) "typed approval runs once" 1 !approval_count;
+           Alcotest.(check int) "denied legacy effect stays closed" 0 !effect_count;
+           match report with
+           | Ok
+               { Agent_tools.completed_results =
+                   [ { outcome = Types.Tool_failed _; _ } ]
+               ; _
+               } -> ()
+           | Ok _ -> Alcotest.fail "typed denial did not produce a blocked ToolResult"
+           | Error _ -> Alcotest.fail "typed denial returned an execution error")
+       with
+       | Ok () -> ()
+       | Error failure ->
+         Alcotest.fail (Internal_writer.scope_failure_to_string failure))
+;;
+
 (* A context injector appends User-role messages during a turn (see
    [Agent_turn.apply_context_injection]); after such a turn the latest User
    message in the restored checkpoint is the injected one, not the run's
@@ -3503,6 +3636,10 @@ let () =
             "Agent.run resumes settled tool without duplicate effects"
             `Quick
             test_agent_run_resumes_settled_tool_without_duplicate_effects
+        ; Alcotest.test_case
+            "unattempted legacy invocation requires typed readmission"
+            `Quick
+            test_unattempted_legacy_invocation_requires_typed_readmission
         ; Alcotest.test_case
             "Agent.run resume matches original prompt not injected User message"
             `Quick

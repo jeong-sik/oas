@@ -724,6 +724,60 @@ let execute_scheduled_tool
          { invocation; detail = Execution_agent_scope.error_to_string error });
     raise Abort_tool_dispatch
   in
+  let settle_gate execute_admitted =
+    let decision =
+      invoke_hook
+        ?on_hook_invoked
+        ~tracer
+        ~agent_name
+        ~turn_count
+        ~hook_name:"pre_tool_use"
+        hooks.pre_tool_use
+        (Hooks.PreToolUse
+           { invocation
+           ; tool_name = name
+           ; input
+           ; accumulated_cost_usd = usage.Types.estimated_cost_usd
+           })
+    in
+    match
+      Agent_tool_pre_execution_gate.settle
+        ?tool_approval
+        ?correlation_id
+        ?run_id
+        ~event_bus
+        ~agent_name
+        ~invocation
+        ~tool_name:name
+        ~input
+        decision
+    with
+    | Agent_tool_pre_execution_gate.Block reason ->
+      (* Intentional caller rejection is a model-visible tool result, but it is
+         not a tool execution. No Tool_called/Tool_completed lifecycle evidence
+         is emitted for a call that never crossed the caller's gate. *)
+      { index
+      ; completed_result =
+          Some (blocked_tool_result ~invocation ~name ~input ~content:reason)
+      ; completion = Continue_after_batch
+      ; failure = None
+      }
+    | Agent_tool_pre_execution_gate.Reject { stage; detail } ->
+      { index
+      ; completed_result = None
+      ; completion = Continue_after_batch
+      ; failure =
+          Some
+            (Hook_failure
+               (hook_execution_error
+                  ~hook_name:"pre_tool_use"
+                  ~stage
+                  ~tool_name:name
+                  ~invocation
+                  ~detail))
+      }
+    | Agent_tool_pre_execution_gate.Admit -> execute_admitted ()
+  in
   try
     let execution_provider = Execution_context.provider_attempt () in
     let existing =
@@ -735,14 +789,24 @@ let execute_scheduled_tool
     match existing with
     | Error error -> durability_failure error
     | Ok (Some durable_invocation) ->
-      (* An existing durable occurrence proves the pre-tool gate already
-         admitted this exact call. Replaying it must not invoke the gate or any
-         lifecycle observer again. If no attempt was committed, [execute_phased]
-         starts the effect once; an in-flight attempt fails closed. *)
-      let (_ : tool_dispatch) =
-        with_tool_span (fun () -> execute_durable durable_invocation)
-      in
-      outcome ()
+      (match Execution_agent_scope.invocation_progress durable_invocation with
+       | Error error -> durability_failure error
+       | Ok Execution_agent_scope.Invocation_unattempted ->
+         (* A durable occurrence created by an older protocol may predate typed
+            approval. With no committed effect attempt, re-run the current gate
+            before allowing execution. *)
+         settle_gate (fun () ->
+           let (_ : tool_dispatch) =
+             with_tool_span (fun () -> execute_durable durable_invocation)
+           in
+           outcome ())
+       | Ok Execution_agent_scope.Invocation_attempted_or_settled ->
+         (* Once an attempt exists, replay/unknown-effect handling is owned by
+            the durable settlement layer and must not invoke the gate again. *)
+         let (_ : tool_dispatch) =
+           with_tool_span (fun () -> execute_durable durable_invocation)
+         in
+         outcome ())
     | Ok None ->
       let execute_admitted () =
         let idem_key = Durable_event.make_idempotency_key ~tool_name:name ~input in
@@ -807,58 +871,7 @@ let execute_scheduled_tool
           record_caught_exception exception_ backtrace;
           outcome ()
       in
-      let decision =
-        invoke_hook
-          ?on_hook_invoked
-          ~tracer
-          ~agent_name
-          ~turn_count
-          ~hook_name:"pre_tool_use"
-          hooks.pre_tool_use
-          (Hooks.PreToolUse
-             { invocation
-             ; tool_name = name
-             ; input
-             ; accumulated_cost_usd = usage.Types.estimated_cost_usd
-             })
-      in
-      (match
-         Agent_tool_pre_execution_gate.settle
-           ?tool_approval
-           ?correlation_id
-           ?run_id
-           ~event_bus
-           ~agent_name
-           ~invocation
-           ~tool_name:name
-           ~input
-           decision
-       with
-       | Agent_tool_pre_execution_gate.Block reason ->
-         (* Intentional caller rejection is a model-visible tool result, but it is
-         not a tool execution. No Tool_called/Tool_completed lifecycle evidence
-         is emitted for a call that never crossed the caller's gate. *)
-         { index
-         ; completed_result =
-             Some (blocked_tool_result ~invocation ~name ~input ~content:reason)
-         ; completion = Continue_after_batch
-         ; failure = None
-         }
-       | Agent_tool_pre_execution_gate.Reject { stage; detail } ->
-         { index
-         ; completed_result = None
-         ; completion = Continue_after_batch
-         ; failure =
-             Some
-               (Hook_failure
-                  (hook_execution_error
-                     ~hook_name:"pre_tool_use"
-                     ~stage
-                     ~tool_name:name
-                     ~invocation
-                     ~detail))
-         }
-       | Agent_tool_pre_execution_gate.Admit -> execute_admitted ())
+      settle_gate execute_admitted
   with
   | Hook_observer_raised (exception_, backtrace) ->
     record_caught_exception exception_ backtrace;
