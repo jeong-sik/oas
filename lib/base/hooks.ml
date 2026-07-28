@@ -288,7 +288,7 @@ let hook_stage_to_string = function
     before_turn          |    Y     |              |      Y      |   Y   |
     before_turn_params   |    Y     |      Y       |             |       |
     after_turn           |    Y     |              |             |       |
-    pre_tool_use         |    Y     |              |             |       |   Y
+    pre_tool_use         |    Y     |              |      Y      |       |   Y
     post_tool_use        |    Y     |              |             |       |
     post_tool_use_failure|    Y     |              |             |       |
     on_stop              |    Y     |              |             |       |
@@ -297,13 +297,24 @@ let hook_stage_to_string = function
     v}
 
     Fail-closed: any decision not explicitly listed is rejected. [Block] is
-    legal only at [pre_tool_use]. *)
+    legal only at [pre_tool_use].
+
+    [ElicitInput] is legal at two stages and means the same thing at both —
+    stop and ask the host — but the unit it stops differs. At [before_turn]
+    it stops the turn before the model runs. At [pre_tool_use] it stops one
+    tool call, leaving its [ToolUse] unanswered (RFC-OAS-039): a caller gate
+    that authorizes a specific command with a specific input can only decide
+    once both exist, which is after the model has chosen them. Without this,
+    such a gate has to answer the call immediately, and
+    {!Llm_provider.Types.tool_result_outcome} offers only [Tool_succeeded] or
+    [Tool_failed] — so a deferral would have to report a success that did not
+    happen. *)
 let legal_decisions_for_stage stage =
   match stage with
   | Before_turn -> [ K_Continue; K_ElicitInput; K_Nudge ]
   | Before_turn_params -> [ K_Continue; K_AdjustParams ]
   | After_turn -> [ K_Continue ]
-  | Pre_tool_use -> [ K_Continue; K_Block ]
+  | Pre_tool_use -> [ K_Continue; K_Block; K_ElicitInput ]
   | Post_tool_use | Post_tool_use_failure | On_stop | On_error | On_tool_error ->
     [ K_Continue ]
 ;;

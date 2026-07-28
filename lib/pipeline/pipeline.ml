@@ -360,9 +360,19 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent to
          Pipeline_terminal_tool.durability_failure ~invocation ~detail
        | None ->
          let finish = Pipeline_terminal_tool.outcome ~response completion in
-         (match agent.options.context_injector with
-          | None -> finish After_tool_results_appended
-          | Some injector ->
+         (match completion, agent.options.context_injector with
+          (* RFC-OAS-039. A suspended call produced no result, so the
+          injector's positional tool_uses/results zip cannot balance and
+          [apply_context_injection] would report a cardinality mismatch
+          (agent_turn.ml:240-244) — masking the suspension with an internal
+          error. Context injection processes tool results; this turn has none
+          for the suspended call yet. Resume re-runs the turn and injects then,
+          against a complete set. *)
+          | Agent_tools.Suspended_for_input _, _ -> finish After_tool_results_appended
+          | (Continue_after_batch | Terminal_completed _ | Terminal_failed _), None ->
+            finish After_tool_results_appended
+          | (Continue_after_batch | Terminal_completed _ | Terminal_failed _), Some injector
+            ->
             let* messages =
               Agent_turn.apply_context_injection
                 ~context:agent.context

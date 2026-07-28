@@ -1112,7 +1112,9 @@ let test_terminal_admission_rejects_entire_malformed_batch () =
       (match report.completion with
        | Agent_tools.Continue_after_batch -> ()
        | Agent_tools.Terminal_completed _ | Agent_tools.Terminal_failed _ ->
-         failf "%s: rejected batch cannot complete terminally" label)
+         failf "%s: rejected batch cannot complete terminally" label
+       | Agent_tools.Suspended_for_input _ ->
+         failf "%s: rejected batch cannot suspend; no hook ran" label)
   in
   check_rejected
     "terminal plus ordinary"
@@ -1152,6 +1154,8 @@ let test_singleton_terminal_reports_exact_invocation_and_recovers () =
       match report.completion with
       | Agent_tools.Continue_after_batch -> fail "terminal success did not stop the batch"
       | Agent_tools.Terminal_failed _ -> fail "terminal success was classified as failure"
+      | Agent_tools.Suspended_for_input _ ->
+        fail "terminal success was classified as suspended"
       | Agent_tools.Terminal_completed invocation ->
         check
           string
@@ -1178,6 +1182,10 @@ let test_singleton_terminal_reports_exact_invocation_and_recovers () =
        fail "settled terminal success was not reconstructed"
      | Ok (Agent_tools.Terminal_failed _) ->
        fail "settled terminal success was reconstructed as failure"
+     (* [recovered_batch_completion] reads persisted ToolResults; a suspension
+        has none, so it cannot be reconstructed from them. *)
+     | Ok (Agent_tools.Suspended_for_input _) ->
+       fail "settled terminal success was reconstructed as suspended"
      | Ok (Agent_tools.Terminal_completed invocation) ->
        check
          string
@@ -1227,7 +1235,9 @@ let test_invalid_terminal_input_remains_correction_capable () =
     (match report.completion with
      | Agent_tools.Continue_after_batch -> ()
      | Agent_tools.Terminal_completed _ | Agent_tools.Terminal_failed _ ->
-       fail "pre-handler validation failure incorrectly closed the terminal boundary")
+       fail "pre-handler validation failure incorrectly closed the terminal boundary"
+     | Agent_tools.Suspended_for_input _ ->
+       fail "pre-handler validation failure was reported as a suspension")
 ;;
 
 let () =

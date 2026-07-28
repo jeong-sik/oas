@@ -783,7 +783,64 @@ let execute_scheduled_tool
                      ~invocation
                      ~detail))
          }
-       | (Hooks.AdjustParams _ | Hooks.ElicitInput _ | Hooks.Nudge _) as decision ->
+       | Hooks.ElicitInput request ->
+         (* RFC-OAS-039. The caller's gate will not authorize this call yet.
+         Suspend it rather than answer it: [completed_result = None] means no
+         ToolResult is appended, so the model is not told a command succeeded
+         that never ran. No Tool_called/Tool_completed lifecycle evidence is
+         emitted for a call that has not crossed the gate.
+
+         The invocation is OPENED in the durable lane but not executed, which
+         is what makes the suspension addressable: on resume,
+         [find_invocation] above returns [Some] and the gate is not consulted
+         again, so [execute_durable] starts the effect exactly once against the
+         original tool_use_id. Without a provider attempt there is nowhere to
+         record the call, and a suspension with no resume path loses it
+         outright — worse than answering it — so that case fails closed. *)
+         (match execution_provider with
+          | None ->
+            { index
+            ; completed_result = None
+            ; completion = Continue_after_batch
+            ; failure =
+                Some
+                  (Hook_failure
+                     (hook_execution_error
+                        ~hook_name:"pre_tool_use"
+                        ~stage:Hooks.Pre_tool_use
+                        ~tool_name:name
+                        ~invocation
+                        ~detail:
+                          "ElicitInput at pre_tool_use requires a durable \
+                           execution store; without one the suspended call \
+                           cannot be resumed"))
+            }
+          | Some provider ->
+            (match
+               Execution_agent_scope.open_invocation
+                 provider
+                 ~invocation
+                 ~tool_name:name
+                 ~input
+             with
+             | Error error -> durability_failure error
+             | Ok (_ : Execution_agent_scope.invocation) ->
+               (* [request_id] is the host's correlation key for the answer;
+               the call's own address is the open durable invocation, not this
+               payload. *)
+               let request =
+                 Agent_elicitation.input_required_of_request
+                   ~agent_name
+                   ~turn:turn_count
+                   request
+               in
+               { index
+               ; completed_result = None
+               ; completion =
+                   Suspended_for_input { invocation; tool_name = name; input; request }
+               ; failure = None
+               }))
+       | (Hooks.AdjustParams _ | Hooks.Nudge _) as decision ->
          { index
          ; completed_result = None
          ; completion = Continue_after_batch
@@ -938,6 +995,16 @@ let execute_tools
       List.fold_left
         (fun selected outcome ->
            match selected, outcome.completion with
+           (* RFC-OAS-039: a suspension outranks every other outcome, and the
+           first one wins. The turn ends holding an unanswered ToolUse, so it
+           cannot also be reported as a completed deliverable — that transcript
+           would reach the provider with an unpaired tool_use. A terminal tool
+           cannot share a batch with other calls
+           ([Agent_tool_batch_plan.Rejected_terminal_mix]), so the pairing this
+           precedence actually decides is suspension against a sibling that
+           ran. *)
+           | Suspended_for_input _, _ -> selected
+           | _, (Suspended_for_input _ as candidate) -> candidate
            | (Terminal_completed _ | Terminal_failed _), _ -> selected
            | Continue_after_batch, candidate -> candidate)
         Continue_after_batch
@@ -971,13 +1038,22 @@ let execute_tools
       let completed = List.rev_append batch_completed completed in
       let completion =
         match completion, batch_completion with
+        | Suspended_for_input _, _ -> completion
+        | _, (Suspended_for_input _ as candidate) -> candidate
         | (Terminal_completed _ | Terminal_failed _), _ -> completion
         | Continue_after_batch, candidate -> candidate
       in
-      (match failure with
-       | Some cause ->
+      (match failure, completion with
+       | Some cause, _ ->
          Error { completed_results = ordered_results completed; completion; cause }
-       | None -> run_batches (batch_index + 1) completed completion rest)
+       (* RFC-OAS-039: stop before the remaining batches. Batches are ordered,
+       and a later one may have been requested on the expectation that the
+       suspended call had already answered. Running it now would execute
+       against a premise the model has not yet been given. *)
+       | None, Suspended_for_input _ ->
+         Ok { completed_results = ordered_results completed; completion }
+       | None, (Continue_after_batch | Terminal_completed _ | Terminal_failed _) ->
+         run_batches (batch_index + 1) completed completion rest)
   in
   match plan with
   | Agent_tool_batch_plan.Rejected_terminal_mix scheduled ->

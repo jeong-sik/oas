@@ -67,6 +67,23 @@ type batch_completion =
       ; effect_disposition : Tool_contract.failure_effect_disposition
       ; detail : string
       }
+  | Suspended_for_input of
+      { invocation : Tool_contract.Invocation.t
+      ; tool_name : string
+      ; input : Yojson.Safe.t
+      ; request : Error.input_required
+      }
+      (** RFC-OAS-039. Neither continue nor terminal. A [pre_tool_use] hook
+          returned [ElicitInput], so this call produced no
+          {!tool_execution_result} and its [ToolUse] is left unanswered: the
+          model is not told a command succeeded that never ran.
+
+          [invocation] is open in the durable lane with zero committed
+          attempts, which is the suspension's address. Resume re-runs the turn;
+          [find_invocation] then matches, the gate is not re-consulted, and the
+          effect starts exactly once against the original [tool_use_id].
+          Requires an armed execution store — without one the decision fails
+          closed, because a suspension with no resume path loses the call. *)
 
 type execution_report =
   { completed_results : tool_execution_result list
