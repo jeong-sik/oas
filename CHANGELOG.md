@@ -15,6 +15,19 @@ original tag dates. `0.100.4` was never tagged or released.
 
 * **hooks:** Stable pre-tool approval now requires Hooks.ElicitToolApproval and Builder.with_tool_approval; generic ElicitInput/with_elicitation is BeforeTurn-only.
 
+`Hooks.PreToolUse` no longer accepts generic `ElicitInput` as tool execution
+authority. Existing callers must keep `ElicitInput`/`with_elicitation` at
+`BeforeTurn`, and migrate exact tool approval to
+`ElicitToolApproval { question }` plus `Builder.with_tool_approval`. The
+approval callback is synchronous and caller-owned; only `Approved` executes the
+exact invocation, while `Denied`, `Timed_out`, a missing callback, and callback
+failure open no effect. OAS does not install a timer, persist a pending approval,
+or issue a resume token at this boundary.
+
+Exhaustive consumers must also handle `ElicitToolApproval`,
+`K_ElicitToolApproval`, and `ToolApprovalCompleted`, and direct `Agent.options`
+record construction must provide the new `tool_approval` field.
+
 ### Bug Fixes
 
 * **exact-output:** keep public execution flow-only ([#2844](https://github.com/jeong-sik/oas/issues/2844)) ([9d01ab7](https://github.com/jeong-sik/oas/commit/9d01ab7c9cf8450bd619dd5fdf168c03fc5ed1ca))
