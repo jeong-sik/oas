@@ -78,21 +78,6 @@ let unknown_tool_failure ~requested ~available =
 
 let resolve_tool_call tool_index name input = name, input, find_in_index tool_index name
 
-let tool_failure_result ~invocation ~name ~input ~content ~error_class =
-  { invocation
-  ; tool_name = name
-  ; input
-  ; content
-  ; outcome =
-      Tool_failed
-        { failure_kind = Non_retryable_tool_error; error_class = Some error_class }
-  }
-;;
-
-let blocked_tool_result ~invocation ~name ~input ~content =
-  tool_failure_result ~invocation ~name ~input ~content ~error_class:Types.Deterministic
-;;
-
 let schedule_tool_use ~tool_index index (id, name, input) =
   let execution_mode, completion =
     match find_in_index tool_index name with
@@ -717,12 +702,12 @@ let execute_scheduled_tool
          { invocation; detail = Execution_agent_scope.error_to_string error });
     raise Abort_tool_dispatch
   in
-  let settle_existing_rejection durable result =
-    match Agent_tool_pre_execution_gate.settle_existing_rejection durable result with
+  let settle_existing_block durable result =
+    match Agent_tool_pre_execution_gate.settle_existing_block durable result with
     | Ok result -> result
     | Error error -> durability_failure error
   in
-  let settle_gate ?settle_rejected execute_admitted =
+  let settle_gate ?settle_blocked execute_admitted =
     let decision =
       invoke_hook
         ?on_hook_invoked
@@ -752,12 +737,11 @@ let execute_scheduled_tool
     in
     match
       Agent_tool_pre_execution_gate.scheduled_settlement
-        ?settle_rejected
+        ?settle_blocked
         ~index
         ~invocation
         ~tool_name:name
-        ~blocked_result:(fun content ->
-          blocked_tool_result ~invocation ~name ~input ~content)
+        ~input
         settlement
     with
     | Agent_tool_pre_execution_gate.Run_admitted -> execute_admitted ()
@@ -781,9 +765,7 @@ let execute_scheduled_tool
       (match Execution_agent_scope.invocation_progress durable with
        | Error error -> durability_failure error
        | Ok Execution_agent_scope.Invocation_unattempted ->
-         settle_gate
-           ~settle_rejected:(settle_existing_rejection durable)
-           execute_existing
+         settle_gate ~settle_blocked:(settle_existing_block durable) execute_existing
        | Ok Execution_agent_scope.Invocation_attempted_or_settled -> execute_existing ())
     | Ok None ->
       let execute_admitted () =

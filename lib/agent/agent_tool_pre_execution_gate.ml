@@ -10,6 +10,19 @@ type scheduled_settlement =
   | Run_admitted
   | Return_outcome of Agent_tool_execution_types.scheduled_tool_outcome
 
+let blocked_tool_result ~invocation ~tool_name ~input ~content =
+  { Agent_tool_execution_types.invocation
+  ; tool_name
+  ; input
+  ; content
+  ; outcome =
+      Types.Tool_failed
+        { failure_kind = Types.Non_retryable_tool_error
+        ; error_class = Some Types.Deterministic
+        }
+  }
+;;
+
 let publish_approval
       ?correlation_id
       ?run_id
@@ -83,37 +96,31 @@ let settle
       }
 ;;
 
-let settle_existing_rejection
+let settle_existing_block
       durable
       (result : Agent_tool_execution_types.tool_execution_result)
   =
-  Execution_agent_scope.execute_phased
+  Execution_agent_scope.settle_unattempted_invocation
     durable
-    ~invoke:(fun ~start_child:_ ~tool_name:_ ~input:_ ->
-      (result.content, result.outcome), (fun () -> ()))
-  |> Result.map (function
-    | Execution_agent_scope.Executed (settled, _, _)
-    | Execution_agent_scope.Replayed settled ->
-      { Agent_tool_execution_types.invocation = settled.invocation
-      ; tool_name = settled.tool_name
-      ; input = settled.input
-      ; content = settled.content
-      ; outcome = settled.outcome
-      })
+    ~content:result.content
+    ~outcome:result.outcome
+  |> Result.map (fun () -> result)
 ;;
 
 let scheduled_settlement
-      ?settle_rejected
+      ?settle_blocked
       ~index
       ~invocation
       ~tool_name
-      ~blocked_result
+      ~input
   = function
   | Admit -> Run_admitted
   | Block reason ->
-    let result = blocked_result reason in
     let result =
-      match settle_rejected with
+      blocked_tool_result ~invocation ~tool_name ~input ~content:reason
+    in
+    let result =
+      match settle_blocked with
       | None -> result
       | Some settle -> settle result
     in
@@ -124,12 +131,6 @@ let scheduled_settlement
       ; failure = None
       }
   | Reject { stage; detail } ->
-    let result = blocked_result detail in
-    (match settle_rejected with
-     | None -> ()
-     | Some settle ->
-       let _ = settle result in
-       ());
     Return_outcome
       { index
       ; completed_result = None
@@ -138,10 +139,6 @@ let scheduled_settlement
           Some
             (Agent_tool_execution_types.Hook_failure
                (Agent_tool_execution_types.Hook_execution_failed
-                  { hook_name = "pre_tool_use"
-                  ; stage
-                  ; tool_name
-                  ; invocation
-                  ; detail
-                  }))
+                  { hook_name = "pre_tool_use"; stage; tool_name; invocation; detail }))
       }
+;;

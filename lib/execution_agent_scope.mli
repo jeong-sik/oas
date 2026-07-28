@@ -160,6 +160,14 @@ val find_invocation
     current gate again before execution. *)
 val invocation_progress : invocation -> (invocation_progress, error) result
 
+(** Persist a model-visible blocked result without opening an effect attempt.
+    Only an open invocation classified as [Invocation_unattempted] is accepted. *)
+val settle_unattempted_invocation
+  :  invocation
+  -> content:string
+  -> outcome:Llm_provider.Types.tool_result_outcome
+  -> (unit, error) result
+
 val provider_invocations_settled : provider_attempt -> (bool, error) result
 
 (** Exact immutable invocation authority reconstructed only from persisted

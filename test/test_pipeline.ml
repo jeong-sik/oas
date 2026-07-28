@@ -2024,6 +2024,11 @@ let test_unattempted_legacy_invocation_requires_typed_readmission () =
             with
             | Ok _ -> ()
             | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
+           let before_denial =
+             match Internal_writer.current_cursor writer with
+             | Ok cursor -> cursor
+             | Error error -> Alcotest.fail (Internal_writer.read_error_to_string error)
+           in
            let effect_count = ref 0 in
            let approval_count = ref 0 in
            let tool =
@@ -2086,16 +2091,46 @@ let test_unattempted_legacy_invocation_requires_typed_readmission () =
                 } -> ()
             | Ok _ -> Alcotest.fail "typed denial did not produce a blocked ToolResult"
             | Error _ -> Alcotest.fail "typed denial returned an execution error");
-           (match
-              Internal_scope.close_provider_attempt
-                provider
-                Internal.Execution_event.Succeeded
-            with
-            | Ok () -> ()
-            | Error error ->
-              Alcotest.fail
-                ("typed denial left the durable invocation open: "
-                 ^ Internal_scope.error_to_string error)))
+           (match Internal_scope.provider_invocations_settled provider with
+            | Ok true -> ()
+            | Ok false -> Alcotest.fail "denied legacy invocation stayed open"
+            | Error error -> Alcotest.fail (Internal_scope.error_to_string error));
+           let denial_events =
+             match Internal_writer.read_page writer ~after:before_denial ~limit:8 () with
+             | Ok page -> page.events
+             | Error error -> Alcotest.fail (Internal_writer.read_error_to_string error)
+           in
+           Alcotest.(check int)
+             "typed denial opens no durable effect attempt"
+             0
+             (List.fold_left
+                (fun count event ->
+                   match Internal.Execution_event.payload event with
+                   | Internal.Execution_event.Node_opened node ->
+                     (match Internal.Execution_event.node_kind node with
+                      | Internal.Execution_event.Tool_attempt -> count + 1
+                      | Internal.Execution_event.Agent_run _
+                      | Internal.Execution_event.Agent_turn _
+                      | Internal.Execution_event.Provider_attempt _
+                      | Internal.Execution_event.Output_block _
+                      | Internal.Execution_event.Tool_invocation _ -> count)
+                   | Internal.Execution_event.Node_updated _
+                   | Internal.Execution_event.Node_closed _ -> count)
+                0
+                denial_events);
+           List.iter
+             (fun close ->
+                match close () with
+                | Ok () -> ()
+                | Error error -> Alcotest.fail (Internal_scope.error_to_string error))
+             [ (fun () ->
+                 Internal_scope.close_provider_attempt
+                   provider
+                   Internal.Execution_event.Succeeded)
+             ; (fun () ->
+                 Internal_scope.close_turn turn Internal.Execution_event.Succeeded)
+             ; (fun () -> Internal_scope.finish scope Internal.Execution_event.Succeeded)
+             ])
        with
        | Ok () -> ()
        | Error failure -> Alcotest.fail (Internal_writer.scope_failure_to_string failure))

@@ -525,6 +525,23 @@ let invocation_progress invocation =
        , _ ) -> Error (Resume_topology_mismatch "invocation changed node kind"))
 ;;
 
+let settle_unattempted_invocation invocation ~content ~outcome =
+  let durable = invocation.durable in
+  let result =
+    Llm_provider.Types.ToolResult
+      { tool_use_id = Tool_contract.Invocation.tool_use_id durable.invocation
+      ; content
+      ; outcome
+      ; json = None
+      ; content_blocks = None
+      }
+  in
+  transact
+    invocation.scope.writer
+    (Tx.settle_unattempted_tool_invocation ~invocation:invocation.locator.node ~result ())
+  |> Result.map (fun _events -> ())
+;;
+
 let provider_invocations provider =
   let scope = provider.turn.scope in
   match Writer.find_node scope.writer provider.node with

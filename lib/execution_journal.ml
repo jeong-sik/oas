@@ -1746,6 +1746,42 @@ let stage_settle_tool_attempt journal state ~attempt ~invocation ~result =
   }
 ;;
 
+let stage_settle_unattempted_tool_invocation journal state ~invocation ~result =
+  let* invocation_record = node_record_or_error state invocation in
+  let* () =
+    match
+      ( Event.node_kind invocation_record.node
+      , invocation_record.tool_result
+      , invocation_record.children_rev
+      , invocation_record.status )
+    with
+    | Event.Tool_invocation _, None, [], Open -> Ok ()
+    | Event.Tool_invocation _, (None | Some _), (_ :: _ | []), (Open | Closed _) ->
+      Error
+        (Invalid_argument
+           "blocked settlement requires an open, unattempted tool invocation")
+    | ( ( Event.Agent_run _
+        | Event.Agent_turn _
+        | Event.Provider_attempt _
+        | Event.Output_block _
+        | Event.Tool_attempt )
+      , (None | Some _)
+      , (_ :: _ | [])
+      , (Open | Closed _) ) ->
+      Error (Invalid_argument "blocked settlement requires a Tool_invocation node")
+  in
+  let* result_committed =
+    stage_update_node journal state ~node:invocation (Event.Tool_result result)
+  in
+  let+ invocation_closed =
+    stage_close_node journal result_committed.next_state ~node:invocation Event.Succeeded
+  in
+  { next_state = invocation_closed.next_state
+  ; events = [ result_committed.value; invocation_closed.value ]
+  ; value = [ result_committed.value; invocation_closed.value ]
+  }
+;;
+
 let stage_finish_run ?causes journal state ~run terminal =
   let* event_id = identity_result (Event.Event_id.fresh ()) in
   let* terminal = payload_result (Event.validate_terminal terminal) in
@@ -1924,6 +1960,11 @@ module Transaction = struct
         ; result : Llm_provider.Types.content_block
         }
         -> Event.t list t
+    | Settle_unattempted_tool_invocation :
+        { invocation : Event.Node_id.t
+        ; result : Llm_provider.Types.content_block
+        }
+        -> Event.t list t
     | Finish_run :
         { causes : Event.cause list
         ; run : run
@@ -1955,6 +1996,10 @@ module Transaction = struct
 
   let settle_tool_attempt ~attempt ~invocation ~result () =
     Settle_tool_attempt { attempt; invocation; result }
+  ;;
+
+  let settle_unattempted_tool_invocation ~invocation ~result () =
+    Settle_unattempted_tool_invocation { invocation; result }
   ;;
 
   let finish_run ?(causes = []) ~run terminal = Finish_run { causes; run; terminal }
@@ -2006,6 +2051,13 @@ let stage : type value. batch -> value Transaction.t -> (batch * value, error) r
          batch.journal
          batch.staged_state
          ~attempt
+         ~invocation
+         ~result)
+  | Transaction.Settle_unattempted_tool_invocation { invocation; result } ->
+    stage_mutation
+      (stage_settle_unattempted_tool_invocation
+         batch.journal
+         batch.staged_state
          ~invocation
          ~result)
   | Transaction.Finish_run { causes; run; terminal } ->
