@@ -87,6 +87,12 @@ let test_envelope_preserved_across_variants () =
     ; HandoffCompleted { from_agent = "alpha"; to_agent = "beta"; elapsed = 0.5 }
     ; ElicitationCompleted
         { agent_name = "alpha"; question = "?"; response = Hooks.Declined }
+    ; ToolApprovalCompleted
+        { agent_name = "alpha"
+        ; invocation = invocation ()
+        ; tool_name = "echo"
+        ; approval = Hooks.Denied
+        }
     ; AgentCompleted
         { agent_name = "alpha"
         ; task_id = "t1"
@@ -145,6 +151,13 @@ let test_payload_kind_mapping () =
     ; ( ElicitationCompleted
           { agent_name = "a"; question = "?"; response = Hooks.Declined }
       , "elicitation_completed" )
+    ; ( ToolApprovalCompleted
+          { agent_name = "a"
+          ; invocation = invocation ()
+          ; tool_name = "t"
+          ; approval = Hooks.Denied
+          }
+      , "tool_approval_completed" )
     ; Custom ("runtime.session_started", `Null), "custom:runtime.session_started"
     ; Custom ("durable.tool_called", `Null), "custom:durable.tool_called"
     ; ( Custom ("provider.anthropic.cache_hit", `Null)

@@ -59,6 +59,7 @@ type options = Agent_types.options =
     (** Discovery/metadata path only.  Surfaced via {!Agent.card} for
           A2A negotiation.  Does not affect runtime prompt composition. *)
   ; elicitation : Hooks.elicitation_callback option
+  ; tool_approval : Hooks.tool_approval_callback option
   ; description : string option
   ; periodic_callbacks : periodic_callback list
   ; slot_id : int option

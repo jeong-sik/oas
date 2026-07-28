@@ -549,7 +549,7 @@ let execute_scheduled_tool
       ~tool_index
       ~(hooks : Hooks.hooks)
       ~event_bus
-      ?elicitation
+      ?tool_approval
       ?journal
       ~tracer
       ~agent_name
@@ -824,11 +824,14 @@ let execute_scheduled_tool
       in
       (match
          Agent_tool_pre_execution_gate.settle
-           ?elicitation
+           ?tool_approval
            ?correlation_id
            ?run_id
            ~event_bus
            ~agent_name
+           ~invocation
+           ~tool_name:name
+           ~input
            decision
        with
        | Agent_tool_pre_execution_gate.Block reason ->
@@ -870,7 +873,7 @@ let execute_tools
       ~context
       ~tools
       ~(hooks : Hooks.hooks)
-      ?elicitation
+      ?tool_approval
       ~event_bus
       ?journal
       ~tracer
@@ -901,7 +904,7 @@ let execute_tools
       ~tool_index
       ~hooks
       ~event_bus
-      ?elicitation
+      ?tool_approval
       ?journal
       ~tracer
       ~agent_name

@@ -83,6 +83,7 @@ Pattern-matchable OCaml sum type. **Stable across every provider.**
 | `HandoffRequested` | `agent/agent.ml` | Agent delegates control to another agent |
 | `HandoffCompleted` | `agent/agent.ml` | Handoff target finished |
 | `ElicitationCompleted` | `pipeline/pipeline_stage_prepare.ml` | User elicitation round completed |
+| `ToolApprovalCompleted` | `agent/agent_tool_pre_execution_gate.ml` | Caller-owned exact tool approval settled before invocation |
 | `InferenceTelemetry` | `pipeline/pipeline.ml` | Per-turn provider timing/token telemetry when reported by the backend |
 | `Custom (name, json)` | anywhere | Extension point — see §2.3 |
 

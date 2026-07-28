@@ -229,19 +229,22 @@ let test_validate_legal_before_turn_params () =
   check bool "AdjustParams at before_turn_params" true (Result.is_ok ok2)
 ;;
 
-let gate_request =
+let input_request =
   { Hooks.question = "authorize this command?"; schema = None; timeout_s = None }
 ;;
 
+let tool_approval_prompt =
+  { Hooks.question = "authorize this command?"; timeout_s = None }
+;;
+
 let test_validate_legal_pre_tool_use () =
-  (* RFC-OAS-039: [ElicitInput] is legal here so a caller gate that authorizes
-     a specific command with a specific input — which it can only judge after
-     the model has chosen both — can consult the configured callback first.
-     [Types.tool_result_outcome] offers only [Tool_succeeded] or [Tool_failed],
-     so without this the gate would have to report a success that did not
-     happen. *)
+  (* RFC-OAS-039: only the typed approval decision is legal after the model
+     chose the exact tool occurrence. Generic user input is never authority. *)
   let decisions =
-    [ Hooks.Continue; Hooks.Block "blocked"; Hooks.ElicitInput gate_request ]
+    [ Hooks.Continue
+    ; Hooks.Block "blocked"
+    ; Hooks.ElicitToolApproval tool_approval_prompt
+    ]
   in
   List.iter
     (fun d ->
@@ -257,9 +260,12 @@ let test_validate_legal_pre_tool_use () =
 ;;
 
 let test_validate_illegal_pre_tool_use_stays_closed () =
-  (* Negative control for the widening above: admitting [ElicitInput] must not
-     open the stage to the other payload-carrying decisions. *)
-  let decisions = [ Hooks.AdjustParams Hooks.default_turn_params; Hooks.Nudge "hint" ] in
+  let decisions =
+    [ Hooks.AdjustParams Hooks.default_turn_params
+    ; Hooks.ElicitInput input_request
+    ; Hooks.Nudge "hint"
+    ]
+  in
   List.iter
     (fun d ->
        let result = Hooks.validate_decision ~stage:Hooks.Pre_tool_use d in
@@ -274,10 +280,33 @@ let test_validate_illegal_pre_tool_use_stays_closed () =
 ;;
 
 let test_elicit_input_illegal_where_it_cannot_settle_input () =
-  (* [ElicitInput] is legal only before a turn or exact tool call. The
-     observe-only stages run after the action whose input would be settled. *)
+  (* Generic input is legal only before a turn. *)
   let stages =
     [ Hooks.Before_turn_params
+    ; Hooks.After_turn
+    ; Hooks.Pre_tool_use
+    ; Hooks.Post_tool_use
+    ; Hooks.Post_tool_use_failure
+    ; Hooks.On_stop
+    ; Hooks.On_error
+    ; Hooks.On_tool_error
+    ]
+  in
+  List.iter
+    (fun stage ->
+       let result = Hooks.validate_decision ~stage (Hooks.ElicitInput input_request) in
+       check
+         bool
+         (Printf.sprintf "ElicitInput rejected at %s" (Hooks.hook_stage_to_string stage))
+         true
+         (Result.is_error result))
+    stages
+;;
+
+let test_elicit_tool_approval_illegal_outside_pre_tool_use () =
+  let stages =
+    [ Hooks.Before_turn
+    ; Hooks.Before_turn_params
     ; Hooks.After_turn
     ; Hooks.Post_tool_use
     ; Hooks.Post_tool_use_failure
@@ -288,10 +317,14 @@ let test_elicit_input_illegal_where_it_cannot_settle_input () =
   in
   List.iter
     (fun stage ->
-       let result = Hooks.validate_decision ~stage (Hooks.ElicitInput gate_request) in
+       let result =
+         Hooks.validate_decision ~stage (Hooks.ElicitToolApproval tool_approval_prompt)
+       in
        check
          bool
-         (Printf.sprintf "ElicitInput rejected at %s" (Hooks.hook_stage_to_string stage))
+         (Printf.sprintf
+            "ElicitToolApproval rejected at %s"
+            (Hooks.hook_stage_to_string stage))
          true
          (Result.is_error result))
     stages
@@ -370,6 +403,8 @@ let test_classify_and_to_string () =
     ; Hooks.Block "blocked", "Block"
     ; Hooks.AdjustParams Hooks.default_turn_params, "AdjustParams"
     ; Hooks.ElicitInput { question = "q"; schema = None; timeout_s = None }, "ElicitInput"
+    ; Hooks.ElicitToolApproval { question = "q"; timeout_s = None }
+      , "ElicitToolApproval"
     ; Hooks.Nudge "n", "Nudge"
     ; Hooks.HookFailed { stage = Hooks.Before_turn; detail = "boom" }, "HookFailed"
     ]
@@ -463,6 +498,7 @@ let test_invoke_validated_illegal_block_returns_hook_failed_with_warning () =
       | Hooks.Continue
       | Hooks.AdjustParams _
       | Hooks.ElicitInput _
+      | Hooks.ElicitToolApproval _
       | Hooks.Nudge _
       | Hooks.Block _ -> false)
   in
@@ -489,16 +525,16 @@ let test_invoke_validated_illegal_returns_hook_failed () =
 ;;
 
 (** Pin the fail-closed result for every decision that is illegal at
-    pre_tool_use (AdjustParams / Nudge): the decision returns
+    pre_tool_use (AdjustParams / ElicitInput / Nudge): the decision returns
     HookFailed and [on_illegal] receives the stage, the
     rejected decision and a message naming the decision kind. *)
 let test_invoke_validated_pre_tool_use_fail_closed_pinned () =
-  (* [ElicitInput] left this list in RFC-OAS-039: it is now legal here and
-     consults the configured callback instead of failing it. The stage stays fail-closed for
-     everything else, which is what this pin exists to hold. Its legality is
-     covered by [test_validate_legal_pre_tool_use], and the stages where it
-     remains illegal by [test_elicit_input_illegal_where_it_cannot_settle_input]. *)
-  let illegal = [ Hooks.AdjustParams Hooks.default_turn_params; Hooks.Nudge "nudge" ] in
+  let illegal =
+    [ Hooks.AdjustParams Hooks.default_turn_params
+    ; Hooks.ElicitInput input_request
+    ; Hooks.Nudge "nudge"
+    ]
+  in
   List.iter
     (fun decision ->
        let kind_name = Hooks.decision_kind_to_string (Hooks.classify_decision decision) in
@@ -616,6 +652,10 @@ let () =
             "illegal: ElicitInput where input cannot be settled"
             `Quick
             test_elicit_input_illegal_where_it_cannot_settle_input
+        ; test_case
+            "illegal: ElicitToolApproval outside pre_tool_use"
+            `Quick
+            test_elicit_tool_approval_illegal_outside_pre_tool_use
         ; test_case
             "legal: observe-only stages"
             `Quick

@@ -120,6 +120,15 @@ type payload =
       ; question : string
       ; response : Hooks.elicitation_response
       }
+  | ToolApprovalCompleted of
+      { agent_name : string
+      ; invocation : Tool_contract.Invocation.t
+      ; tool_name : string
+      ; approval : Hooks.tool_approval
+      }
+  (** Caller-owned approval for an exact tool occurrence was settled before
+      the invocation was opened. The tool input is intentionally not copied
+      into the event. *)
   | InferenceTelemetry of
       { agent_name : string
       ; turn : int

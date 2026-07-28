@@ -446,6 +446,7 @@ let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
             | HandoffRequested _
             | HandoffCompleted _
             | ElicitationCompleted _
+            | ToolApprovalCompleted _
             | InferenceTelemetry _
             | Custom _ -> started, ready, completed, tools)
          ([], [], [], [])
@@ -1651,6 +1652,7 @@ let test_agent_run_uses_durable_tool_authority () =
            | HandoffRequested _
            | HandoffCompleted _
            | ElicitationCompleted _
+           | ToolApprovalCompleted _
            | InferenceTelemetry _
            | Custom _ -> false)
        in

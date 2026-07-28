@@ -106,6 +106,31 @@ type elicitation_response =
 
 type elicitation_callback = elicitation_request -> elicitation_response
 
+(** Prompt supplied by a [PreToolUse] hook when caller approval is required.
+    It deliberately has no generic JSON schema: authorization is a closed
+    protocol, not an arbitrary elicitation answer. *)
+type tool_approval_prompt =
+  { question : string
+  ; timeout_s : float option
+  }
+
+(** Exact immutable tool occurrence presented to the caller-owned approval
+    boundary. [input] is the invocation input selected by the provider. *)
+type tool_approval_request =
+  { prompt : tool_approval_prompt
+  ; invocation : Tool_contract.Invocation.t
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  }
+
+(** Closed authorization result for an exact tool occurrence. *)
+type tool_approval =
+  | Approved
+  | Denied
+  | Timed_out
+
+type tool_approval_callback = tool_approval_request -> tool_approval
+
 (** Closed set of lifecycle stages accepted by the hook decision matrix. *)
 type hook_stage =
   | Before_turn
@@ -123,6 +148,10 @@ type hook_decision =
   | Continue
   | AdjustParams of turn_params
   | ElicitInput of elicitation_request
+  | ElicitToolApproval of tool_approval_prompt
+  (** PreToolUse only: ask the caller to settle the exact invocation through
+      {!tool_approval_callback}. Generic [ElicitInput] answers cannot grant
+      execution authority. *)
   | Nudge of string (** BeforeTurn: inject a user-role message before tool preparation. *)
   | HookFailed of
       { stage : hook_stage
@@ -171,12 +200,12 @@ val empty : hooks
     Returning an unlisted decision is a programming error.
 
     {v
-    Stage                | Continue | AdjustParams | ElicitInput | Nudge | Block
-    ---------------------+----------+--------------+-------------+-------+------
-    before_turn          |    Y     |              |      Y      |   Y   |
+    Stage                | Continue | AdjustParams | ElicitInput | ElicitToolApproval | Nudge | Block
+    ---------------------+----------+--------------+-------------+-------------------+-------+------
+    before_turn          |    Y     |              |      Y      |                   |   Y   |
     before_turn_params   |    Y     |      Y       |             |       |
     after_turn           |    Y     |              |             |       |
-    pre_tool_use         |    Y     |              |      Y      |       |   Y
+    pre_tool_use         |    Y     |              |             |         Y         |       |   Y
     post_tool_use        |    Y     |              |             |       |
     post_tool_use_failure|    Y     |              |             |       |
     on_stop              |    Y     |              |             |       |
@@ -191,6 +220,7 @@ type hook_decision_kind =
   | K_Continue
   | K_AdjustParams
   | K_ElicitInput
+  | K_ElicitToolApproval
   | K_Nudge
   | K_HookFailed
   | K_Block

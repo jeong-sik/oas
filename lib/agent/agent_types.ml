@@ -59,6 +59,7 @@ type options =
   ; event_bus : Event_bus.t option
   ; skill_registry : Skill_registry.t option
   ; elicitation : Hooks.elicitation_callback option
+  ; tool_approval : Hooks.tool_approval_callback option
   ; description : string option
   ; periodic_callbacks : periodic_callback list
   ; slot_id : int option
@@ -130,6 +131,7 @@ let default_options =
   ; event_bus = None
   ; skill_registry = None
   ; elicitation = None
+  ; tool_approval = None
   ; description = None
   ; periodic_callbacks = []
   ; slot_id = None
@@ -215,7 +217,8 @@ let card t =
         List.map (fun (tool : Tool.t) -> tool.schema) (Tool_set.to_list t.tools)
     ; supported_providers
     ; mcp_clients_count = List.length t.options.mcp_clients
-    ; has_elicitation = Option.is_some t.options.elicitation
+    ; has_elicitation =
+        Option.is_some t.options.elicitation || Option.is_some t.options.tool_approval
     ; skills
     }
 ;;

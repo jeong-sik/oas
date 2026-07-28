@@ -149,6 +149,29 @@ type elicitation_response =
     Returns the user's response or Declined/Timeout. *)
 type elicitation_callback = elicitation_request -> elicitation_response
 
+(** A pre-tool authorization cannot be represented by [Answer of Yojson.Safe.t]:
+    that value is user input, not execution authority. Keep the prompt and the
+    exact runtime request distinct so malformed data is unrepresentable at the
+    authorization boundary. *)
+type tool_approval_prompt =
+  { question : string
+  ; timeout_s : float option
+  }
+
+type tool_approval_request =
+  { prompt : tool_approval_prompt
+  ; invocation : Tool_contract.Invocation.t
+  ; tool_name : string
+  ; input : Yojson.Safe.t
+  }
+
+type tool_approval =
+  | Approved
+  | Denied
+  | Timed_out
+
+type tool_approval_callback = tool_approval_request -> tool_approval
+
 (** Typed lifecycle stage used by the hook decision matrix. *)
 type hook_stage =
   | Before_turn
@@ -167,6 +190,8 @@ type hook_decision =
   | AdjustParams of turn_params
   (** BeforeTurnParams only: override params for this turn *)
   | ElicitInput of elicitation_request (** Request user input before proceeding *)
+  | ElicitToolApproval of tool_approval_prompt
+  (** PreToolUse only: request a caller-owned exact-tool authorization. *)
   | Nudge of string (** BeforeTurn: inject a user-role message before tool preparation. *)
   | HookFailed of
       { stage : hook_stage
@@ -228,11 +253,12 @@ type context_injector =
 
 (** Classification of hook_decision variants for the decision matrix.
     Using a separate type avoids comparing functional values
-    (AdjustParams, ElicitInput carry payloads). *)
+   (AdjustParams and elicitation decisions carry payloads). *)
 type hook_decision_kind =
   | K_Continue
   | K_AdjustParams
   | K_ElicitInput
+  | K_ElicitToolApproval
   | K_Nudge
   | K_HookFailed
   | K_Block
@@ -241,6 +267,7 @@ let classify_decision = function
   | Continue -> K_Continue
   | AdjustParams _ -> K_AdjustParams
   | ElicitInput _ -> K_ElicitInput
+  | ElicitToolApproval _ -> K_ElicitToolApproval
   | Nudge _ -> K_Nudge
   | HookFailed _ -> K_HookFailed
   | Block _ -> K_Block
@@ -250,6 +277,7 @@ let decision_kind_to_string = function
   | K_Continue -> "Continue"
   | K_AdjustParams -> "AdjustParams"
   | K_ElicitInput -> "ElicitInput"
+  | K_ElicitToolApproval -> "ElicitToolApproval"
   | K_Nudge -> "Nudge"
   | K_HookFailed -> "HookFailed"
   | K_Block -> "Block"
@@ -283,12 +311,12 @@ let hook_stage_to_string = function
 (** Legal decision matrix.
 
     {v
-    Stage                | Continue | AdjustParams | ElicitInput | Nudge | Block
-    ---------------------+----------+--------------+-------------+-------+------
-    before_turn          |    Y     |              |      Y      |   Y   |
+    Stage                | Continue | AdjustParams | ElicitInput | ElicitToolApproval | Nudge | Block
+    ---------------------+----------+--------------+-------------+-------------------+-------+------
+    before_turn          |    Y     |              |      Y      |                   |   Y   |
     before_turn_params   |    Y     |      Y       |             |       |
     after_turn           |    Y     |              |             |       |
-    pre_tool_use         |    Y     |              |      Y      |       |   Y
+    pre_tool_use         |    Y     |              |             |         Y         |       |   Y
     post_tool_use        |    Y     |              |             |       |
     post_tool_use_failure|    Y     |              |             |       |
     on_stop              |    Y     |              |             |       |
@@ -299,11 +327,12 @@ let hook_stage_to_string = function
     Fail-closed: any decision not explicitly listed is rejected. [Block] is
     legal only at [pre_tool_use].
 
-    [ElicitInput] is legal at two stages. At [before_turn] it asks before the
-    model runs. At [pre_tool_use] the configured elicitation callback settles
-    the exact call before its invocation is opened (RFC-OAS-039): a caller gate
-    that authorizes a specific command with a specific input can only decide
-    once both exist, which is after the model has chosen them. Without this,
+    [ElicitInput] is legal only at [before_turn], where it asks before the model
+    runs. [ElicitToolApproval] is legal only at [pre_tool_use] and its separate
+    typed callback settles the exact call before its invocation is opened. A
+    caller gate that authorizes a specific command with a specific input can
+    only decide once both exist, which is after the model has chosen them.
+    Without this,
     such a gate has to answer the call without caller input, and
     {!Llm_provider.Types.tool_result_outcome} offers only [Tool_succeeded] or
     [Tool_failed] — so a deferral would have to report a success that did not
@@ -313,7 +342,7 @@ let legal_decisions_for_stage stage =
   | Before_turn -> [ K_Continue; K_ElicitInput; K_Nudge ]
   | Before_turn_params -> [ K_Continue; K_AdjustParams ]
   | After_turn -> [ K_Continue ]
-  | Pre_tool_use -> [ K_Continue; K_Block; K_ElicitInput ]
+  | Pre_tool_use -> [ K_Continue; K_Block; K_ElicitToolApproval ]
   | Post_tool_use | Post_tool_use_failure | On_stop | On_error | On_tool_error ->
     [ K_Continue ]
 ;;
