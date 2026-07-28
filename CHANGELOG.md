@@ -23,6 +23,19 @@ Exhaustive consumers must also handle `ElicitToolApproval`,
 `K_ElicitToolApproval`, and `ToolApprovalCompleted`, and direct `Agent.options`
 record construction must provide the new `tool_approval` field.
 
+## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **hooks:** Stable pre-tool approval now requires Hooks.ElicitToolApproval and Builder.with_tool_approval; generic ElicitInput/with_elicitation is BeforeTurn-only.
+
+### Bug Fixes
+
+* **exact-output:** keep public execution flow-only ([#2844](https://github.com/jeong-sik/oas/issues/2844)) ([9d01ab7](https://github.com/jeong-sik/oas/commit/9d01ab7c9cf8450bd619dd5fdf168c03fc5ed1ca))
+* **hooks:** require typed pre-tool approval ([fca7a1c](https://github.com/jeong-sik/oas/commit/fca7a1c3b58075abd993d8e571ab03550e13fa86))
+* **hooks:** 도구 실행 전에 pre_tool_use 입력을 확정 ([#2840](https://github.com/jeong-sik/oas/issues/2840)) ([aa71724](https://github.com/jeong-sik/oas/commit/aa71724de3db3ed92d5f6fcf1b8fd8258c387713))
+
 ## [0.229.1](https://github.com/jeong-sik/oas/compare/v0.229.0...v0.229.1) (2026-07-28)
 
 
