@@ -674,11 +674,6 @@ let provider_config_with_agent_config
   =
   let model_id = Types.model_to_string config.model in
   let response_format = config.response_format in
-  let output_schema =
-    if response_format = provider_config.response_format
-    then provider_config.output_schema
-    else Llm_provider.Provider_config.output_schema_of_response_format response_format
-  in
   let max_context, model_capabilities_override, supports_structured_output_override =
     if model_id = provider_config.model_id
     then
@@ -719,7 +714,6 @@ let provider_config_with_agent_config
   ; tool_choice = config.tool_choice
   ; disable_parallel_tool_use = config.disable_parallel_tool_use
   ; response_format
-  ; output_schema
   ; cache_system_prompt = config.cache_system_prompt
   }
 ;;

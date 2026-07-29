@@ -214,7 +214,7 @@ let schema_cfg ~kind ~base_url =
     ~api_key:"test-key"
     ~max_tokens:1024
     ~temperature:0.7
-    ~output_schema:output_schema_fixture
+    ~response_format:(Types.JsonSchema output_schema_fixture)
     ~supports_structured_output_override:true
     ~keep_alive:"-1"
     ()

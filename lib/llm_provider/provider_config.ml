@@ -28,21 +28,6 @@ let request_path_default_for_kind = function
   | DashScope -> "/chat/completions"
 ;;
 
-(** [output_schema] derived from [response_format] when no explicit
-    schema is supplied. Centralised so [make] and direct record-literal
-    callers stay aligned: a config that carries
-    [response_format = JsonSchema s] always exposes
-    [output_schema = Some s], and any other [response_format] leaves
-    [output_schema = None]. The optional [override] argument keeps the
-    legacy semantics of [make] (an explicit [output_schema] wins
-    regardless of [response_format]). *)
-let output_schema_of_response_format ?override (response_format : Types.response_format) =
-  match override, response_format with
-  | Some schema, _ -> Some schema
-  | None, Types.JsonSchema schema -> Some schema
-  | None, Types.JsonMode | None, Types.Off -> None
-;;
-
 type t =
   { kind : provider_kind
   ; provider_id : string option
@@ -68,7 +53,6 @@ type t =
   ; tool_choice : Types.tool_choice option
   ; disable_parallel_tool_use : bool
   ; response_format : Types.response_format
-  ; output_schema : Yojson.Safe.t option
   ; cache_system_prompt : bool
   ; supports_tool_choice_override : bool option
   ; supports_structured_output_override : bool option
@@ -108,7 +92,6 @@ let make
       ?(disable_parallel_tool_use = false)
       ?response_format
       ?(response_format_json = false)
-      ?output_schema
       ?(cache_system_prompt = false)
       ?supports_tool_choice_override
       ?supports_structured_output_override
@@ -123,13 +106,9 @@ let make
       ()
   =
   let response_format =
-    match response_format, output_schema with
-    | Some value, _ -> value
-    | None, Some schema -> Types.JsonSchema schema
-    | None, None -> Types.response_format_of_json_mode response_format_json
-  in
-  let output_schema =
-    output_schema_of_response_format ?override:output_schema response_format
+    Option.value
+      response_format
+      ~default:(Types.response_format_of_json_mode response_format_json)
   in
   let request_path =
     match request_path with
@@ -174,7 +153,6 @@ let make
   ; tool_choice
   ; disable_parallel_tool_use
   ; response_format
-  ; output_schema
   ; cache_system_prompt
   ; supports_tool_choice_override
   ; supports_structured_output_override
@@ -562,16 +540,10 @@ let structured_output_name_of_schema (schema : Yojson.Safe.t) : string =
   if trimmed = "" then default_name else trimmed
 ;;
 
-(** A native-schema request is in effect when either field carries one.
-    Callers can build a [Provider_config.t] directly with [response_format =
-    JsonSchema _] and [output_schema = None]; gating only on [output_schema]
-    would let that path skip provider/host validation and still emit
-    [response_format.type=json_schema] in [backend_openai]. *)
 let structured_schema_requested (config : t) : bool =
-  match config.output_schema, config.response_format with
-  | Some _, _ -> true
-  | None, Types.JsonSchema _ -> true
-  | None, (Types.JsonMode | Types.Off) -> false
+  match config.response_format with
+  | Types.JsonSchema _ -> true
+  | Types.JsonMode | Types.Off -> false
 ;;
 
 let request_path_targets_responses_api request_path =

@@ -227,7 +227,7 @@ let test_anthropic_output_schema () =
       ~kind:Anthropic
       ~model_id:"claude-sonnet-4-6"
       ~base_url:""
-      ~output_schema:schema
+      ~response_format:(JsonSchema schema)
       ()
   in
   let body = BA.build_request ~config ~messages:[ user_msg "hi" ] () in
@@ -243,7 +243,7 @@ let test_anthropic_output_schema () =
     (json |> member "output_config" |> member "format" |> member "schema" = schema)
 ;;
 
-let test_anthropic_json_schema_response_format_without_output_schema () =
+let test_anthropic_json_schema_response_format () =
   let schema =
     `Assoc
       [ "type", `String "object"
@@ -254,7 +254,6 @@ let test_anthropic_json_schema_response_format_without_output_schema () =
   let config =
     { (PC.make ~kind:Anthropic ~model_id:"claude-sonnet-4-6" ~base_url:"" ()) with
       response_format = JsonSchema schema
-    ; output_schema = None
     }
   in
   let body = BA.build_request ~config ~messages:[ user_msg "hi" ] () in
@@ -607,7 +606,7 @@ let test_ollama_output_schema () =
       ~kind:Ollama
       ~model_id:"dashscope-3.5:9b"
       ~base_url:"http://localhost:11434"
-      ~output_schema:schema
+      ~response_format:(JsonSchema schema)
       ()
   in
   let body = BOL.build_request ~config ~messages:[ user_msg "hi" ] () in
@@ -1688,7 +1687,7 @@ let test_complete_rejects_output_schema_for_glm () =
       ~kind:Glm
       ~model_id:"glm-5"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
-      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~response_format:(JsonSchema (`Assoc [ "type", `String "object" ]))
       ()
   in
   match
@@ -1717,7 +1716,7 @@ let test_complete_stream_rejects_output_schema_for_glm () =
       ~kind:Glm
       ~model_id:"glm-5"
       ~base_url:"https://api.z.ai/api/coding/paas/v4"
-      ~output_schema:(`Assoc [ "type", `String "object" ])
+      ~response_format:(JsonSchema (`Assoc [ "type", `String "object" ]))
       ()
   in
   match
@@ -2064,7 +2063,7 @@ let () =
         ; test_case
             "with json schema response_format"
             `Quick
-            test_anthropic_json_schema_response_format_without_output_schema
+            test_anthropic_json_schema_response_format
         ; test_case
             "multi-turn signed thinking/tool order"
             `Quick

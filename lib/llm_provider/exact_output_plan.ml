@@ -4,7 +4,6 @@ type fingerprint = Fingerprint of string
 
 type output_admission_error =
   | Explicit_capability_snapshot_required
-  | Contradictory_output_state
   | Unsupported_output_contract of
       { provider_kind : Provider_config.provider_kind
       ; model_id : string
@@ -95,17 +94,6 @@ let rec canonical_json = function
 let canonical_response_format = function
   | Types.JsonSchema schema -> Types.JsonSchema (canonical_json schema)
   | (Types.Off | Types.JsonMode) as response_format -> response_format
-;;
-
-let response_format_state_is_consistent
-      (config : Provider_config.t)
-      (response_format : Types.response_format)
-  =
-  match response_format, config.output_schema with
-  | Types.Off, None | Types.JsonMode, None -> true
-  | Types.JsonSchema schema, Some duplicate ->
-    canonical_json schema = canonical_json duplicate
-  | Types.Off, Some _ | Types.JsonMode, Some _ | Types.JsonSchema _, None -> false
 ;;
 
 let contract_is_supported
@@ -303,12 +291,7 @@ let plan_fingerprint
 ;;
 
 let freeze_config_response_format (config : Provider_config.t) response_format =
-  let output_schema =
-    match response_format with
-    | Types.JsonSchema schema -> Some schema
-    | Types.Off | Types.JsonMode -> None
-  in
-  { config with response_format; output_schema }
+  { config with response_format }
 ;;
 
 let request_url (config : Provider_config.t) =
@@ -403,9 +386,7 @@ let preflight
     in
     let request = Prepared_completion_request.request prepared in
     let auth_headers = Provider_config.auth_headers_for_config config in
-    if not (response_format_state_is_consistent original_config response_format)
-    then Error Contradictory_output_state
-    else if request_uses_exact_cross_feature request
+    if request_uses_exact_cross_feature request
     then Error Unsupported_exact_cross_feature
     else if Option.is_some config.max_concurrent_requests
     then Error Global_admission_not_allowed

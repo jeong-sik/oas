@@ -118,9 +118,14 @@ let declared_catalog_openai_compat_config
       ?top_p
       ?tool_choice
       ?(response_format_json = false)
-      ?output_schema
+      ?response_format
       model_id
   =
+  let response_format =
+    Option.value
+      response_format
+      ~default:(response_format_of_json_mode response_format_json)
+  in
   PC.make
     ~kind:OpenAI_compat
     ?provider_id
@@ -133,8 +138,7 @@ let declared_catalog_openai_compat_config
     ?temperature
     ?top_p
     ?tool_choice
-    ~response_format_json
-    ?output_schema
+    ~response_format
     ()
 ;;
 
@@ -213,7 +217,7 @@ let anthropic_config
       ?enable_thinking
       ?thinking_budget
       ?reasoning_effort
-      ?output_schema
+      ?response_format
       model_id
   =
   PC.make
@@ -224,7 +228,7 @@ let anthropic_config
     ?enable_thinking
     ?thinking_budget
     ?reasoning_effort
-    ?output_schema
+    ?response_format
     ()
 ;;
 
@@ -1309,7 +1313,7 @@ let test_anthropic_output_config_merges_format_and_effort () =
     anthropic_config
       ~enable_thinking:true
       ~reasoning_effort:RE.Max
-      ~output_schema:schema
+      ~response_format:(JsonSchema schema)
       "claude-opus-4-8"
   in
   let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in

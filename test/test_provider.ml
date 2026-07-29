@@ -1253,7 +1253,6 @@ preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
               | Ok pc ->
                 { pc with
                   Llm_provider.Provider_config.response_format = Types.JsonSchema schema
-                ; output_schema = Some schema
                 }
               | Error e ->
                 Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))
@@ -1307,7 +1306,6 @@ preserve_thinking_control_format = "chat_template_kwargs_preserve_thinking"
               | Ok pc ->
                 { pc with
                   Llm_provider.Provider_config.response_format = Types.JsonSchema schema
-                ; output_schema = Some schema
                 }
               | Error e ->
                 Alcotest.fail (Printf.sprintf "unexpected error: %s" (Error.to_string e))

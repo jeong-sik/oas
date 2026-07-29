@@ -601,8 +601,8 @@ let glm_capabilities =
      equivalent to Openai's json_schema response_format. OAS therefore
      treats Glm as JSON-mode-only: supports_response_format_json=true
      but supports_structured_output=false. validate_output_schema_request
-     rejects output_schema for Glm configs to prevent silent pass-through
-     of schemas the provider will not enforce.
+     rejects JsonSchema response formats for Glm configs to prevent silent
+     pass-through of schemas the provider will not enforce.
      Ref: https://docs.z.ai/guides/capabilities/struct-output — checked 2026-04-21. *)
     supports_structured_output = false
   ; supports_native_streaming = true

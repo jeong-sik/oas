@@ -132,12 +132,9 @@ let sdk_error_of_http_error =
 let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) () =
   let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
   let* provider_cfg = Provider.provider_config_of_agent ~state ~base_url provider in
+  let response_format = Types.JsonSchema (schema_to_json_schema schema) in
   Ok
-    { provider_cfg with
-      Llm_provider.Provider_config.tool_choice = None
-    ; response_format = Types.JsonSchema (schema_to_json_schema schema)
-    ; output_schema = Some (schema_to_json_schema schema)
-    }
+    { provider_cfg with Llm_provider.Provider_config.tool_choice = None; response_format }
 ;;
 
 (** Extract structured output from a prompt using provider-native JSON

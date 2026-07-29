@@ -30,18 +30,6 @@ type provider_kind = Provider_kind.t =
     helper to avoid the two fields drifting out of sync. *)
 val request_path_default_for_kind : provider_kind -> string
 
-(** Derive [output_schema] from a [response_format].
-    Returns [Some schema] when [response_format = JsonSchema schema]
-    and [None] otherwise. With [?override:(Some s)] the helper
-    short-circuits to [Some s], preserving the legacy semantics of
-    [make]'s explicit schema argument. Use this helper to keep the
-    [response_format] / [output_schema] pair consistent in record
-    literals built outside [make]. *)
-val output_schema_of_response_format
-  :  ?override:Yojson.Safe.t
-  -> Types.response_format
-  -> Yojson.Safe.t option
-
 type t =
   { kind : provider_kind
   ; provider_id : string option
@@ -93,8 +81,6 @@ type t =
   ; tool_choice : Types.tool_choice option
   ; disable_parallel_tool_use : bool
   ; response_format : Types.response_format
-  ; output_schema : Yojson.Safe.t option
-    (** Provider-native JSON schema output request. @since 0.163.0 *)
   ; cache_system_prompt : bool
   ; supports_tool_choice_override : bool option
     (** Override the registry default for [supports_tool_choice].
@@ -241,7 +227,6 @@ val make
   -> ?disable_parallel_tool_use:bool
   -> ?response_format:Types.response_format
   -> ?response_format_json:bool
-  -> ?output_schema:Yojson.Safe.t
   -> ?cache_system_prompt:bool
   -> ?supports_tool_choice_override:bool
   -> ?supports_structured_output_override:bool
@@ -370,7 +355,8 @@ val capabilities_for_config_model : t -> Capabilities.capabilities option
     that require one (for example Openai's [json_schema.name]). *)
 val structured_output_name_of_schema : Yojson.Safe.t -> string
 
-(** Validate whether [output_schema] can be sent natively for this config.
+(** Validate whether [response_format = JsonSchema _] can be sent natively for
+    this config.
     Returns [Ok ()] when no schema was requested or when the provider kind
     is wired for native schema output. Returns [Error reason] for
     unsupported provider/model combinations so callers can fail fast

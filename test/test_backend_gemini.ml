@@ -10,11 +10,14 @@ let gemini_config
       ?reasoning_effort
       ?(tools = [])
       ?(json_mode = false)
-      ?output_schema
+      ?response_format
       ?(system = "")
       ()
   =
   ignore tools;
+  let response_format =
+    Option.value response_format ~default:(Types.response_format_of_json_mode json_mode)
+  in
   Provider_config.make
     ~kind:Gemini
     ~model_id
@@ -26,8 +29,7 @@ let gemini_config
     ?enable_thinking
     ?thinking_budget
     ?reasoning_effort
-    ~response_format_json:json_mode
-    ?output_schema
+    ~response_format
     ?system_prompt:(if system = "" then None else Some system)
     ()
 ;;
@@ -438,7 +440,7 @@ let test_output_schema () =
       ; "required", `List [ `String "answer" ]
       ]
   in
-  let config = gemini_config ~output_schema:schema () in
+  let config = gemini_config ~response_format:(Types.JsonSchema schema) () in
   let messages = [ Types.user_msg "Return structured JSON." ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in

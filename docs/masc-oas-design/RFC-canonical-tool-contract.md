@@ -112,7 +112,10 @@ let id =
 - `lib/llm_provider`에 **MCP `tools/call`** converter 없음. MCP transport/optional-dep는 RFC-OAS-016의 소비자 경계다.
 
 ### 3.5 request-level structured output (D7 boundary)
-`provider_config.ml`이 structured-output을 **request** 관심사로 이미 보유: `output_schema : Yojson.Safe.t option` (`:67`), `response_format`에서 `output_schema_of_response_format`(`:39`)로 도출, `validate_output_schema_request`(`:312`)로 검증, host gate `provider_d_host_supports_output_schema`(`:294`). 올바르며 본 RFC는 이를 옮기지 않는다.
+`provider_config.ml`이 structured-output을 **request** 관심사로 이미 보유:
+`response_format = JsonSchema schema`로 표현하고
+`validate_output_schema_request`로 검증한다. 올바르며 본 RFC는 이를
+옮기지 않는다.
 
 ## 4. Proposed Canonical Types (typed, closed)
 
@@ -172,7 +175,7 @@ type provider_tool_result =
   ; content_blocks : Types.content_block list option (** ToolResult.content_blocks mirror. *)
   ; structured_content : Yojson.Safe.t option
       (** [ToolResult.json] (WP4)의 projection. 새 parse 아님;
-          [provider_config.output_schema] 아님 (request-level, D7). *)
+          request-level structured-output contract 아님 (D7). *)
   ; is_error : bool
   }
 
@@ -254,7 +257,18 @@ Anthropic parallel tool use는 본질적 순서가 없으므로 등장 순서를
 `No_reasoning | Suppressed | Available of reasoning_state`. `option`은 "model이 안 냄"과 "config가 suppress"를 하나의 `None`으로 collapse 하는데, 그 구분이 요구사항 전부다. `Suppressed`는 request config(`enable_thinking = Some false` / `clear_thinking`)에서 도출되어 `~reasoning_suppressed`로 전달된다. `reasoning_state.kind`도 closed `reasoning_kind` variant(`Thinking | Redacted_thinking | Reasoning_content`)지 string이 아니다. `tokens`는 telemetry의 reasoning token을 재사용.
 
 ### D7 — `output_schema` 경계 → **RESOLVED: `provider_config.t`(request-level)에 유지. `tool_schema`로 옮기지 않음. `structured_content`는 `ToolResult.json`의 projection으로 다른 layer.**
-`provider_config.output_schema`(`provider_config.ml:67`)는 **request** 관심사 — "model 응답이 이 schema에 맞기를 원함" — `response_format`에서 도출되고 `validate_output_schema_request`로 검증된다. `provider_tool_result.structured_content`는 **response** 관심사 — tool이 *반환* 한 parsed JSON으로, 이미 parsed된 `ToolResult.json`(WP4)에서 projection. 두 layer는 다르며 OAS 안에서 결합하면 안 된다: OAS는 반환된 `structured_content`를 request의 `output_schema`에 대해 검증하지 않는다 — 그 correlation은 소비자의 일이다. 새 parse 없음, relocation 없음, duplication 없음. 연구 초안의 `canonical_tool_decl.output_schema?`는 여기서 **제거** 되고, MCP per-tool `outputSchema` passthrough가 필요해지면 RFC-OAS-016(decl passthrough)으로 엄격히 scope, 절대 `tool_schema` 필드가 아니다 — `tool_schema`로 옮기는 것이 바로 D7이 금지하는 경계 위반이다.
+`Provider_config.response_format = JsonSchema schema`는 **request** 관심사 —
+"model 응답이 이 schema에 맞기를 원함" — 이며
+`validate_output_schema_request`로 검증된다.
+`provider_tool_result.structured_content`는 **response** 관심사 — tool이
+*반환*한 parsed JSON으로, 이미 parsed된 `ToolResult.json`(WP4)에서
+projection한다. 두 layer는 다르며 OAS 안에서 결합하면 안 된다: OAS는
+반환된 `structured_content`를 request의 JSON Schema에 대해 검증하지
+않는다 — 그 correlation은 소비자의 일이다. 새 parse 없음, relocation
+없음, duplication 없음. 연구 초안의 `canonical_tool_decl.output_schema?`는
+여기서 **제거** 되고, MCP per-tool `outputSchema` passthrough가 필요해지면
+RFC-OAS-016(decl passthrough)으로 엄격히 scope, 절대 `tool_schema` 필드가
+아니다 — `tool_schema`로 옮기는 것이 바로 D7이 금지하는 경계 위반이다.
 
 ## 7. Migration Plan (incremental, smallest-first) — 모듈 머지는 SIGN-OFF
 
@@ -278,7 +292,10 @@ Anthropic parallel tool use는 본질적 순서가 없으므로 등장 순서를
 2. **D3 stability (load-bearing):** 고정된 multi-tool response에 대해 batch parse path의 `order_index` == streaming-reconstructed path의 `order_index`. **양쪽 모두 ToolUse 필터 후 인덱스로 계산** — text/thinking 블록 정렬을 가정하지 않는다(§3.3 정정 반영). 1–4 call 생성 response에 대한 property test.
 3. **D4 id correctness:** native-id provider → `call_id` == wire id; id-less provider → block start와 finalized `ToolUse`의 id가 같고 별도 stream/call occurrence끼리는 다름; 동일 name+args도 collapse하지 않음. Ollama → native가 있으면 그대로 보존. (lane-B 채택 시에만 `id_origin` 값 단언 추가.)
 4. **D6 distinguishability:** suppressed-config response → `Suppressed`, no-reasoning response → `No_reasoning`, thinking response → `Available` — 세 distinct 값 단언(`option` 기반 설계는 이 test를 통과 못 함, 그것이 핵심).
-5. **D7 non-coupling:** `structured_content`는 `ToolResult.json`이 `Some`일 때만 채워짐; projection이 `provider_config.output_schema`를 절대 읽지 않음을 단언(module boundary로 검증 — `canonical_tool`이 `Provider_config`에 의존하지 않음).
+5. **D7 non-coupling:** `structured_content`는 `ToolResult.json`이 `Some`일
+   때만 채워짐; projection이 request-level structured-output contract를
+   절대 읽지 않음을 단언(module boundary로 검증 — `canonical_tool`이
+   `Provider_config`에 의존하지 않음).
 6. **Boundary guard:** `canonical_tool.ml`의 의존 집합이 `{Types; Provider_kind; Yojson}` 임을 test/lint로 단언 — masc-mcp/policy/execution 모듈 없음. §1 boundary를 checkable invariant로 encode.
 
 ## 9. Open Risks

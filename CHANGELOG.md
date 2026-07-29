@@ -8,6 +8,15 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Breaking Changes
+
+`Provider_config` now carries provider-native JSON Schema requests only as
+`response_format = JsonSchema schema`. The duplicate `output_schema` record
+field, constructor argument, derivation helper, and the Exact Output
+contradictory-state errors are removed. This makes the previously gated
+inconsistent state unrepresentable; callers must set `response_format`
+directly.
+
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
 

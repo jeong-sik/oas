@@ -1240,7 +1240,7 @@ let%test
   && assistant |> member "reasoning_content" |> to_string = "use calculator"
 ;;
 
-let%test "build_request uses json_schema response_format when output_schema is set" =
+let%test "build_request uses json_schema response_format" =
   let schema =
     `Assoc
       [ "title", `String "Math Response"
@@ -1254,7 +1254,7 @@ let%test "build_request uses json_schema response_format when output_schema is s
       ~kind:OpenAI_compat
       ~model_id:"gpt"
       ~base_url:"https://api.openai.com/v1"
-      ~output_schema:schema
+      ~response_format:(JsonSchema schema)
       ()
   in
   let body = build_request ~config ~messages:[] () |> Yojson.Safe.from_string in
@@ -1274,7 +1274,7 @@ let%test "build_request uses json_schema response_format when output_schema is s
      |> to_bool
 ;;
 
-let%test "build_request prefers output_schema over json_object mode" =
+let%test "explicit json_schema response_format overrides json mode compatibility flag" =
   let schema = `Assoc [ "type", `String "object" ] in
   let config =
     Provider_config.make
@@ -1282,7 +1282,7 @@ let%test "build_request prefers output_schema over json_object mode" =
       ~model_id:"gpt"
       ~base_url:"https://api.openai.com/v1"
       ~response_format_json:true
-      ~output_schema:schema
+      ~response_format:(JsonSchema schema)
       ()
   in
   let body = build_request ~config ~messages:[] () |> Yojson.Safe.from_string in
