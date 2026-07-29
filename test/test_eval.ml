@@ -141,9 +141,7 @@ let test_compare_unchanged () =
 let test_compare_with_specs_higher_is_better () =
   let baseline = mk_run_metrics [ mk_metric "accuracy" (Float_val 0.90) ] in
   let candidate = mk_run_metrics ~run_id:"r2" [ mk_metric "accuracy" (Float_val 0.95) ] in
-  let specs =
-    [ { Eval.name = "accuracy"; goal = Eval.Higher; tolerance_pct = 1.0 } ]
-  in
+  let specs = [ { Eval.name = "accuracy"; goal = Eval.Higher; tolerance_pct = 1.0 } ] in
   let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate |> comparison_or_fail in
   Alcotest.(check int) "improvements" 1 (List.length cmp.improvements);
   Alcotest.(check int) "regressions" 0 (List.length cmp.regressions)
@@ -159,9 +157,7 @@ let test_compare_with_specs_excludes_unspecified_metrics () =
       ~run_id:"r2"
       [ mk_metric "accuracy" (Float_val 0.95); mk_metric "latency" (Float_val 200.0) ]
   in
-  let specs =
-    [ { Eval.name = "accuracy"; goal = Eval.Higher; tolerance_pct = 1.0 } ]
-  in
+  let specs = [ { Eval.name = "accuracy"; goal = Eval.Higher; tolerance_pct = 1.0 } ] in
   let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate |> comparison_or_fail in
   Alcotest.(check int) "selected improvement" 1 (List.length cmp.improvements);
   Alcotest.(check int) "unspecified regression excluded" 0 (List.length cmp.regressions)

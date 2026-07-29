@@ -322,7 +322,9 @@ let compute_delta_for_goal
 
 let compare_with_specs ~specs ~(baseline : run_metrics) ~(candidate : run_metrics) =
   let find_unique_metric ~duplicate_error ~missing_error name metrics =
-    match List.filter (fun (metric : metric) -> String.equal metric.name name) metrics with
+    match
+      List.filter (fun (metric : metric) -> String.equal metric.name name) metrics
+    with
     | [] -> Error (missing_error name)
     | [ metric ] -> Ok metric
     | _ -> Error (duplicate_error name)
