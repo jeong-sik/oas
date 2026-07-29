@@ -547,9 +547,7 @@ let test_structured_extract () =
     in
     Llm_provider.Provider_catalog.set_global provider_catalog;
     let schema : (string * int) Structured.schema =
-      { name = "get_info"
-      ; description = "Get info"
-      ; params =
+      { params =
           [ { name = "name"
             ; param_type = Types.String
             ; description = "name"
@@ -595,41 +593,26 @@ let test_structured_extract () =
   | Exit -> ()
 ;;
 
-(* ── 17. Structured schema_to_tool_json ───────────────────────── *)
+(* ── 17. Structured schema_to_json_schema ───────────────────────── *)
 
 let test_schema_to_json () =
   let schema : unit Structured.schema =
-    { name = "test_tool"
-    ; description = "A test"
-    ; params =
+    { params =
         [ { name = "x"; param_type = Types.Integer; description = "num"; required = true }
         ; { name = "y"; param_type = Types.String; description = "str"; required = false }
         ]
     ; parse = (fun _ -> Ok ())
     }
   in
-  let json = Structured.schema_to_tool_json schema in
-  let name = Yojson.Safe.Util.(json |> member "name" |> to_string) in
-  check string "schema name" "test_tool" name
+  let json = Structured.schema_to_json_schema schema in
+  let open Yojson.Safe.Util in
+  check string "schema type" "object" (json |> member "type" |> to_string);
+  check
+    string
+    "x type"
+    "integer"
+    (json |> member "properties" |> member "x" |> member "type" |> to_string)
 ;;
-
-(* ── 18. Structured extract_tool_input error ──────────────────── *)
-
-let test_extract_tool_input_missing () =
-  let schema : unit Structured.schema =
-    { name = "missing_tool"
-    ; description = "Missing"
-    ; params = []
-    ; parse = (fun _ -> Ok ())
-    }
-  in
-  let content = [ Types.Text "no tool here" ] in
-  match Structured.extract_tool_input ~schema content with
-  | Ok _ -> fail "expected error"
-  | Error _ -> ()
-;;
-
-(* ── 19. Agent card generation ────────────────────────────────── *)
 
 let test_agent_card () =
   Eio_main.run
@@ -699,7 +682,6 @@ let () =
     ; ( "structured"
       , [ test_case "extract" `Quick test_structured_extract
         ; test_case "schema json" `Quick test_schema_to_json
-        ; test_case "missing tool" `Quick test_extract_tool_input_missing
         ] )
     ; ( "errors"
       , [ test_case "http 500" `Quick test_http_500

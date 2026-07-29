@@ -9,8 +9,7 @@ let gemini_config
       ?thinking_budget
       ?reasoning_effort
       ?(tools = [])
-      ?(json_mode = false)
-      ?output_schema
+      ?(response_format = Types.Off)
       ?(system = "")
       ()
   =
@@ -26,8 +25,7 @@ let gemini_config
     ?enable_thinking
     ?thinking_budget
     ?reasoning_effort
-    ~response_format_json:json_mode
-    ?output_schema
+    ~response_format
     ?system_prompt:(if system = "" then None else Some system)
     ()
 ;;
@@ -418,7 +416,7 @@ let test_dangling_tool_use_is_not_synthetically_closed () =
 ;;
 
 let test_json_mode () =
-  let config = gemini_config ~json_mode:true () in
+  let config = gemini_config ~response_format:Types.JsonMode () in
   let messages = [ Types.user_msg "Return JSON." ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in
@@ -438,7 +436,7 @@ let test_output_schema () =
       ; "required", `List [ `String "answer" ]
       ]
   in
-  let config = gemini_config ~output_schema:schema () in
+  let config = gemini_config ~response_format:(Types.JsonSchema schema) () in
   let messages = [ Types.user_msg "Return structured JSON." ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in

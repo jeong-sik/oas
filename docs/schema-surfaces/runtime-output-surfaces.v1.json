@@ -142,13 +142,13 @@
       "owner": "OAS",
       "producer": "Structured output helpers",
       "consumer": ["agent callers", "provider-native structured output routes"],
-      "wire_or_artifact": "Structured.schema to JSON schema/tool input schema",
+      "wire_or_artifact": "Structured.schema to provider-native JSON Schema",
       "schema_source": ["lib/structured.mli", "lib/base/types.mli"],
       "validator": "schema.parse and provider response_format validation",
       "tests": ["test/test_structured.ml", "test/test_structured_deep.ml"],
       "stability": "evolving",
       "version_field": null,
-      "notes": "JsonSchema response_format is the provider-native path; caller-side parse remains authoritative."
+      "notes": "JsonSchema response_format is the only schema request path; caller-side parse remains authoritative."
     }
   ]
 }

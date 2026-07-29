@@ -737,10 +737,9 @@ let build_request_artifact
      gen_config := ("thinkingConfig", thinking_config) :: !gen_config
    | None -> ());
   let structured_schema =
-    match config.output_schema, config.response_format with
-    | Some schema, _ -> Some schema
-    | None, Types.JsonSchema schema -> Some schema
-    | None, Types.JsonMode | None, Types.Off -> None
+    match config.response_format with
+    | Types.JsonSchema schema -> Some schema
+    | Types.JsonMode | Types.Off -> None
   in
   (* JSON mode / native structured output *)
   (match structured_schema with

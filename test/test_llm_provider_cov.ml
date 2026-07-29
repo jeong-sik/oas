@@ -20,7 +20,7 @@ let make_config
       ?enable_thinking
       ?thinking_budget
       ?tool_choice
-      ?(response_format_json = false)
+      ?(response_format = Types.Off)
       ()
   : Provider_config.t
   =
@@ -36,7 +36,7 @@ let make_config
     ?enable_thinking
     ?thinking_budget
     ?tool_choice
-    ~response_format_json
+    ~response_format
     ()
 ;;
 
@@ -771,7 +771,11 @@ let test_constants_cache_truncation_and_endpoints () =
 
 let test_build_request_json_mode () =
   let config =
-    make_config ~kind:Gemini ~model_id:gemini25_flash_model ~response_format_json:true ()
+    make_config
+      ~kind:Gemini
+      ~model_id:gemini25_flash_model
+      ~response_format:Types.JsonMode
+      ()
   in
   let body_str =
     Backend_gemini.build_request ~config ~messages:[ user_msg "json pls" ] ()

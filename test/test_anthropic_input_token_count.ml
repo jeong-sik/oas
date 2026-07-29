@@ -76,7 +76,7 @@ let config
     ~tool_choice:Any
     ~disable_parallel_tool_use:true
     ~supports_tool_choice_override:true
-    ~output_schema:(`Assoc [ "type", `String "object" ])
+    ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
     ?max_concurrent_requests
     ?max_request_body_bytes
     ?model_capabilities_override
@@ -90,10 +90,7 @@ let serialize_sync prepared =
 ;;
 
 let kimi_config ?max_context base_url =
-  { (config ~kind:Provider_config.Kimi ?max_context base_url) with
-    response_format = Off
-  ; output_schema = None
-  }
+  { (config ~kind:Provider_config.Kimi ?max_context base_url) with response_format = Off }
 ;;
 
 let response =
@@ -392,7 +389,6 @@ let test_admitted_body_is_frozen_across_catalog_mutation () =
            ; thinking_budget = Some 1024
            ; tool_choice = Some Auto
            ; response_format = Off
-           ; output_schema = None
            }
          in
          let prepared = Complete.prepare_request ~config:cfg ~messages () in
@@ -831,8 +827,7 @@ let test_unmeasurable_constraint_fails_typed_without_dispatch () =
               (serving_constraint ()))
          "not-used")
       with
-      output_schema = None
-    ; response_format = Off
+      response_format = Off
     }
   in
   let result =
@@ -1338,8 +1333,7 @@ let test_unsupported_provider_preserves_compatibility () =
   let net = Eio.Stdenv.net env in
   let provider_config =
     { (config ~kind:Provider_config.OpenAI_compat ~max_context:512 "not-used") with
-      output_schema = None
-    ; response_format = Types.Off
+      response_format = Types.Off
     }
   in
   let dispatched = ref false in

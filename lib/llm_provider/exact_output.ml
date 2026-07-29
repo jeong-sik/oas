@@ -540,7 +540,6 @@ let target_selection_error_disposition = function
 
 let wire_admission_error_disposition = function
   | Capability_snapshot_missing
-  | Inconsistent_output_contract
   | Global_admission_not_allowed
   | Invalid_connect_timeout
   | Invalid_body_timeout

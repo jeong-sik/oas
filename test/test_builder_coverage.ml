@@ -62,7 +62,7 @@ let test_builder_response_format () =
   @@ fun env ->
   let b =
     Builder.create ~net:env#net ~model:(Types.default_config ~model:"test-model").model
-    |> Builder.with_response_format_json true
+    |> Builder.with_response_format Types.JsonMode
     |> Builder.with_cache_system_prompt true
     |> Builder.with_disable_parallel_tool_use true
   in

@@ -250,8 +250,6 @@ type response_format =
   | JsonSchema of Yojson.Safe.t
 [@@deriving show]
 
-let response_format_of_json_mode enabled = if enabled then JsonMode else Off
-
 let response_format_to_json = function
   | Off -> `Assoc [ "type", `String "off" ]
   | JsonMode -> `Assoc [ "type", `String "json_mode" ]

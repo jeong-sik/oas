@@ -91,10 +91,9 @@ let effective_tools (config : Provider_config.t) tools =
 ;;
 
 let structured_schema_of_config (config : Provider_config.t) =
-  match config.output_schema, config.response_format with
-  | Some schema, _ -> Some schema
-  | None, JsonSchema schema -> Some schema
-  | None, JsonMode | None, Off -> None
+  match config.response_format with
+  | JsonSchema schema -> Some schema
+  | JsonMode | Off -> None
 ;;
 
 let openai_json_schema_payload (schema : Yojson.Safe.t) : Yojson.Safe.t =

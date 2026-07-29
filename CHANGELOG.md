@@ -18,6 +18,20 @@ instead of being inferred as `STOP` from tool-block presence.
 
 ### Breaking Changes
 
+`Structured.schema` now contains only the provider-native JSON Schema
+parameters and typed parser. The unused forced-tool `name` and `description`
+fields, `schema_to_tool_json`, and `extract_tool_input` are removed rather than
+retained as compatibility state. Current callers use
+`schema_to_json_schema`, `extract`, `extract_stream`, or `schema_extractor`.
+
+`Provider_config` now carries provider-native JSON Schema requests only as
+`response_format = JsonSchema schema`. The duplicate `output_schema` record
+field, constructor argument, derivation helper, and the Exact Output
+contradictory-state errors are removed. This makes the previously gated
+inconsistent state unrepresentable; callers must set `response_format`
+directly. The boolean `response_format_json` constructor/builder shims and
+boolean/null response-format decoding are also removed.
+
 `Tool.t` now has one execution-environment handler shape. `Typed_tool`
 constructors return canonical `Tool.t` values directly, and the secondary
 typed runtime representation, erasure bridge, and unused agent-tool raw input

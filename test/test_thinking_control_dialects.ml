@@ -117,8 +117,7 @@ let declared_catalog_openai_compat_config
       ?temperature
       ?top_p
       ?tool_choice
-      ?(response_format_json = false)
-      ?output_schema
+      ?(response_format = Off)
       model_id
   =
   PC.make
@@ -133,8 +132,7 @@ let declared_catalog_openai_compat_config
     ?temperature
     ?top_p
     ?tool_choice
-    ~response_format_json
-    ?output_schema
+    ~response_format
     ()
 ;;
 
@@ -213,7 +211,7 @@ let anthropic_config
       ?enable_thinking
       ?thinking_budget
       ?reasoning_effort
-      ?output_schema
+      ?response_format
       model_id
   =
   PC.make
@@ -224,7 +222,7 @@ let anthropic_config
     ?enable_thinking
     ?thinking_budget
     ?reasoning_effort
-    ?output_schema
+    ?response_format
     ()
 ;;
 
@@ -377,7 +375,7 @@ let test_mimo_v25_uses_thinking_object_and_json_mode () =
       ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
       ~provider_id:"mimo"
       ~enable_thinking:false
-      ~response_format_json:true
+      ~response_format:JsonMode
       "mimo-v2.5-pro"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
@@ -1309,7 +1307,7 @@ let test_anthropic_output_config_merges_format_and_effort () =
     anthropic_config
       ~enable_thinking:true
       ~reasoning_effort:RE.Max
-      ~output_schema:schema
+      ~response_format:(JsonSchema schema)
       "claude-opus-4-8"
   in
   let json = BAN.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in
