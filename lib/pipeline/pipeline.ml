@@ -301,13 +301,9 @@ let stage_collect ?raw_trace_run ?clock ~turn agent response =
 
 (** Handle tool execution and context injection. *)
 let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent tools =
-  (* The caller (stage_output) proves the tool-call set is non-empty: a
-     StopToolUse turn that carried no tool block is rejected before this stage.
-     Provider wire parsers classify that shape as UnmatchedToolCalls, while the
-     driver independently covers injected transports that produce api_response
-     values directly. Threading [Nonempty.t] makes the empty case a compile
-     error instead of a silent [ToolsExecuted] that re-issues the same Thinking
-     turn forever. *)
+  (* [stage_output] rejects empty StopToolUse from provider and injected
+     transports. [Nonempty.t] then prevents a silent empty [ToolsExecuted]
+     loop at compile time. *)
   let tool_uses = Nonempty.to_list tools in
   Tracing.with_span
     agent.options.tracer
@@ -429,12 +425,9 @@ let stage_output ?raw_trace_run ?before_tool_execution ~turn agent response =
          in
          (match Nonempty.of_list tool_uses with
           | None ->
-            (* Provider-owned wire parsers enforce this invariant through
-               Stop_reason_wire.reconcile. The driver check is still required:
-               Builder.with_transport is a public current Feature, and an
-               injected transport returns api_response directly without
-               crossing a provider parser. Rejecting the malformed response
-               here prevents an empty [ToolsExecuted] loop. *)
+            (* Provider parsers reconcile this shape, but public injected
+               transports return [api_response] directly. This driver Gate
+               prevents their empty [ToolsExecuted] loop. *)
             Error
               (Error.Agent
                  (UnrecognizedStopReason
@@ -508,9 +501,8 @@ let tag_error stage result =
       _log
       "pipeline stage failed"
       [ Log.S ("stage", stage); Log.S ("error", Error_domain.ctx_to_string ctx) ];
-    (* Stage context is an observation-only projection. [Error.sdk_error] is
-       the canonical public Agent/Pipeline error contract and is returned
-       unchanged so its typed fields and provider attribution are preserved. *)
+    (* Stage context is observation-only. Return canonical [Error.sdk_error]
+       unchanged, including typed fields and provider attribution. *)
     Error e
 ;;
 
