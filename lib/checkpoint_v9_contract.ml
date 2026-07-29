@@ -3,7 +3,7 @@
 open Result_syntax
 
 let target_version = Checkpoint_types.checkpoint_version
-let checkpoint_scope = "Checkpoint v9"
+let checkpoint_scope = Printf.sprintf "Checkpoint v%d" target_version
 
 let json_errorf format =
   Printf.ksprintf
@@ -310,7 +310,7 @@ let validate_pricing_gap ~scope = function
 ;;
 
 let validate_current_usage json =
-  let scope = "Checkpoint v9 usage" in
+  let scope = checkpoint_scope ^ " usage" in
   let* fields =
     validate_object_shape ~scope ~required:current_usage_fields ~optional:[] json
   in
