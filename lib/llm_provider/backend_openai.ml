@@ -416,7 +416,7 @@ let%test "openai_messages_of_message rejects user with tool_result" =
       "Backend_openai_serialize.openai_messages_of_message: ToolResult requires role tool"
 ;;
 
-let%test "build_request preserves orphaned tool results without synthetic repair" =
+let%test "build_request rejects ToolResult outside role Tool" =
   let cfg =
     Provider_config.make
       ~kind:Provider_config.Glm
@@ -448,15 +448,12 @@ let%test "build_request preserves orphaned tool results without synthetic repair
       }
     ]
   in
-  let body = build_request ~config:cfg ~messages () |> Yojson.Safe.from_string in
-  let open Yojson.Safe.Util in
-  let roles =
-    body
-    |> member "messages"
-    |> to_list
-    |> List.map (fun json -> json |> member "role" |> to_string)
-  in
-  roles = [ "assistant"; "tool"; "user" ]
+  match build_request ~config:cfg ~messages () with
+  | _ -> false
+  | exception Invalid_argument message ->
+    String.equal
+      message
+      "Backend_openai_serialize.openai_messages_of_message: ToolResult requires role tool"
 ;;
 
 let%test "openai_messages_of_message assistant with tool_calls" =
