@@ -10,6 +10,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Breaking Changes
 
+`Structured.schema` now contains only the provider-native JSON Schema
+parameters and typed parser. The unused forced-tool `name` and `description`
+fields, `schema_to_tool_json`, and `extract_tool_input` are removed rather than
+retained as compatibility state. Current callers use
+`schema_to_json_schema`, `extract`, `extract_stream`, or `schema_extractor`.
+
 `Provider_config` now carries provider-native JSON Schema requests only as
 `response_format = JsonSchema schema`. The duplicate `output_schema` record
 field, constructor argument, derivation helper, and the Exact Output
