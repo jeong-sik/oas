@@ -89,7 +89,9 @@ let test_provider_config_rebinds_model_specific_context () =
       ()
   in
   let target_config = Types.default_config ~model:"claude-sonnet-4-5" in
-  let target = Provider.provider_config_with_agent_config ~config:target_config parent in
+  let target =
+    Agent_turn.provider_config_with_agent_config ~config:target_config parent
+  in
   let expected =
     let clean_target =
       { parent with

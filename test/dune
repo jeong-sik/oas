@@ -114,7 +114,6 @@
   test_provider_failure_attribution
   test_provider_catalog_coverage
   test_provider_config
-  test_provider_intf
   test_provider_runtime_binding
   test_provider_registry
   test_raw_trace
@@ -253,7 +252,6 @@
   test_provider_failure_attribution
   test_provider_catalog_coverage
   test_provider_config
-  test_provider_intf
   test_provider_runtime_binding
   test_provider_registry
   test_raw_trace

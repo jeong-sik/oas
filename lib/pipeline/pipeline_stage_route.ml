@@ -178,7 +178,7 @@ let admit_provider_attempt callback binding =
 let provider_config_for_turn ?on_provider_failure ~turn_config agent =
   match agent.options.provider_config with
   | Some provider_config ->
-    Ok (Provider.provider_config_with_agent_config ~config:turn_config provider_config)
+    Ok (Agent_turn.provider_config_with_agent_config ~config:turn_config provider_config)
   | None ->
     let error =
       Error.Config

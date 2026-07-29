@@ -55,6 +55,15 @@ val prepare_turn
   -> unit
   -> (turn_preparation, string) result
 
+(** Project caller-owned turn controls onto the exact provider carrier.
+    Provider identity and transport fields remain unchanged; model-specific
+    capability overrides are retained only when the selected model is
+    unchanged. *)
+val provider_config_with_agent_config
+  :  config:Types.agent_config
+  -> Llm_provider.Provider_config.t
+  -> Llm_provider.Provider_config.t
+
 (** {1 Usage accumulation} *)
 
 (** Accumulate response usage into running totals, including observational cost

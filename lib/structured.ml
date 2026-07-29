@@ -88,7 +88,9 @@ let sdk_error_of_http_error =
 ;;
 
 let provider_config_for_schema ~provider_config ~config ~(schema : _ schema) =
-  let provider_cfg = Provider.provider_config_with_agent_config ~config provider_config in
+  let provider_cfg =
+    Agent_turn.provider_config_with_agent_config ~config provider_config
+  in
   let response_format = Types.JsonSchema (schema_to_json_schema schema) in
   Ok
     { provider_cfg with Llm_provider.Provider_config.tool_choice = None; response_format }

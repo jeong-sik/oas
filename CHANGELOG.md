@@ -60,8 +60,9 @@ field have been removed.
   `Provider_config.t` or fail-closed catalog binding instead of relying on an
   implicit local/default provider or the historical implementation registry.
   Pricing and raw-key authentication helpers are consumed directly from
-  `Llm_provider.Pricing` and `Llm_provider.Provider_config`; the duplicate
-  `Provider` re-exports are removed.
+  `Llm_provider.Pricing` and `Llm_provider.Provider_config`. Capability facts
+  use `Llm_provider.Capabilities` directly, and the turn-only config projection
+  lives at `Agent_turn`; the duplicate `Provider` facade is removed.
 
 `Eval.compare` and its implicit lower-is-better policy have been removed.
 `Eval.compare_with_specs` now compares only metrics selected by an explicit

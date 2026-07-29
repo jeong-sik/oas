@@ -514,7 +514,7 @@ let test_structured_extract () =
       | Some catalog -> Llm_provider.Provider_catalog.set_global catalog
       | None -> Llm_provider.Provider_catalog.clear_global ());
     let provider_capabilities =
-      { Provider.default_capabilities with
+      { Llm_provider.Capabilities.default_capabilities with
         supports_response_format_json = true
       ; supports_structured_output = true
       }

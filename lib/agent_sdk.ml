@@ -59,7 +59,6 @@ module Util = Agent_sdk_base.Util
 module Fs_result = Fs_result
 module Fs_atomic_eio = Fs_atomic_eio
 module Context = Agent_sdk_base.Context
-module Provider = Provider
 module Provider_runtime_binding = Provider_runtime_binding
 module Exact_output = Llm_provider.Exact_output
 module Binding_identity = Binding_identity
