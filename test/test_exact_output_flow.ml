@@ -663,13 +663,13 @@ let test_later_missing_credential_does_not_block_current_success () =
   | Error _ -> fail "later missing credential blocked the current candidate"
 ;;
 
-let test_json_syntax_uses_strict_text_fallback () =
+let test_json_syntax_is_prompt_only_even_for_native_target () =
   let (result, advances), posts =
     with_counted_server
       ~measurement_reply:(Measurement_tokens 1)
       ~response:(openai_response {|{"name":"accepted"}|})
     @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
-    with_catalog [ catalog_entry ~id:"text-json" ~base_url ~native:false ~json:false () ]
+    with_catalog [ catalog_entry ~id:"text-json" ~base_url ~native:true ~json:true () ]
     @@ fun snapshot ->
     let advances = ref 0 in
     let result =
@@ -685,22 +685,22 @@ let test_json_syntax_uses_strict_text_fallback () =
     in
     result, !advances
   in
-  check int "text fallback skips measurement" 0 posts.measurement_posts;
-  check int "text fallback posts exactly once" 1 posts.generation_posts;
-  check int "successful text fallback does not advance" 0 advances;
+  check int "prompt-only syntax skips measurement" 0 posts.measurement_posts;
+  check int "prompt-only syntax posts exactly once" 1 posts.generation_posts;
+  check int "successful prompt-only syntax does not advance" 0 advances;
   let request =
     match posts.generation_bodies with
     | [ body ] -> Yojson.Safe.from_string body
-    | _ -> fail "text fallback did not retain its single generation body"
+    | _ -> fail "prompt-only syntax did not retain its single generation body"
   in
   (match request with
    | `Assoc fields ->
      check
        bool
-       "text fallback emits no response_format field"
+       "prompt-only syntax emits no response_format field for a native target"
        false
        (List.mem_assoc "response_format" fields)
-   | _ -> fail "text fallback request body was not an object");
+   | _ -> fail "prompt-only syntax request body was not an object");
   let messages = Yojson.Safe.Util.(request |> member "messages" |> to_list) in
   check int "strict JSON instruction is appended last" 2 (List.length messages);
   let instruction =
@@ -721,7 +721,7 @@ let test_json_syntax_uses_strict_text_fallback () =
   | Ok success ->
     check
       string
-      "text fallback candidate serves the request"
+      "prompt-only syntax candidate serves the request"
       "text-json"
       (candidate_id (EO.flow_success_candidate success));
     check
@@ -3955,9 +3955,9 @@ let () =
             `Quick
             test_later_missing_credential_does_not_block_current_success
         ; test_case
-            "JSON syntax uses strict text fallback"
+            "JSON syntax is prompt-only even for a native target"
             `Quick
-            test_json_syntax_uses_strict_text_fallback
+            test_json_syntax_is_prompt_only_even_for_native_target
         ; test_case
             "fenced JSON advances to frozen successor"
             `Quick
