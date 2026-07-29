@@ -7,11 +7,13 @@
     @since 0.53.0  Streaming
     @since 0.54.0  Optional cache + metrics hooks *)
 
-include Complete_sampling
-include Complete_common
-include Complete_sync
-include Complete_stream
+open Complete_common
+open Complete_sync
+open Complete_stream
 
+let gemini_url = Complete_sampling.gemini_url
+
+type latency_counter = Complete_common.latency_counter
 type prepared_request = Prepared_completion_request.t
 type serialized_request = Prepared_completion_request.serialized
 type measured_request = Prepared_completion_request.measured

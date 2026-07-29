@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Changed
+
+`Llm_provider.Complete` no longer includes its sampling, common, sync, and
+stream implementation modules. It keeps the same public completion Feature
+surface while depending on those owners internally and re-exporting only the
+documented `gemini_url` helper.
+
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
 
