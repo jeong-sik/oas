@@ -153,38 +153,6 @@ let test_redacted_snapshot_rejects_noncanonical_input () =
   reject "short fingerprint" (replace "credential_fingerprint" (`String "abcdef0"))
 ;;
 
-let test_custom_provider_keeps_registered_identity () =
-  let provider : Provider.config =
-    { provider = Provider.Custom_registered { name = "dynamic-provider" }
-    ; model_id = "model-a"
-    ; api_key_env = ""
-    }
-  in
-  let identity =
-    Binding_identity.of_resolved_provider
-      ~transport:Binding_identity.Http
-      ~provider
-      ~base_url:"https://dynamic.example.test"
-      ~request_path:"/v1/dynamic"
-      ~api_key:"credential-a"
-    |> require_identity
-  in
-  let json = Binding_identity.to_redacted_yojson identity in
-  let provider_json = Yojson.Safe.Util.member "provider" json in
-  check_string
-    "custom provider remains registered"
-    "registered"
-    (Yojson.Safe.Util.member "registration" provider_json |> Yojson.Safe.Util.to_string);
-  check_string
-    "registered identity is the provider registry key"
-    "dynamic-provider"
-    (Yojson.Safe.Util.member "id" provider_json |> Yojson.Safe.Util.to_string);
-  check_string
-    "unknown custom auth stays typed instead of guessed"
-    "provider_defined"
-    (Yojson.Safe.Util.member "auth_scheme" json |> Yojson.Safe.Util.to_string)
-;;
-
 let test_binding_identity_rejects_invalid_model_identity () =
   let invalid = { (config ()) with model_id = "  " } in
   match Binding_identity.of_provider_config ~transport:Binding_identity.Http invalid with
@@ -744,10 +712,6 @@ let () =
             "redacted snapshot strict boundary"
             `Quick
             test_redacted_snapshot_rejects_noncanonical_input
-        ; Alcotest.test_case
-            "custom registry identity"
-            `Quick
-            test_custom_provider_keeps_registered_identity
         ; Alcotest.test_case
             "invalid model identity"
             `Quick

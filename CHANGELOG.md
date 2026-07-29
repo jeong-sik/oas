@@ -17,6 +17,10 @@ original tag dates. `0.100.4` was never tagged or released.
   callers must supply `input_schema` or an already-provider-shaped JSON Schema
   object.
 
+The unused `Binding_identity.of_resolved_provider` compatibility bridge has
+been removed. Binding identities are constructed only from canonical
+`Llm_provider.Provider_config.t` values.
+
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
 

@@ -1,7 +1,6 @@
 (** Shared turn logic for sync and streaming paths.
 
-    Contains helper functions that both [Agent.run_turn_with_trace] and
-    [Agent.run_turn_stream_with_trace] call, eliminating code duplication.
+    Contains helper functions shared by the sync and streaming Agent drivers.
 
     These functions take explicit parameters (not [Agent.t]) to avoid
     circular module dependency: [Agent -> Agent_turn] is fine,

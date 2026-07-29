@@ -129,11 +129,6 @@ let run_turn_core ~sw ?clock ~api_strategy ?raw_trace_run agent =
 (* Original run_turn_core implementation removed — now in Pipeline.run_turn.
    See git history for the previous 240-line monolithic version. *)
 
-(* Backward-compatible wrappers *)
-let run_turn_with_trace ~sw ?clock ?raw_trace_run agent =
-  run_turn_core ~sw ?clock ~api_strategy:Sync ?raw_trace_run agent
-;;
-
 let provide_input agent request response =
   if Agent_elicitation.apply_response ~metadata:[] agent request response then ()
 ;;
