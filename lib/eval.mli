@@ -48,8 +48,19 @@ type metric_goal =
 type metric_spec =
   { name : string
   ; goal : metric_goal
-  ; tolerance_pct : float option
+  ; tolerance_pct : float
   }
+
+type comparison_error =
+  | Duplicate_metric_spec of string
+  | Duplicate_baseline_metric of string
+  | Duplicate_candidate_metric of string
+  | Missing_baseline_metric of string
+  | Missing_candidate_metric of string
+  | Invalid_tolerance_pct of
+      { metric_name : string
+      ; tolerance_pct : float
+      }
 
 (** {1 Run metrics} *)
 
@@ -118,14 +129,14 @@ val compute_delta
   -> unit
   -> change_direction * float option
 
-(** Compare the metrics selected by [specs]. A metric is compared only when it
-    exists in both runs and has a matching spec; [goal] and [tolerance_pct] are
-    therefore the single comparison policy for every returned delta. *)
+(** Compare exactly the metrics selected by [specs]. Every selected metric must
+    occur exactly once in each run, every spec name must be unique, and every
+    tolerance must be finite and non-negative. *)
 val compare_with_specs
   :  specs:metric_spec list
   -> baseline:run_metrics
   -> candidate:run_metrics
-  -> comparison
+  -> (comparison, comparison_error) result
 
 (** {1 Threshold checking} *)
 

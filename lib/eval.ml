@@ -111,8 +111,19 @@ type metric_goal =
 type metric_spec =
   { name : string
   ; goal : metric_goal
-  ; tolerance_pct : float option
+  ; tolerance_pct : float
   }
+
+type comparison_error =
+  | Duplicate_metric_spec of string
+  | Duplicate_baseline_metric of string
+  | Duplicate_candidate_metric of string
+  | Missing_baseline_metric of string
+  | Missing_candidate_metric of string
+  | Invalid_tolerance_pct of
+      { metric_name : string
+      ; tolerance_pct : float
+      }
 
 (* ── Run metrics ──────────────────────────────────────────────── *)
 
@@ -310,39 +321,62 @@ let compute_delta_for_goal
 ;;
 
 let compare_with_specs ~specs ~(baseline : run_metrics) ~(candidate : run_metrics) =
-  let deltas =
-    List.filter_map
-      (fun (bm : metric) ->
-         match
-           ( List.find_opt (fun (spec : metric_spec) -> spec.name = bm.name) specs
-           , List.find_opt (fun (cm : metric) -> cm.name = bm.name) candidate.metrics )
-         with
-         | Some spec, Some cm ->
-           let threshold_pct =
-             Option.value spec.tolerance_pct ~default:default_delta_threshold_pct
-           in
-           let direction, delta_pct =
-             compute_delta_for_goal
-               ~threshold_pct
-               ~goal:spec.goal
-               ~baseline_val:bm.value
-               ~candidate_val:cm.value
-               ()
-           in
-           Some
-             { metric_name = bm.name
-             ; baseline_value = bm.value
-             ; candidate_value = cm.value
-             ; direction
-             ; delta_pct
-             }
-         | None, _ | _, None -> None)
-      baseline.metrics
+  let find_unique_metric ~duplicate_error ~missing_error name metrics =
+    match List.filter (fun (metric : metric) -> String.equal metric.name name) metrics with
+    | [] -> Error (missing_error name)
+    | [ metric ] -> Ok metric
+    | _ -> Error (duplicate_error name)
   in
+  let rec collect seen deltas = function
+    | [] -> Ok (List.rev deltas)
+    | (spec : metric_spec) :: rest ->
+      if List.exists (String.equal spec.name) seen
+      then Error (Duplicate_metric_spec spec.name)
+      else if spec.tolerance_pct < 0.0 || not (Float.is_finite spec.tolerance_pct)
+      then
+        Error
+          (Invalid_tolerance_pct
+             { metric_name = spec.name; tolerance_pct = spec.tolerance_pct })
+      else (
+        let ( let* ) = Result.bind in
+        let* baseline_metric =
+          find_unique_metric
+            ~duplicate_error:(fun name -> Duplicate_baseline_metric name)
+            ~missing_error:(fun name -> Missing_baseline_metric name)
+            spec.name
+            baseline.metrics
+        in
+        let* candidate_metric =
+          find_unique_metric
+            ~duplicate_error:(fun name -> Duplicate_candidate_metric name)
+            ~missing_error:(fun name -> Missing_candidate_metric name)
+            spec.name
+            candidate.metrics
+        in
+        let direction, delta_pct =
+          compute_delta_for_goal
+            ~threshold_pct:spec.tolerance_pct
+            ~goal:spec.goal
+            ~baseline_val:baseline_metric.value
+            ~candidate_val:candidate_metric.value
+            ()
+        in
+        let delta =
+          { metric_name = spec.name
+          ; baseline_value = baseline_metric.value
+          ; candidate_value = candidate_metric.value
+          ; direction
+          ; delta_pct
+          }
+        in
+        collect (spec.name :: seen) (delta :: deltas) rest)
+  in
+  let ( let* ) = Result.bind in
+  let* deltas = collect [] [] specs in
   let regressions = List.filter (fun d -> d.direction = Regression) deltas in
   let improvements = List.filter (fun d -> d.direction = Improvement) deltas in
   let unchanged = List.filter (fun d -> d.direction = Unchanged) deltas in
-  { baseline; candidate; regressions; improvements; unchanged }
+  Ok { baseline; candidate; regressions; improvements; unchanged }
 ;;
 
 (* ── Threshold checking ───────────────────────────────────────── *)
