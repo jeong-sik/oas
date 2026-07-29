@@ -19,6 +19,7 @@ val create
   -> handler:('input -> ('output, string) result)
   -> encode:('output -> Yojson.Safe.t)
   -> ?descriptor:Tool.descriptor
+  -> ?strict:bool
   -> unit
   -> Tool.t
 
@@ -32,5 +33,6 @@ val create_with_context
   -> handler:(Context.t -> 'input -> ('output, string) result)
   -> encode:('output -> Yojson.Safe.t)
   -> ?descriptor:Tool.descriptor
+  -> ?strict:bool
   -> unit
   -> Tool.t

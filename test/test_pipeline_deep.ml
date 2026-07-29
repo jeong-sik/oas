@@ -361,7 +361,7 @@ let test_resolve_params_with_tool_results () =
       ; tool_call_id = None
       ; metadata = []
       }
-    ; { role = User
+    ; { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id = "tu_1"
@@ -420,7 +420,7 @@ let test_resolve_params_error_tool_results () =
       ; tool_call_id = None
       ; metadata = []
       }
-    ; { role = User
+    ; { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id = "tu_e"

@@ -46,14 +46,14 @@ type t =
   }
 
 (** Create a tool with a simple handler *)
-let create ?descriptor ~name ~description ~parameters handler =
-  let schema = { name; description; parameters; strict = None } in
+let create ?descriptor ?strict ~name ~description ~parameters handler =
+  let schema = { name; description; parameters; strict } in
   { schema; descriptor; handler = (fun _execution_env input -> handler input) }
 ;;
 
 (** Create a tool with a context-aware handler *)
-let create_with_context ?descriptor ~name ~description ~parameters handler =
-  let schema = { name; description; parameters; strict = None } in
+let create_with_context ?descriptor ?strict ~name ~description ~parameters handler =
+  let schema = { name; description; parameters; strict } in
   let handler execution_env input =
     match Execution_env.context execution_env with
     | Some context -> handler context input
@@ -67,8 +67,8 @@ let create_with_context ?descriptor ~name ~description ~parameters handler =
   { schema; descriptor; handler }
 ;;
 
-let create_with_execution_env ?descriptor ~name ~description ~parameters handler =
-  let schema = { name; description; parameters; strict = None } in
+let create_with_execution_env ?descriptor ?strict ~name ~description ~parameters handler =
+  let schema = { name; description; parameters; strict } in
   { schema; descriptor; handler }
 ;;
 
@@ -104,10 +104,14 @@ let descriptor_to_yojson = function
 (** Schema to JSON *)
 let schema_to_json tool =
   `Assoc
-    [ "name", `String tool.schema.name
-    ; "description", `String tool.schema.description
-    ; "input_schema", Types.params_to_input_schema tool.schema.parameters
-    ]
+    ([ "name", `String tool.schema.name
+     ; "description", `String tool.schema.description
+     ; "input_schema", Types.params_to_input_schema tool.schema.parameters
+     ]
+     @
+     match tool.schema.strict with
+     | Some strict -> [ "strict", `Bool strict ]
+     | None -> [])
 ;;
 
 (** Wrap a tool to inject default arguments when not provided by the LLM.

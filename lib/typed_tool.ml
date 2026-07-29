@@ -13,18 +13,30 @@ let execute_typed ~parse ~handler ~encode json =
        Ok { Types.content; _meta = None })
 ;;
 
-let create ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
+let create ~name ~description ~params ~parse ~handler ~encode ?descriptor ?strict () =
   Tool.create
     ?descriptor
+    ?strict
     ~name
     ~description
     ~parameters:params
     (execute_typed ~parse ~handler ~encode)
 ;;
 
-let create_with_context ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
+let create_with_context
+      ~name
+      ~description
+      ~params
+      ~parse
+      ~handler
+      ~encode
+      ?descriptor
+      ?strict
+      ()
+  =
   Tool.create_with_context
     ?descriptor
+    ?strict
     ~name
     ~description
     ~parameters:params

@@ -145,47 +145,10 @@ let validate_projected_opaque_reasoning (messages : message list) =
 ;;
 
 let responses_tool_json tool =
-  match Backend_openai_serialize.build_openai_tool_json tool with
-  | `Assoc fields ->
-    (match List.assoc_opt "function" fields with
-     | Some (`Assoc fn_fields) ->
-       let passthrough =
-         assoc_remove [ "name"; "description"; "parameters"; "strict" ] fn_fields
-       in
-       let name =
-         match List.assoc_opt "name" fn_fields with
-         | Some (`String s) -> s
-         | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-         | None -> "tool"
-       in
-       let description =
-         match List.assoc_opt "description" fn_fields with
-         | Some (`String s) -> s
-         | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-         | None -> ""
-       in
-       let parameters =
-         match List.assoc_opt "parameters" fn_fields with
-         | Some schema -> schema
-         | None -> `Assoc []
-       in
-       let strict_field =
-         match List.assoc_opt "strict" fn_fields with
-         | Some (`Bool b) -> [ "strict", `Bool b ]
-         | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Null)
-         | None -> []
-       in
-       `Assoc
-         ([ "type", `String "function"
-          ; "name", `String name
-          ; "description", `String description
-          ; "parameters", parameters
-          ]
-          @ strict_field
-          @ passthrough)
-     | Some (`List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None
-       -> `Assoc fields)
-  | other -> other
+  let definition = Backend_openai_serialize.tool_definition_of_json tool in
+  `Assoc
+    (("type", `String "function")
+     :: Backend_openai_serialize.tool_definition_fields definition)
 ;;
 
 let content_string_of_tool_result ~content ~content_blocks =
