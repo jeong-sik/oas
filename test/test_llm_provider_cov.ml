@@ -1062,8 +1062,8 @@ let test_parse_response_unknown_reason () =
   in
   let resp = Backend_gemini.parse_response json in
   match resp.stop_reason with
-  | Types.Unknown "BLOCKLIST" -> ()
-  | _ -> Alcotest.fail "expected Unknown BLOCKLIST"
+  | Types.Refusal -> ()
+  | _ -> Alcotest.fail "expected BLOCKLIST refusal"
 ;;
 
 let test_parse_response_no_finish_reason () =
@@ -1077,8 +1077,8 @@ let test_parse_response_no_finish_reason () =
   in
   let resp = Backend_gemini.parse_response json in
   match resp.stop_reason with
-  | Types.EndTurn -> () (* default is STOP -> EndTurn *)
-  | _ -> Alcotest.fail "expected EndTurn default"
+  | Types.Unknown "FINISH_REASON_UNSPECIFIED" -> ()
+  | _ -> Alcotest.fail "missing finishReason must not imply STOP"
 ;;
 
 let test_parse_response_no_usage () =
