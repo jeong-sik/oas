@@ -976,6 +976,32 @@ let test_parse_response_function_call () =
   | _ -> Alcotest.fail "expected StopToolUse"
 ;;
 
+let test_parse_response_truncated_function_call_is_not_executable () =
+  let json =
+    Yojson.Safe.from_string
+      {|{
+    "candidates": [{
+      "content": {
+        "parts": [{
+          "functionCall": {
+            "name": "get_weather",
+            "args": {"city": "Seo"}
+          }
+        }]
+      },
+      "finishReason": "MAX_TOKENS"
+    }]
+  }|}
+  in
+  let resp = Backend_gemini.parse_response json in
+  (match resp.content with
+   | [ Types.ToolUse { name = "get_weather"; _ } ] -> ()
+   | _ -> Alcotest.fail "expected observed ToolUse block");
+  match resp.stop_reason with
+  | Types.MaxTokens -> ()
+  | _ -> Alcotest.fail "truncated function call must not execute"
+;;
+
 let test_parse_response_max_tokens () =
   let json =
     Yojson.Safe.from_string
@@ -1751,6 +1777,10 @@ let () =
       , [ Alcotest.test_case "basic" `Quick test_parse_response_basic
         ; Alcotest.test_case "with thinking" `Quick test_parse_response_with_thinking
         ; Alcotest.test_case "function call" `Quick test_parse_response_function_call
+        ; Alcotest.test_case
+            "truncated function call"
+            `Quick
+            test_parse_response_truncated_function_call_is_not_executable
         ; Alcotest.test_case "max_tokens" `Quick test_parse_response_max_tokens
         ; Alcotest.test_case "safety" `Quick test_parse_response_safety
         ; Alcotest.test_case "recitation" `Quick test_parse_response_recitation

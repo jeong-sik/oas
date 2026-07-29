@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Bug Fixes
+
+Gemini streaming and non-streaming responses now share one finish-reason
+mapping. A function-call block truncated by `MAX_TOKENS` remains terminal and
+is not promoted to executable tool use.
+
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
 
