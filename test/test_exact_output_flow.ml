@@ -1311,6 +1311,68 @@ let test_request_body_capacity_advances_only_after_durable_settlement () =
   | Error _ -> fail "durably settled body-cap rejection did not reach its successor"
 ;;
 
+let test_request_body_projection_is_exact_and_credential_free () =
+  let id = "body-projection" in
+  let base_url = "https://projection.invalid" in
+  let api_key_env = "MISSING_FLOW_KEY" in
+  let requirement =
+    EO.make_output_requirement ~schema ~minimum_guarantee:EO.Provider_schema
+  in
+  let messages = [ msg "measure the exact provider request body" ] in
+  let project ?max_request_body_bytes () =
+    with_catalog
+      ~getenv:credential_getenv
+      [ catalog_entry
+          ?max_request_body_bytes
+          ~api_key_env
+          ~id
+          ~base_url
+          ~native:true
+          ~json:true
+          ()
+      ]
+    @@ fun snapshot ->
+    let target = admitted_target snapshot id in
+    let projection =
+      match EO.project_request_body ~target ~messages requirement with
+      | Ok projection -> projection
+      | Error _ -> fail "credential-free body projection was rejected"
+    in
+    (match EO.resolve_target target with
+     | Error _ -> ()
+     | Ok _ -> fail "fixture did not retain its missing credential");
+    projection
+  in
+  let uncapped = project () in
+  check bool "uncapped body projection is finite" true (uncapped.actual_bytes > 0);
+  check (option int) "uncapped target preserves no limit" None uncapped.limit_bytes;
+  check bool "uncapped projection fits" true uncapped.within_limit;
+  let exact = project ~max_request_body_bytes:uncapped.actual_bytes () in
+  check
+    int
+    "declared cap does not change body bytes"
+    uncapped.actual_bytes
+    exact.actual_bytes;
+  check
+    (option int)
+    "exact cap is preserved"
+    (Some uncapped.actual_bytes)
+    exact.limit_bytes;
+  check bool "exact boundary fits" true exact.within_limit;
+  let rejected = project ~max_request_body_bytes:(uncapped.actual_bytes - 1) () in
+  check
+    int
+    "over-limit projection returns the same exact body bytes"
+    uncapped.actual_bytes
+    rejected.actual_bytes;
+  check
+    (option int)
+    "over-limit projection preserves the exact cap"
+    (Some (uncapped.actual_bytes - 1))
+    rejected.limit_bytes;
+  check bool "limit minus one is rejected" false rejected.within_limit
+;;
+
 let test_measured_token_and_body_capacity_are_independent () =
   let large_input = String.make 65536 'x' in
   let response =
@@ -3986,6 +4048,10 @@ let () =
             "request body cap advances after durable settlement"
             `Quick
             test_request_body_capacity_advances_only_after_durable_settlement
+        ; test_case
+            "request body projection is exact and credential-free"
+            `Quick
+            test_request_body_projection_is_exact_and_credential_free
         ; test_case
             "measured token and serialized body capacities are independent"
             `Quick

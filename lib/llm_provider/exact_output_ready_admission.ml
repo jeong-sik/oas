@@ -103,6 +103,20 @@ type admission_error =
   | Invalid_schema
   | Wire_admission_rejected of wire_admission_error
 
+type request_body_projection =
+  { actual_bytes : int
+  ; limit_bytes : int option
+  ; within_limit : bool
+  }
+
+type request_target =
+  { config : PC.t
+  ; capabilities : Caps.capabilities
+  ; anthropic_thinking_control : Caps.anthropic_thinking_control option
+  ; body_timeout_s : float option
+  ; model_admitted : bool
+  }
+
 type 'callback_error flow_request_error =
   | Flow_request_admission_failed of admission_error * Flow_admission.measurement_evidence
   | Flow_request_measurement_start_failed of string
@@ -141,6 +155,24 @@ let make_output_requirement ~schema ~minimum_guarantee =
   }
 ;;
 
+let request_target_of_selected (target : Resolver.selected_target) =
+  { config = target.config
+  ; capabilities = target.capabilities
+  ; anthropic_thinking_control = target.anthropic_thinking_control
+  ; body_timeout_s = target.body_timeout_s
+  ; model_admitted = Resolver.selected_target_model_admitted target
+  }
+;;
+
+let request_target_of_projection (target : Resolver.projection_target) =
+  { config = target.config
+  ; capabilities = target.capabilities
+  ; anthropic_thinking_control = target.anthropic_thinking_control
+  ; body_timeout_s = target.body_timeout_s
+  ; model_admitted = target.model_admitted
+  }
+;;
+
 let validate_gemini_schema ~path schema =
   match Gemini_schema.validate ~path schema with
   | Ok () -> Ok ()
@@ -151,7 +183,7 @@ let validate_gemini_schema ~path schema =
   | Error Gemini_schema.Invalid_schema -> Error Invalid_schema
 ;;
 
-let schema_for_wire (target : Resolver.selected_target) (Domain_schema domain_schema) =
+let schema_for_wire (target : request_target) (Domain_schema domain_schema) =
   match Provider_http_codec.(json_schema_wire (of_config target.config)) with
   | Raw_schema -> domain_schema
   | Openai_named_schema ->
@@ -162,7 +194,7 @@ let schema_for_wire (target : Resolver.selected_target) (Domain_schema domain_sc
       ]
 ;;
 
-let response_format (target : Resolver.selected_target) requirement =
+let response_format (target : request_target) requirement =
   match requirement.minimum_guarantee with
   (* Json_syntax is fulfilled by the prompt plus local parser/validator.  Do
      not turn a caller's syntax requirement into a provider-native schema
@@ -213,7 +245,7 @@ let messages_for_response_format requirement response_format messages =
   | Types.JsonMode | Types.JsonSchema _ -> messages
 ;;
 
-let exact_config (target : Resolver.selected_target) response_format =
+let exact_config (target : request_target) response_format =
   { target.config with
     temperature = None
   ; top_p = None
@@ -282,9 +314,9 @@ let token_capacity_rejection = function
       }
 ;;
 
-let admission_contract ~(target : Resolver.selected_target) requirement =
+let admission_contract ~(target : request_target) requirement =
   let* () =
-    if Resolver.selected_target_model_admitted target
+    if target.model_admitted
     then Ok ()
     else
       Error
@@ -335,17 +367,41 @@ let ready_plan
   }
 ;;
 
+let project_request_body ~target ~messages requirement =
+  let target = request_target_of_projection target in
+  let* response_format, _, _ = admission_contract ~target requirement in
+  let messages = messages_for_response_format requirement response_format messages in
+  let config = exact_config target response_format in
+  match
+    Plan.preflight
+      ~config
+      ~messages
+      ~body_timeout_s:target.body_timeout_s
+      ~anthropic_thinking_control:target.anthropic_thinking_control
+  with
+  | Ok preflight ->
+    Ok
+      { actual_bytes = Plan.preflight_request_body_bytes preflight
+      ; limit_bytes = config.max_request_body_bytes
+      ; within_limit = true
+      }
+  | Error (Plan.Request_body_too_large { actual_bytes; limit_bytes }) ->
+    Ok { actual_bytes; limit_bytes = Some limit_bytes; within_limit = false }
+  | Error error -> Error (Wire_admission_rejected (wire_admission_error error))
+;;
+
 let admit ~target ~messages requirement =
+  let request_target = request_target_of_selected target in
   let* response_format, actual_assurance, effective_schema_fingerprint =
-    admission_contract ~target requirement
+    admission_contract ~target:request_target requirement
   in
   let messages = messages_for_response_format requirement response_format messages in
   let* preflight =
     Plan.preflight
-      ~config:(exact_config target response_format)
+      ~config:(exact_config request_target response_format)
       ~messages
-      ~body_timeout_s:target.body_timeout_s
-      ~anthropic_thinking_control:target.anthropic_thinking_control
+      ~body_timeout_s:request_target.body_timeout_s
+      ~anthropic_thinking_control:request_target.anthropic_thinking_control
     |> Result.map_error (fun error ->
       Wire_admission_rejected (wire_admission_error error))
   in
@@ -381,8 +437,9 @@ let admit_candidate_request
       ~messages
       requirement
   =
+  let request_target = request_target_of_selected target in
   let* response_format, actual_assurance, effective_schema_fingerprint =
-    admission_contract ~target requirement
+    admission_contract ~target:request_target requirement
     |> Result.map_error (fun error ->
       Flow_request_admission_failed
         ( error
@@ -393,10 +450,10 @@ let admit_candidate_request
   let messages = messages_for_response_format requirement response_format messages in
   let* preflight =
     Plan.preflight
-      ~config:(exact_config target response_format)
+      ~config:(exact_config request_target response_format)
       ~messages
-      ~body_timeout_s:target.body_timeout_s
-      ~anthropic_thinking_control:target.anthropic_thinking_control
+      ~body_timeout_s:request_target.body_timeout_s
+      ~anthropic_thinking_control:request_target.anthropic_thinking_control
     |> Result.map_error (fun error ->
       Flow_request_admission_failed
         ( Wire_admission_rejected (wire_admission_error error)

@@ -3,6 +3,15 @@ type catalog_evidence
 type target_identity
 type resolver_snapshot
 type admitted_target
+
+type projection_target = private
+  { config : Provider_config.t
+  ; capabilities : Capabilities.capabilities
+  ; anthropic_thinking_control : Capabilities.anthropic_thinking_control option
+  ; body_timeout_s : float option
+  ; model_admitted : bool
+  }
+
 type resolver_io = { getenv : string -> (string option, unit) result }
 
 type catalog_document =
@@ -123,5 +132,10 @@ val admit_target_ref
   :  resolver_snapshot
   -> string
   -> (admitted_target, target_catalog_admission_error) result
+
+(** Return the credential-free immutable request projection captured by
+    [admit_target_ref]. This value may be used only for pure wire-size
+    projection; it cannot be dispatched or converted into a selected target. *)
+val projection_target : admitted_target -> projection_target
 
 val resolve_target : admitted_target -> (selected_target, target_selection_error) result

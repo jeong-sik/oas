@@ -11,6 +11,13 @@ include Exact_output_resolver
 include Flow_contract
 include Exact_output_ready_admission
 
+let project_request_body ~target ~messages requirement =
+  Exact_output_ready_admission.project_request_body
+    ~target:(Exact_output_resolver.projection_target target)
+    ~messages
+    requirement
+;;
+
 let plan_provenance_source_schema_fingerprint (provenance : plan_provenance) =
   provenance.source_schema_fingerprint
 ;;
