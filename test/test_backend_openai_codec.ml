@@ -1019,13 +1019,6 @@ let test_tool_choice_and_tool_schema_conversion () =
 let ignored_blocks : content_block list =
   [ Thinking { signature = None; content = "   " }
   ; RedactedThinking "hidden"
-  ; ToolResult
-      { tool_use_id = "call-x"
-      ; content = "ignored"
-      ; outcome = Tool_succeeded
-      ; json = None
-      ; content_blocks = None
-      }
   ; Image { media_type = "image/png"; data = "img"; source_type = Types.Base64 }
   ; Document { media_type = "application/pdf"; data = "doc"; source_type = Types.Base64 }
   ; Audio { media_type = "wav"; data = "aud"; source_type = Types.Base64 }
@@ -1079,22 +1072,7 @@ let test_serializer_ignored_block_variants () =
       glm_dialect
       (msg Assistant [ Thinking { signature = None; content = "   " } ])
   in
-  check_int "blank reasoning-only assistant removed" 0 (List.length glm);
-  let tool_fallback_blocks =
-    [ Thinking { signature = None; content = "   " }
-    ; RedactedThinking "hidden"
-    ; ToolUse { id = "local-call"; name = "local"; input = `Null }
-    ; Image { media_type = "image/png"; data = "img"; source_type = Types.Base64 }
-    ; Document
-        { media_type = "application/pdf"; data = "doc"; source_type = Types.Base64 }
-    ; Audio { media_type = "wav"; data = "aud"; source_type = Types.Base64 }
-    ]
-  in
-  let tool_fallback =
-    Serialize.openai_messages_of_message (msg Tool tool_fallback_blocks)
-    |> only "tool fallback"
-  in
-  check_string "tool fallback role" "user" (member "role" tool_fallback |> to_string)
+  check_int "blank reasoning-only assistant removed" 0 (List.length glm)
 ;;
 
 let test_parallel_tool_calls_fields () =

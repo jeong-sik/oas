@@ -243,16 +243,6 @@ let test_typed_child_invocation_preserves_raw_input () =
   | Ok (_, Error message) -> Alcotest.failf "handler error: %s" message
 ;;
 
-let test_typed_untyped_bridge_returns_json () =
-  let open Yojson.Safe.Util in
-  let tool = Agent_tool.create_typed_untyped (typed_config structured_runner) in
-  match Tool.execute tool (`Assoc [ "prompt", `String "bridge" ]) with
-  | Error { message; _ } -> Alcotest.failf "error: %s" message
-  | Ok { content; _meta = _ } ->
-    let json = Yojson.Safe.from_string content in
-    Alcotest.(check string) "text" "child: bridge" (json |> member "text" |> to_string)
-;;
-
 let test_typed_missing_prompt_recoverable () =
   let tool = Agent_tool.create_typed (typed_config structured_runner) in
   match Typed_tool.execute tool (`Assoc [ "other", `String "x" ]) with
@@ -289,10 +279,6 @@ let () =
             "preserves_raw_input"
             `Quick
             test_typed_child_invocation_preserves_raw_input
-        ; Alcotest.test_case
-            "untyped_bridge"
-            `Quick
-            test_typed_untyped_bridge_returns_json
         ; Alcotest.test_case "missing_prompt" `Quick test_typed_missing_prompt_recoverable
         ] )
     ]

@@ -833,7 +833,7 @@ let%test "last_tool_results_from assistant-only messages" =
 
 let%test "last_tool_results_from picks last tool-result message" =
   let msgs =
-    [ { role = User
+    [ { role = Tool
       ; content =
           [ ToolResult
               { tool_use_id = "t1"

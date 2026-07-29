@@ -4,8 +4,8 @@
     The type parameters ['input] and ['output] connect the JSON parse function
     to the handler: a mismatch is a compile error, not a runtime error.
 
-    Backward compatible: {!to_untyped} erases type parameters for registration
-    in existing {!Tool_set} / {!Tool.t} based dispatch.
+    {!to_untyped} is the direct type-erasure projection for the current
+    {!Tool_set} / {!Tool.t} dispatch boundary.
 
     Inspired by Typia's "type is the schema" and AutoBE's typed AST IR.
 
@@ -84,14 +84,11 @@ val execute_parsed
   -> Yojson.Safe.t
   -> ('input * ('output, string) result, string) result
 
-(** {1 Backward compatibility} *)
+(** {1 Untyped dispatch projection} *)
 
 (** Erase type parameters for registration in {!Tool_set} or {!Tool.t}-based
     dispatch. The returned {!Tool.t} composes parse -> handler -> encode into
-    a single [Yojson.Safe.t -> Types.tool_result] function.
-
-    This is the migration bridge: convert one tool at a time without
-    changing the dispatch infrastructure. *)
+    a single [Yojson.Safe.t -> Types.tool_result] function. *)
 val to_untyped : (_, _) t -> Tool.t
 
 (** {1 Introspection} *)
