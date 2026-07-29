@@ -17,6 +17,10 @@ derived index.
 
 ### Bug Fixes
 
+GLM streaming now parses reasoning deltas through the resolved typed
+model/provider dialect. The backend no longer hardcodes
+`delta.reasoning_content` independently of the catalog.
+
 Gemini streaming and non-streaming responses now share one finish-reason
 mapping. A function-call block truncated by `MAX_TOKENS` remains terminal and
 is not promoted to executable tool use. Documented policy filters map to

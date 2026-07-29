@@ -295,13 +295,10 @@ let parse_response body =
 
 (* ── Streaming ───────────────────────────────────── *)
 
-(** Parse Glm SSE chunk.  Glm uses Openai SSE format but adds
-    [delta.reasoning_content] for thinking. We parse this as
-    [delta_reasoning] in the openai_chunk type. *)
-let parse_stream_chunk data =
-  Streaming.parse_openai_sse_chunk
-    ~streaming_reasoning:(Reasoning_dialect.Delta_field "reasoning_content")
-    data
+(** Parse a GLM SSE chunk using the resolved model/provider dialect.
+    The catalog is the sole authority for reasoning-field interpretation. *)
+let parse_stream_chunk ~streaming_reasoning data =
+  Streaming.parse_openai_sse_chunk ~streaming_reasoning data
 ;;
 
 (* ── Inline tests ────────────────────────────────── *)
@@ -648,7 +645,11 @@ let%test "extract_reasoning_content skips empty reasoning" =
 
 let%test "parse_stream_chunk delegates to openai" =
   let data = {|{"id":"x","choices":[{"delta":{"content":"hi"},"index":0}]}|} in
-  match parse_stream_chunk data with
+  match
+    parse_stream_chunk
+      ~streaming_reasoning:(Reasoning_dialect.Delta_field "reasoning_content")
+      data
+  with
   | Streaming.Openai_chunk chunk -> chunk.delta_content = Some "hi"
   | Streaming.Openai_done
   | Streaming.Openai_empty

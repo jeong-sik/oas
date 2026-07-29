@@ -1,6 +1,7 @@
 open Alcotest
 module K = Llm_provider.Backend_glm
 module PC = Llm_provider.Provider_config
+module RD = Llm_provider.Reasoning_dialect
 module S = Llm_provider.Streaming
 module T = Llm_provider.Types
 
@@ -212,14 +213,28 @@ let test_extract_reasoning_handles_empty_and_malformed_bodies () =
   unchanged "malformed json" {|not json|}
 ;;
 
-let test_parse_stream_chunk_delegates_reasoning_delta () =
+let test_parse_stream_chunk_uses_resolved_reasoning_dialect () =
   let data =
     {|{"id":"chunk-1","model":"glm-5.1","choices":[{"delta":{"reasoning_content":"thinking","content":"token"},"index":0}]}|}
   in
-  match K.parse_stream_chunk data with
+  match
+    K.parse_stream_chunk ~streaming_reasoning:(RD.Delta_field "reasoning_content") data
+  with
   | S.Openai_chunk chunk ->
     check (option string) "content" (Some "token") chunk.delta_content;
     check (option string) "reasoning" (Some "thinking") chunk.delta_reasoning
+  | S.Openai_done | S.Openai_empty | S.Openai_provider_error _ | S.Openai_parse_failed _
+    -> fail "expected stream chunk"
+;;
+
+let test_parse_stream_chunk_does_not_invent_missing_dialect () =
+  let data =
+    {|{"id":"chunk-1","model":"glm-5.1","choices":[{"delta":{"reasoning_content":"thinking","content":"token"},"index":0}]}|}
+  in
+  match K.parse_stream_chunk ~streaming_reasoning:RD.No_streaming_reasoning data with
+  | S.Openai_chunk chunk ->
+    check (option string) "content" (Some "token") chunk.delta_content;
+    check (option string) "reasoning stays absent" None chunk.delta_reasoning
   | S.Openai_done | S.Openai_empty | S.Openai_provider_error _ | S.Openai_parse_failed _
     -> fail "expected stream chunk"
 ;;
@@ -252,9 +267,13 @@ let () =
             `Quick
             test_extract_reasoning_handles_empty_and_malformed_bodies
         ; test_case
-            "stream reasoning delta"
+            "stream uses resolved reasoning dialect"
             `Quick
-            test_parse_stream_chunk_delegates_reasoning_delta
+            test_parse_stream_chunk_uses_resolved_reasoning_dialect
+        ; test_case
+            "stream does not invent a missing dialect"
+            `Quick
+            test_parse_stream_chunk_does_not_invent_missing_dialect
         ] )
     ]
 ;;
