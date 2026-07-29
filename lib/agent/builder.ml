@@ -27,8 +27,6 @@ type t =
   ; initial_messages : message list
   ; tools : Tool_set.t
   ; context : Context.t option
-  ; base_url : string
-  ; provider : Provider.config option
   ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : Agent.context_fit_admission
   ; model_input_projection : Agent.model_input_projection option
@@ -81,8 +79,6 @@ let create ~net ~model =
   ; initial_messages = defaults.initial_messages
   ; tools = Tool_set.empty
   ; context = None
-  ; base_url = Llm_provider.Api_common.default_base_url
-  ; provider = None
   ; provider_config = None
   ; context_fit_admission = Agent.Disabled
   ; model_input_projection = None
@@ -165,7 +161,6 @@ let with_tracer tracer b = { b with tracer }
 let with_trace_link trace_link b = { b with trace_link }
 let with_raw_trace raw_trace b = { b with raw_trace = Some raw_trace }
 let with_context ctx b = { b with context = Some ctx }
-let with_provider provider b = { b with provider = Some provider; provider_config = None }
 
 let with_provider_config (pc : Llm_provider.Provider_config.t) b =
   { b with
@@ -184,7 +179,6 @@ let with_provider_config (pc : Llm_provider.Provider_config.t) b =
   ; tool_choice = pc.tool_choice
   ; disable_parallel_tool_use = pc.disable_parallel_tool_use
   ; cache_system_prompt = pc.cache_system_prompt
-  ; provider = None
   ; provider_config = Some pc
   }
 ;;
@@ -199,7 +193,6 @@ let with_pre_dispatch_serialization_observer observer b =
   { b with pre_dispatch_serialization_observer = Some observer }
 ;;
 
-let with_base_url url b = { b with base_url = url }
 let with_mcp_clients clients b = { b with mcp_clients = clients }
 let with_guardrails_async guardrails_async b = { b with guardrails_async }
 let with_slot_id slot_id b = { b with slot_id = Some slot_id }
@@ -272,8 +265,7 @@ let build b =
     }
   in
   let options =
-    { Agent_types.base_url = b.base_url
-    ; provider = b.provider
+    { Agent_types.provider_config = b.provider_config
     ; stream_idle_timeout_s = b.stream_idle_timeout_s
     ; first_event_timeout_s = b.first_event_timeout_s
     ; body_timeout_s = b.body_timeout_s
@@ -302,7 +294,6 @@ let build b =
     ~tools:(Tool_set.to_list tools)
     ?context
     ~options
-    ?provider_config:b.provider_config
     ~context_fit_admission:b.context_fit_admission
     ?model_input_projection:b.model_input_projection
     ?pre_dispatch_serialization_observer:b.pre_dispatch_serialization_observer

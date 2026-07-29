@@ -117,16 +117,10 @@ val with_description : string -> t -> t
 val with_periodic_callback : Agent.periodic_callback -> t -> t
 val with_periodic_callbacks : Agent.periodic_callback list -> t -> t
 
-(** {2 Provider} *)
-
-val with_provider : Provider.config -> t -> t
-
 (** Select an exact typed provider configuration. The Builder carries provider
     identity, wire kind, endpoint, credential, headers, request path, and
     capability overrides unchanged to dispatch. Generic turn fields seed the
-    Builder and may be replaced by later [with_*] calls. Calling
-    {!with_provider} later replaces this selection; calling this function after
-    {!with_provider} replaces the legacy selection. *)
+    Builder and may be replaced by later [with_*] calls. *)
 val with_provider_config : Llm_provider.Provider_config.t -> t -> t
 
 (** Select Agent-level provider-fit admission without changing standalone
@@ -145,8 +139,6 @@ val with_pre_dispatch_serialization_observer
   :  Agent.pre_dispatch_serialization_observer
   -> t
   -> t
-
-val with_base_url : string -> t -> t
 
 (** Inject an {!Llm_provider.Llm_transport.t} for non-HTTP providers.
     Required for CLI provider kinds ([Claude_code], [Codex],

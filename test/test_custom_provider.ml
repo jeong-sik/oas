@@ -178,14 +178,30 @@ let test_model_spec_registered () =
   Alcotest.(check bool) "supports_tools" true spec.capabilities.supports_tools
 ;;
 
-(* ── provider_runtime_name ──────────────────────────────── *)
+(* ── lifecycle provider identity ────────────────────────── *)
 
 let test_lifecycle_runtime_name () =
-  let cfg : Provider.config =
-    Provider.custom_provider ~name:"life-test" ~model_id:"exact-model" ()
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~provider_id:"life-test"
+      ~model_id:"exact-model"
+      ~base_url:"http://test.invalid"
+      ~api_key:""
+      ~request_path:"/v1/chat/completions"
+      ()
   in
-  let name = Agent_lifecycle.provider_runtime_name (Some cfg) in
-  Alcotest.(check (option string)) "runtime name" (Some "life-test") name
+  let snapshot =
+    Agent_lifecycle.build_snapshot
+      ~agent_name:"lifecycle-agent"
+      ~model:"exact-model"
+      ~provider_config
+      Agent_lifecycle.Accepted
+  in
+  Alcotest.(check (option string))
+    "runtime name"
+    (Some "life-test")
+    snapshot.requested_provider
 ;;
 
 (* ── Test runner ────────────────────────────────────────── *)

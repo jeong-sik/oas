@@ -85,10 +85,14 @@ let test_simple_conversation () =
     let server = Cohttp_eio.Server.make ~callback:mock_handler () in
     Eio.Fiber.fork ~sw (fun () ->
       Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
-    let provider : Provider.config =
-      { provider = Provider.Local { base_url }; model_id = "mock"; api_key_env = "" }
+    let provider_config =
+      Provider_mock.local_provider_config
+        ~base_url
+        ~model_id:"mock"
+        ~request_path:"/v1/chat/completions"
+        ()
     in
-    let options = { Agent.default_options with base_url; provider = Some provider } in
+    let options = { Agent.default_options with provider_config = Some provider_config } in
     let agent =
       Agent.create
         ~config:(Types.default_config ~model:"test-model")
@@ -139,10 +143,14 @@ let test_tool_use () =
         let b = Yojson.Safe.Util.(input |> member "b" |> to_int) in
         Ok { Types.content = string_of_int (a + b); _meta = None })
     in
-    let provider : Provider.config =
-      { provider = Provider.Local { base_url }; model_id = "mock"; api_key_env = "" }
+    let provider_config =
+      Provider_mock.local_provider_config
+        ~base_url
+        ~model_id:"mock"
+        ~request_path:"/v1/chat/completions"
+        ()
     in
-    let options = { Agent.default_options with base_url; provider = Some provider } in
+    let options = { Agent.default_options with provider_config = Some provider_config } in
     let agent =
       Agent.create
         ~config:(Types.default_config ~model:"test-model")

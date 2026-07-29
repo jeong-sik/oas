@@ -11,15 +11,16 @@
 open Agent_sdk
 open Types
 
-let provider : Provider.config =
-  { provider = Local { base_url = "http://127.0.0.1:8085" }
-  ; model_id = "dashscope-3.5-35b-a3b-ud-q8-xl"
-  ; api_key_env = "DUMMY_KEY"
-  }
-;;
-
 let base_url = "http://127.0.0.1:8085"
-let local_model = provider.model_id
+let local_model = "dashscope-3.5-35b-a3b-ud-q8-xl"
+
+let provider_config =
+  Provider_mock.local_provider_config
+    ~base_url
+    ~model_id:local_model
+    ~request_path:"/v1/chat/completions"
+    ()
+;;
 
 let provider_m_config ?(system_prompt = None) ?(max_tokens = Some 200) name =
   { (default_config ~model:local_model) with
@@ -34,7 +35,7 @@ let provider_m_config ?(system_prompt = None) ?(max_tokens = Some 200) name =
   }
 ;;
 
-let options = { Agent.default_options with base_url; provider = Some provider }
+let options = { Agent.default_options with provider_config = Some provider_config }
 
 let print_result label = function
   | Ok response ->
@@ -175,7 +176,7 @@ let () =
   match Sys.getenv_opt "LLAMA_LIVE_TEST" with
   | Some "1" ->
     Printf.printf "OAS v0.24 E2E Integration Tests\n%!";
-    Printf.printf "Target: %s (%s)\n%!" base_url provider.model_id;
+    Printf.printf "Target: %s (%s)\n%!" base_url provider_config.model_id;
     test_multi_turn_tool_loop ();
     test_context_injection ();
     Printf.printf "\n=== All E2E scenarios completed ===\n%!"

@@ -2,11 +2,16 @@
 
 open Agent_sdk
 
-let mock_provider : Provider.config =
-  { provider = Provider.Local { base_url = "http://mock.local" }
-  ; model_id = "mock-model"
-  ; api_key_env = ""
-  }
+let mock_provider =
+  Llm_provider.Provider_config.make
+    ~kind:Llm_provider.Provider_config.OpenAI_compat
+    ~provider_id:"test"
+    ~api_key:""
+    ~headers:[ "Content-Type", "application/json" ]
+    ~request_path:"/v1/chat/completions"
+    ~base_url:"http://mock.local"
+    ~model_id:"mock-model"
+    ()
 ;;
 
 let text_response text : Types.api_response =
@@ -68,7 +73,7 @@ let make_agent
   =
   let options =
     { Agent.default_options with
-      provider = Some mock_provider
+      provider_config = Some mock_provider
     ; transport = Some transport
     ; raw_trace = Some raw_trace
     ; context_injector

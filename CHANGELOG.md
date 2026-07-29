@@ -50,6 +50,14 @@ field have been removed.
 * **provider tools:** reject historical OpenAI `parameters` lists; current
   callers must supply `input_schema` or an already-provider-shaped JSON Schema
   object.
+* **agent/provider:** use `Agent.options.provider_config` as the only provider
+  carrier. The historical `options.provider`/`options.base_url`,
+  `Agent.create`/`resume` provider override, Builder provider/base-URL setters,
+  provider adapter, and `Agent_sdk.create_agent` facade are removed rather
+  than migrated. Standalone structured extraction now requires the same exact
+  `Provider_config.t`, and agent cards no longer invent Anthropic when no
+  provider is configured.
+
 `Eval.compare` and its implicit lower-is-better policy have been removed.
 `Eval.compare_with_specs` now compares only metrics selected by an explicit
 `metric_spec`.

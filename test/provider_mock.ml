@@ -94,9 +94,22 @@ let thinking_response
   }
 ;;
 
-let to_provider_config () : Provider.config =
-  { provider = Provider.Local { base_url = "http://test.invalid/v1" }
-  ; model_id = "test-model"
-  ; api_key_env = "OAS_TEST_PROVIDER_KEY"
-  }
+let local_provider_config ?(provider_id = "test") ~base_url ~model_id ~request_path () =
+  Llm_provider.Provider_config.make
+    ~kind:Llm_provider.Provider_config.OpenAI_compat
+    ~provider_id
+    ~model_id
+    ~base_url
+    ~api_key:""
+    ~headers:[ "Content-Type", "application/json" ]
+    ~request_path
+    ()
+;;
+
+let to_provider_config () =
+  local_provider_config
+    ~base_url:"http://test.invalid"
+    ~model_id:"test-model"
+    ~request_path:"/v1/chat/completions"
+    ()
 ;;

@@ -87,9 +87,8 @@ let sdk_error_of_http_error =
     ~accept_rejected:(Config_invalid_config { field = "response_format" })
 ;;
 
-let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) () =
-  let state = { config; messages = []; turn_count = 0; usage = empty_usage } in
-  let* provider_cfg = Provider.provider_config_of_agent ~state ~base_url provider in
+let provider_config_for_schema ~provider_config ~config ~(schema : _ schema) =
+  let provider_cfg = Provider.provider_config_with_agent_config ~config provider_config in
   let response_format = Types.JsonSchema (schema_to_json_schema schema) in
   Ok
     { provider_cfg with Llm_provider.Provider_config.tool_choice = None; response_format }
@@ -97,12 +96,9 @@ let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) 
 
 (** Extract structured output from a prompt using provider-native JSON
     schema output when available. Unsupported providers fail fast. *)
-let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
+let extract ~sw ~net ~provider_config ~config ~(schema : 'a schema) prompt
   : ('a, Error.sdk_error) result
   =
-  let base_url =
-    Option.value ~default:Llm_provider.Api_common.default_base_url base_url
-  in
   let messages =
     [ { role = User
       ; content = [ Text prompt ]
@@ -112,7 +108,7 @@ let extract ~sw ~net ?base_url ?provider ~config ~(schema : 'a schema) prompt
       }
     ]
   in
-  let* provider_cfg = provider_config_for_schema ~base_url ?provider ~config ~schema () in
+  let* provider_cfg = provider_config_for_schema ~provider_config ~config ~schema in
   let* response =
     Llm_provider.Complete.complete ~sw ~net ~config:provider_cfg ~messages ~tools:[] ()
     |> Result.map_error sdk_error_of_http_error
@@ -185,8 +181,7 @@ let run_structured ~sw ?clock agent prompt ~(extract : 'a extractor) =
 let extract_stream
       ~sw
       ~net
-      ?base_url
-      ?provider
+      ~provider_config
       ?clock
       ~config
       ~(schema : 'a schema)
@@ -194,9 +189,6 @@ let extract_stream
       prompt
   : ('a * api_response, Error.sdk_error) result
   =
-  let base_url =
-    Option.value ~default:Llm_provider.Api_common.default_base_url base_url
-  in
   let messages =
     [ { role = User
       ; content = [ Text prompt ]
@@ -206,7 +198,7 @@ let extract_stream
       }
     ]
   in
-  let* provider_cfg = provider_config_for_schema ~base_url ?provider ~config ~schema () in
+  let* provider_cfg = provider_config_for_schema ~provider_config ~config ~schema in
   let* response =
     Llm_provider.Complete.complete_stream
       ~sw

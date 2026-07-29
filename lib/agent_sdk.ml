@@ -114,66 +114,6 @@ module Tool_input_validation = Tool_input_validation
 module Durable_event = Durable_event
 module Journal_bridge = Journal_bridge
 
-(** Quick start: create an agent with default config *)
-let create_agent
-      ~net
-      ~model
-      ?name
-      ?system_prompt
-      ?max_tokens
-      ?enable_thinking
-      ?thinking_budget
-      ?reasoning_effort
-      ?cache_system_prompt
-      ?provider
-      ?raw_trace
-      ()
-  =
-  let open Types in
-  let default_config = default_config ~model in
-  let config =
-    { name = Option.value name ~default:default_config.name
-    ; model
-    ; system_prompt
-    ; max_tokens
-    ; temperature = default_config.temperature
-    ; top_p = default_config.top_p
-    ; top_k = default_config.top_k
-    ; min_p = default_config.min_p
-    ; enable_thinking =
-        (match enable_thinking with
-         | Some _ as value -> value
-         | None -> default_config.enable_thinking)
-    ; preserve_thinking = default_config.preserve_thinking
-    ; response_format = default_config.response_format
-    ; thinking_budget =
-        (match thinking_budget with
-         | Some _ as value -> value
-         | None -> default_config.thinking_budget)
-    ; reasoning_effort =
-        (match reasoning_effort with
-         | Some _ as value -> value
-         | None -> default_config.reasoning_effort)
-    ; tool_choice = default_config.tool_choice
-    ; disable_parallel_tool_use = default_config.disable_parallel_tool_use
-    ; cache_system_prompt =
-        Option.value cache_system_prompt ~default:default_config.cache_system_prompt
-    ; cache_extended_ttl = default_config.cache_extended_ttl
-    ; initial_messages = default_config.initial_messages
-    ; yield_on_tool = default_config.yield_on_tool
-    }
-  in
-  let options =
-    match provider, raw_trace with
-    | None, None -> Agent.default_options
-    | Some p, None -> { Agent.default_options with provider = Some p }
-    | None, Some trace -> { Agent.default_options with raw_trace = Some trace }
-    | Some p, Some trace ->
-      { Agent.default_options with provider = Some p; raw_trace = Some trace }
-  in
-  Agent.create ~net ~config ~options ()
-;;
-
 (* runtime_query/query removed — CLI Runtime purge *)
 
 (** Version info *)

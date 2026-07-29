@@ -74,12 +74,6 @@ type lifecycle_snapshot =
   }
 [@@deriving yojson]
 
-let provider_runtime_name (cfg : Provider.config option) =
-  match cfg with
-  | None -> None
-  | Some cfg -> Some (Provider_runtime_binding.provider_id_of_config cfg)
-;;
-
 let typed_provider_runtime_name (cfg : Llm_provider.Provider_config.t option) =
   Option.map Provider_runtime_binding.provider_id_of_provider_config cfg
 ;;
@@ -98,7 +92,6 @@ let hook_decision_to_string = function
     Pure function — caller handles the mutation on Agent.t. *)
 let build_snapshot
       ~agent_name
-      ~(provider : Provider.config option)
       ~(model : Types.model)
       ?provider_config
       ?previous
@@ -116,11 +109,7 @@ let build_snapshot
   =
   let pick fallback next = Util.first_some next fallback in
   let default_actor = Some agent_name in
-  let requested_provider =
-    match typed_provider_runtime_name provider_config with
-    | Some _ as exact -> exact
-    | None -> provider_runtime_name provider
-  in
+  let requested_provider = typed_provider_runtime_name provider_config in
   { current_run_id =
       pick (Option.bind previous (fun s -> s.current_run_id)) current_run_id
   ; agent_name
@@ -135,10 +124,10 @@ let build_snapshot
   ; requested_model = Some (Types.model_to_string model)
   ; resolved_provider = requested_provider
   ; resolved_model =
-      (match provider_config, provider with
-       | Some _, _ -> Some (Types.model_to_string model)
-       | None, Some cfg -> Some cfg.model_id
-       | None, None -> Some (Types.model_to_string model))
+      Some
+        (match provider_config with
+         | Some cfg -> cfg.model_id
+         | None -> Types.model_to_string model)
   ; last_error = pick (Option.bind previous (fun s -> s.last_error)) last_error
   ; accepted_at = pick (Option.bind previous (fun s -> s.accepted_at)) accepted_at
   ; ready_at = pick (Option.bind previous (fun s -> s.ready_at)) ready_at

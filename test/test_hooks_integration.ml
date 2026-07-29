@@ -89,8 +89,12 @@ let fresh_echo_tool () =
   tool, calls
 ;;
 
-let local_provider ~base_url ~model_id : Provider.config =
-  { provider = Provider.Local { base_url }; model_id; api_key_env = "" }
+let local_provider ~base_url ~model_id =
+  Provider_mock.local_provider_config
+    ~base_url
+    ~model_id
+    ~request_path:"/v1/chat/completions"
+    ()
 ;;
 
 (* ── before_turn tests ───────────────────────────────── *)
@@ -101,8 +105,7 @@ let test_before_turn_continue_proceeds () =
     let fired = ref false in
     let options =
       { Agent.default_options with
-        base_url
-      ; provider = Some (local_provider ~base_url ~model_id:"test-model")
+        provider_config = Some (local_provider ~base_url ~model_id:"test-model")
       ; hooks =
           { Hooks.empty with
             before_turn =
@@ -136,8 +139,7 @@ let test_before_turn_receives_turn_number () =
     let received_turn = ref (-1) in
     let options =
       { Agent.default_options with
-        base_url
-      ; provider = Some (local_provider ~base_url ~model_id:"test-model")
+        provider_config = Some (local_provider ~base_url ~model_id:"test-model")
       ; hooks =
           { Hooks.empty with
             before_turn =
@@ -167,8 +169,7 @@ let test_before_turn_nudge_injected_into_request () =
     (fun ~sw ~net ~base_url ->
        let options =
          { Agent.default_options with
-           base_url
-         ; provider = Some (local_provider ~base_url ~model_id:"test-model")
+           provider_config = Some (local_provider ~base_url ~model_id:"test-model")
          ; hooks =
              { Hooks.empty with
                before_turn =
@@ -209,8 +210,7 @@ let test_pre_tool_block_blocks_execution () =
     let tool, tool_calls = fresh_echo_tool () in
     let options =
       { Agent.default_options with
-        base_url
-      ; provider = Some (local_provider ~base_url ~model_id:"mock-model")
+        provider_config = Some (local_provider ~base_url ~model_id:"mock-model")
       ; hooks =
           { Hooks.empty with
             pre_tool_use =
@@ -237,8 +237,7 @@ let test_post_tool_receives_output () =
     let tool, _ = fresh_echo_tool () in
     let options =
       { Agent.default_options with
-        base_url
-      ; provider = Some (local_provider ~base_url ~model_id:"mock-model")
+        provider_config = Some (local_provider ~base_url ~model_id:"mock-model")
       ; hooks =
           { Hooks.empty with
             post_tool_use =
@@ -265,8 +264,7 @@ let test_on_stop_fires () =
     let stop_fired = ref false in
     let options =
       { Agent.default_options with
-        base_url
-      ; provider = Some (local_provider ~base_url ~model_id:"test-model")
+        provider_config = Some (local_provider ~base_url ~model_id:"test-model")
       ; hooks =
           { Hooks.empty with
             on_stop =
@@ -295,8 +293,7 @@ let test_multiple_hooks_all_fire () =
     let after_fired = ref false in
     let options =
       { Agent.default_options with
-        base_url
-      ; provider = Some (local_provider ~base_url ~model_id:"test-model")
+        provider_config = Some (local_provider ~base_url ~model_id:"test-model")
       ; hooks =
           { Hooks.empty with
             before_turn =
@@ -337,8 +334,7 @@ let test_context_injector_adds_data () =
     let ctx = Context.create_sync () in
     let options =
       { Agent.default_options with
-        base_url
-      ; provider = Some (local_provider ~base_url ~model_id:"mock-model")
+        provider_config = Some (local_provider ~base_url ~model_id:"mock-model")
       ; context_injector = Some injector
       }
     in

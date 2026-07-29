@@ -164,8 +164,7 @@ let stage_collect ?raw_trace_run ?clock ~turn agent response =
        let usage =
          Agent_turn.accumulate_usage
            ~current_usage:agent.state.usage
-           ~provider_config:agent.provider_config
-           ~provider:agent.options.provider
+           ~provider_config:agent.options.provider_config
            ~response_model:(Some response.model)
            ~response_usage:response.usage
        in

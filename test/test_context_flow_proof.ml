@@ -76,8 +76,12 @@ let fresh_echo_tool () =
   tool, calls
 ;;
 
-let local_provider ~base_url : Provider.config =
-  { provider = Provider.Local { base_url }; model_id = "mock-model"; api_key_env = "" }
+let local_provider ~base_url =
+  Provider_mock.local_provider_config
+    ~base_url
+    ~model_id:"mock-model"
+    ~request_path:"/v1/chat/completions"
+    ()
 ;;
 
 let require_run_success label = function
@@ -146,7 +150,7 @@ let test_full_chain_across_turns () =
        in
        let options =
          { Agent.default_options with
-           provider = Some (local_provider ~base_url)
+           provider_config = Some (local_provider ~base_url)
          ; context_injector = Some injector
          ; hooks
          }
@@ -201,7 +205,10 @@ let test_no_injector_no_context () =
          }
        in
        let options =
-         { Agent.default_options with provider = Some (local_provider ~base_url); hooks }
+         { Agent.default_options with
+           provider_config = Some (local_provider ~base_url)
+         ; hooks
+         }
        in
        let config = default_config ~model:"mock-model" in
        let agent = Agent.create ~net ~config ~options ~context:ctx ~tools:[ tool ] () in
@@ -267,7 +274,7 @@ let test_accumulation_across_tool_calls () =
     in
     let options =
       { Agent.default_options with
-        provider = Some (local_provider ~base_url)
+        provider_config = Some (local_provider ~base_url)
       ; context_injector = Some injector
       ; hooks
       }
@@ -341,7 +348,7 @@ let test_context_identity () =
        in
        let options =
          { Agent.default_options with
-           provider = Some (local_provider ~base_url)
+           provider_config = Some (local_provider ~base_url)
          ; context_injector = Some injector
          ; hooks
          }

@@ -73,7 +73,7 @@ let assert_envelope ~provider events =
 
 (* ── Minimal agent driver ─────────────────────────────────────── *)
 
-let run_minimal_agent ~env ~sw ~provider_label ~provider ~base_url ~model =
+let run_minimal_agent ~env ~sw ~provider_label ~provider_config ~model =
   let bus = Event_bus.create () in
   let config =
     Event_bus.subscription_config ~capacity:32 ~overflow:Event_bus.Drop_newest
@@ -82,8 +82,7 @@ let run_minimal_agent ~env ~sw ~provider_label ~provider ~base_url ~model =
   let sub = Event_bus.subscribe ~config bus in
   let options =
     { Agent.default_options with
-      base_url
-    ; provider = Some provider
+      provider_config = Some provider_config
     ; event_bus = Some bus
     }
   in
@@ -130,18 +129,22 @@ let test_anthropic () =
     @@ fun env ->
     Eio.Switch.run
     @@ fun sw ->
-    let provider : Provider.config =
-      { provider = Provider.Anthropic
-      ; model_id = "claude-haiku-4-5"
-      ; api_key_env = "ANTHROPIC_API_KEY"
-      }
+    let provider_config =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.Anthropic
+        ~provider_id:"anthropic"
+        ~model_id:"claude-haiku-4-5"
+        ~base_url:"https://api.anthropic.com"
+        ~api_key:(Option.get (Sys.getenv_opt "ANTHROPIC_API_KEY"))
+        ~headers:[ "Content-Type", "application/json"; "anthropic-version", "2023-06-01" ]
+        ~request_path:"/v1/messages"
+        ()
     in
     run_minimal_agent
       ~env
       ~sw
       ~provider_label:"anthropic"
-      ~provider
-      ~base_url:"https://api.anthropic.com"
+      ~provider_config
       ~model:"claude-haiku-4-5"
 ;;
 
@@ -156,25 +159,18 @@ let test_openai () =
     Eio.Switch.run
     @@ fun sw ->
     let base_url = "https://api.openai.com" in
-    let provider : Provider.config =
-      { provider =
-          Provider.OpenAICompat
-            { base_url
-            ; auth_header = Some "Authorization"
-            ; path = "/v1/chat/completions"
-            ; static_token = None
-            }
-      ; model_id = "gpt-mini"
-      ; api_key_env = "OPENAI_API_KEY"
-      }
+    let provider_config =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~provider_id:"openai"
+        ~model_id:"gpt-mini"
+        ~base_url
+        ~api_key:(Option.get (Sys.getenv_opt "OPENAI_API_KEY"))
+        ~headers:[ "Content-Type", "application/json" ]
+        ~request_path:"/v1/chat/completions"
+        ()
     in
-    run_minimal_agent
-      ~env
-      ~sw
-      ~provider_label:"openai"
-      ~provider
-      ~base_url
-      ~model:"gpt-mini"
+    run_minimal_agent ~env ~sw ~provider_label:"openai" ~provider_config ~model:"gpt-mini"
 ;;
 
 (* ── Gemini (via OpenAI-compat endpoint) ──────────────────────── *)
@@ -198,24 +194,22 @@ let test_gemini () =
     @@ fun sw ->
     (* Google's OpenAI-compatible endpoint for Gemini. *)
     let base_url = "https://generativelanguage.googleapis.com/v1beta/openai" in
-    let provider : Provider.config =
-      { provider =
-          Provider.OpenAICompat
-            { base_url
-            ; auth_header = Some "Authorization"
-            ; path = "/chat/completions"
-            ; static_token = None
-            }
-      ; model_id = "gemini-2.0-flash"
-      ; api_key_env
-      }
+    let provider_config =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~provider_id:"gemini-openai-compat"
+        ~model_id:"gemini-2.0-flash"
+        ~base_url
+        ~api_key:(Option.get (Sys.getenv_opt api_key_env))
+        ~headers:[ "Content-Type", "application/json" ]
+        ~request_path:"/chat/completions"
+        ()
     in
     run_minimal_agent
       ~env
       ~sw
       ~provider_label:"gemini"
-      ~provider
-      ~base_url
+      ~provider_config
       ~model:"gemini-2.0-flash"
 ;;
 
@@ -254,19 +248,14 @@ let test_local_compat () =
          | [] -> skip_note (Printf.sprintf "local %s" s.url) "no model listed"
          | m :: _ ->
            let label = Printf.sprintf "local %s@%s" m.id s.url in
-           let provider : Provider.config =
-             { provider = Provider.Local { base_url = s.url }
-             ; model_id = m.id
-             ; api_key_env = ""
-             }
+           let provider_config =
+             Provider_mock.local_provider_config
+               ~base_url:s.url
+               ~model_id:m.id
+               ~request_path:"/v1/chat/completions"
+               ()
            in
-           run_minimal_agent
-             ~env
-             ~sw
-             ~provider_label:label
-             ~provider
-             ~base_url:s.url
-             ~model:m.id)
+           run_minimal_agent ~env ~sw ~provider_label:label ~provider_config ~model:m.id)
       healthy
 ;;
 

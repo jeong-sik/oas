@@ -281,34 +281,6 @@ val custom_provider
   -> unit
   -> config
 
-(** Forward adapter: build a {!Llm_provider.Provider_config.t} from an
-    agent state and optional {!config}. Sampling params, tool_choice,
-    thinking controls come from [state.config]; provider kind,
-    headers, request_path, and api_key come from [provider_opt]. [None]
-    is rejected explicitly; this boundary never selects a default provider,
-    endpoint, model, or credential name.
-
-    [OpenAICompat] provider collapses to [OpenAI_compat] kind: the
-    legacy {!config} variant does not distinguish arbitrary
-    OpenAI-compatible endpoints from named providers carrying their own
-    kind.  Callers needing kind + arbitrary URL should construct
-    {!Llm_provider.Provider_config.t} via
-    {!Llm_provider.Provider_config.make} directly.
-
-    [Custom_registered {name}] preserves the registry-declared
-    {!Llm_provider.Provider_config.provider_kind} by looking [name] up
-    in {!Llm_provider.Provider_registry.default} and using
-    [entry.defaults.kind].  Errors with [InvalidConfig] when [name] is
-    not registered.
-
-    @since 0.155.0
-    @since 0.161.0 — Custom_registered kind preservation *)
-val provider_config_of_agent
-  :  state:Types.agent_state
-  -> base_url:string
-  -> config option
-  -> (Llm_provider.Provider_config.t, Error.sdk_error) result
-
 (** Project the caller-owned agent turn controls onto an exact provider
     configuration. Provider identity, wire kind, endpoint, credential, headers,
     and request path remain unchanged. For the same model, explicit limits and

@@ -176,14 +176,16 @@ let admit_provider_attempt callback binding =
 ;;
 
 let provider_config_for_turn ~turn_config agent =
-  match agent.provider_config with
+  match agent.options.provider_config with
   | Some provider_config ->
     Ok (Provider.provider_config_with_agent_config ~config:turn_config provider_config)
   | None ->
-    Provider.provider_config_of_agent
-      ~state:{ agent.state with config = turn_config }
-      ~base_url:agent.options.base_url
-      agent.options.provider
+    Error
+      (Error.Config
+         (Error.InvalidConfig
+            { field = "provider_config"
+            ; detail = "an exact provider configuration is required"
+            }))
 ;;
 
 let dispatch_sync

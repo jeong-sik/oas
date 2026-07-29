@@ -218,17 +218,15 @@ let () =
     | Some url -> url
     | None -> "http://127.0.0.1:8085"
   in
-  let provider_config : Provider.config =
-    { provider =
-        OpenAICompat
-          { base_url
-          ; auth_header = None
-          ; path = "/v1/chat/completions"
-          ; static_token = None
-          }
-    ; model_id = "qwen3.5"
-    ; api_key_env = ""
-    }
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.OpenAI_compat
+      ~model_id:"qwen3.5"
+      ~base_url
+      ~api_key:""
+      ~headers:[ "Content-Type", "application/json" ]
+      ~request_path:"/v1/chat/completions"
+      ()
   in
   let config =
     { (default_config ~model:"qwen3.5") with
@@ -236,7 +234,7 @@ let () =
     ; system_prompt = Some system_prompt
     }
   in
-  let options = { Agent.default_options with provider = Some provider_config } in
+  let options = { Agent.default_options with provider_config = Some provider_config } in
   let agent = Agent.create ~net ~config ~tools ~options () in
   let full_prompt =
     match !output_file with

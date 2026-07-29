@@ -80,9 +80,6 @@ type lifecycle_snapshot =
 
 (** {1 Construction} *)
 
-(** Extract a human-readable provider name from config. *)
-val provider_runtime_name : Provider.config option -> string option
-
 (** String representation of a hook decision for tracing. *)
 val hook_decision_to_string : Hooks.hook_decision -> string
 
@@ -90,7 +87,6 @@ val hook_decision_to_string : Hooks.hook_decision -> string
     Pure function — the caller handles mutation on [Agent.t]. *)
 val build_snapshot
   :  agent_name:string
-  -> provider:Provider.config option
   -> model:Types.model
   -> ?provider_config:Llm_provider.Provider_config.t
   -> ?previous:lifecycle_snapshot

@@ -24,11 +24,12 @@ let mock_transport : Llm_provider.Llm_transport.t =
   }
 ;;
 
-let mock_provider : Provider.config =
-  { provider = Provider.Local { base_url = "http://mock.local" }
-  ; model_id = "mock-model"
-  ; api_key_env = ""
-  }
+let mock_provider =
+  Provider_mock.local_provider_config
+    ~base_url:"http://mock.local"
+    ~model_id:"mock-model"
+    ~request_path:"/v1/chat/completions"
+    ()
 ;;
 
 let is_illegal_hook_error = function
@@ -54,7 +55,7 @@ let test_before_turn_block_returns_error () =
   let options =
     { Agent_types.default_options with
       hooks
-    ; provider = Some mock_provider
+    ; provider_config = Some mock_provider
     ; transport = Some mock_transport
     }
   in

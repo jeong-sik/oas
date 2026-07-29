@@ -4,7 +4,7 @@
     - Builder.create -> chain -> build_safe
     - Minimal vs full configuration
     - Validation errors from build_safe
-    - with_hooks, with_provider
+    - with_hooks, with_provider_config
     - with_context, with_initial_messages
 
     Prerequisites:
