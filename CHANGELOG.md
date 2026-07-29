@@ -64,7 +64,9 @@ been removed. Binding identities are constructed only from canonical
 ### ⚠ BREAKING CHANGES
 
 * **checkpoint:** hard-cut current schema to v9 ([#2867](https://github.com/jeong-sik/oas/issues/2867))
-* **persistence:** agent_sdk accepts only v8 checkpoints and canonical Tool-role result batches. Older checkpoint formats, non-Tool ToolResult histories, and Agent_tool.create_typed_untyped are unsupported; reset persisted state and use Typed_tool.to_untyped at the direct dispatch boundary.
+* **persistence:** agent_sdk accepts only current v9 checkpoints and canonical Tool-role result batches. Older checkpoint and tool-history formats are unsupported; reset persisted state instead of adding runtime migration code.
+* **provider:** provider-native JSON Schema requests use `response_format` only. The duplicate `output_schema` state and its contradictory-state gates are removed ([#2858](https://github.com/jeong-sik/oas/issues/2858)).
+* **tool:** `Typed_tool` constructors return canonical `Tool.t` values directly. The secondary typed runtime, `Agent_tool.create_typed_untyped`, and `Typed_tool.to_untyped` bridges are removed ([#2853](https://github.com/jeong-sik/oas/issues/2853)).
 
 ### Bug Fixes
 
