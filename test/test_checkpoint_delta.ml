@@ -651,6 +651,39 @@ let test_apply_delta_rejects_invalid_splice () =
     (Result.is_error (Checkpoint.apply_delta base invalid_delta))
 ;;
 
+let test_apply_delta_rejects_noncanonical_message () =
+  let base = make_unit_checkpoint () in
+  let invalid_message =
+    { role = User
+    ; content =
+        [ ToolResult
+            { tool_use_id = "call-1"
+            ; content = "invalid role/content pair"
+            ; outcome = Tool_succeeded
+            ; json = None
+            ; content_blocks = None
+            }
+        ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  let valid_delta = Checkpoint.compute_delta base base in
+  let invalid_delta =
+    { valid_delta with
+      operations =
+        [ Checkpoint.Splice_messages
+            { start_index = 0; delete_count = 0; insert = [ invalid_message ] }
+        ]
+    }
+  in
+  Alcotest.(check bool)
+    "non-canonical inserted message rejected before hash comparison"
+    true
+    (Result.is_error (Checkpoint.apply_delta base invalid_delta))
+;;
+
 let () =
   Alcotest.run
     "Checkpoint_delta"
@@ -682,6 +715,10 @@ let () =
             "apply_delta rejects invalid splice"
             `Quick
             test_apply_delta_rejects_invalid_splice
+        ; Alcotest.test_case
+            "apply_delta rejects non-canonical message"
+            `Quick
+            test_apply_delta_rejects_noncanonical_message
         ] )
     ]
 ;;

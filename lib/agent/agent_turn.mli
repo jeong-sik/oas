@@ -1,7 +1,6 @@
 (** Shared turn logic for sync and streaming paths.
 
-    Contains helper functions that both [Agent.run_turn_with_trace] and
-    [Agent.run_turn_stream_with_trace] call, eliminating code duplication.
+    Contains helper functions shared by the sync and streaming Agent drivers.
 
     These functions take explicit parameters (not [Agent.t]) to avoid
     circular module dependency: [Agent -> Agent_turn] is fine,
@@ -80,7 +79,9 @@ type turn_params_resolution_error =
       ; detail : string
       }
 
-(** Extract the most recent canonical tool-result batch. *)
+(** Extract the most recent non-empty canonical [Tool]-role result batch.
+    ToolResult blocks carried by any other role, or mixed with other blocks,
+    are not consumed. *)
 val last_tool_results_from : Types.message list -> Types.tool_result list
 
 (** Resolve the single canonical [BeforeTurnParams] contract. Illegal hook

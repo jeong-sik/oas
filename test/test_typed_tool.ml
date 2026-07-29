@@ -49,6 +49,7 @@ let encode_greet (output : greet_output) : Yojson.Safe.t =
 
 let greet_tool =
   Typed_tool.create
+    ~strict:true
     ~name:"greet"
     ~description:"Greet someone"
     ~params:greet_params
@@ -81,7 +82,7 @@ let greet_ctx_tool =
 
 let test_execute_success () =
   let input = `Assoc [ "name", `String "Vincent"; "shout", `Bool false ] in
-  match Typed_tool.execute greet_tool input with
+  match Tool.execute greet_tool input with
   | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
@@ -91,7 +92,7 @@ let test_execute_success () =
 
 let test_execute_shout () =
   let input = `Assoc [ "name", `String "Vincent"; "shout", `Bool true ] in
-  match Typed_tool.execute greet_tool input with
+  match Tool.execute greet_tool input with
   | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
@@ -101,14 +102,14 @@ let test_execute_shout () =
 
 let test_execute_parse_error () =
   let input = `Assoc [ "name", `Int 42 ] in
-  match Typed_tool.execute greet_tool input with
+  match Tool.execute greet_tool input with
   | Ok _ -> Alcotest.fail "expected parse error"
   | Error e -> Alcotest.(check bool) "recoverable" true e.recoverable
 ;;
 
 let test_execute_handler_error () =
   let input = `Assoc [ "name", `String "" ] in
-  match Typed_tool.execute greet_tool input with
+  match Tool.execute greet_tool input with
   | Ok _ -> Alcotest.fail "expected handler error"
   | Error e ->
     Alcotest.(check bool) "not recoverable" false e.recoverable;
@@ -122,52 +123,53 @@ let test_execute_handler_error () =
        | Not_found -> false)
 ;;
 
-let test_execute_parsed_success () =
+let test_typed_components_success () =
   let input = `Assoc [ "name", `String "OCaml" ] in
-  match Typed_tool.execute_parsed greet_tool input with
-  | Ok (parsed_input, Ok output) ->
+  match parse_greet input with
+  | Ok parsed_input ->
     Alcotest.(check string) "parsed name" "OCaml" parsed_input.name;
-    Alcotest.(check string) "output" "Hello, OCaml" output.greeting
-  | Ok (_, Error e) -> Alcotest.fail ("handler error: " ^ e)
+    (match handle_greet parsed_input with
+     | Ok output -> Alcotest.(check string) "output" "Hello, OCaml" output.greeting
+     | Error e -> Alcotest.fail ("handler error: " ^ e))
   | Error e -> Alcotest.fail ("parse error: " ^ e)
 ;;
 
-let test_execute_parsed_parse_error () =
+let test_typed_components_parse_error () =
   let input = `String "not an object" in
-  match Typed_tool.execute_parsed greet_tool input with
+  match parse_greet input with
   | Error _ -> () (* expected *)
   | Ok _ -> Alcotest.fail "expected parse error"
 ;;
 
-let test_to_untyped_bridge () =
-  let untyped = Typed_tool.to_untyped greet_tool in
+let test_canonical_tool_execution () =
   let input = `Assoc [ "name", `String "Bridge" ] in
-  match Tool.execute untyped input with
+  match Tool.execute greet_tool input with
   | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
-    Alcotest.(check string) "bridge works" "Hello, Bridge" greeting
+    Alcotest.(check string) "canonical tool works" "Hello, Bridge" greeting
   | Error e -> Alcotest.fail e.message
 ;;
 
-let test_to_untyped_preserves_schema () =
-  let untyped = Typed_tool.to_untyped greet_tool in
-  Alcotest.(check string) "name preserved" "greet" untyped.schema.name;
-  Alcotest.(check int) "params count" 2 (List.length untyped.schema.parameters)
+let test_canonical_tool_preserves_schema () =
+  Alcotest.(check string) "name preserved" "greet" greet_tool.schema.name;
+  Alcotest.(check int) "params count" 2 (List.length greet_tool.schema.parameters);
+  Alcotest.(check (option bool)) "strict preserved" (Some true) greet_tool.schema.strict
 ;;
 
 let test_schema_extraction () =
-  let schema = Typed_tool.schema greet_tool in
+  let schema = greet_tool.schema in
   Alcotest.(check string) "name" "greet" schema.name;
-  Alcotest.(check string) "desc" "Greet someone" schema.description
+  Alcotest.(check string) "desc" "Greet someone" schema.description;
+  Alcotest.(check (option bool)) "strict" (Some true) schema.strict
 ;;
 
 let test_name_extraction () =
-  Alcotest.(check string) "name" "greet" (Typed_tool.name greet_tool)
+  Alcotest.(check string) "name" "greet" greet_tool.schema.name
 ;;
 
 let test_descriptor_none () =
-  Alcotest.(check bool) "no descriptor" true (Typed_tool.descriptor greet_tool = None)
+  Alcotest.(check bool) "no descriptor" true (Tool.descriptor greet_tool = None)
 ;;
 
 let test_descriptor_some () =
@@ -182,7 +184,7 @@ let test_descriptor_some () =
       ~descriptor:(Tool.ordinary_descriptor Concurrent)
       ()
   in
-  (match Typed_tool.descriptor tool with
+  (match Tool.descriptor tool with
    | Some d ->
      Alcotest.(check bool)
        "concurrent"
@@ -191,7 +193,7 @@ let test_descriptor_some () =
      Alcotest.(check bool)
        "ordinary completion"
        true
-       (Typed_tool.completion tool = Tool_contract.Continue_after_success)
+       (Tool.completion tool = Tool_contract.Continue_after_success)
    | None -> Alcotest.fail "expected descriptor");
   let terminal =
     Typed_tool.create
@@ -204,11 +206,10 @@ let test_descriptor_some () =
       ~descriptor:(Tool.terminal_descriptor Tool_contract.Effect_outcome_unknown)
       ()
   in
-  let untyped = Typed_tool.to_untyped terminal in
   Alcotest.(check bool)
-    "typed conversion preserves terminal completion"
+    "typed constructor preserves terminal completion"
     true
-    (Tool.completion untyped
+    (Tool.completion terminal
      = Tool_contract.Terminal_after_success Tool_contract.Effect_outcome_unknown)
 ;;
 
@@ -216,7 +217,7 @@ let test_context_handler () =
   let ctx = Context.create_sync () in
   Context.set ctx "prefix" (`String "Dear");
   let input = `Assoc [ "name", `String "Admin" ] in
-  match Typed_tool.execute ~context:ctx greet_ctx_tool input with
+  match Tool.execute ~context:ctx greet_ctx_tool input with
   | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
@@ -226,26 +227,25 @@ let test_context_handler () =
 
 let test_context_handler_no_context () =
   let input = `Assoc [ "name", `String "Admin" ] in
-  match Typed_tool.execute greet_ctx_tool input with
+  match Tool.execute greet_ctx_tool input with
   | Ok _ -> Alcotest.fail "expected error when context missing"
   | Error e -> Alcotest.(check bool) "not recoverable" false e.recoverable
 ;;
 
-let test_to_untyped_context_bridge () =
-  let untyped = Typed_tool.to_untyped greet_ctx_tool in
+let test_canonical_context_tool () =
   let ctx = Context.create_sync () in
   Context.set ctx "prefix" (`String "Hey");
   let input = `Assoc [ "name", `String "World" ] in
-  match Tool.execute ~context:ctx untyped input with
+  match Tool.execute ~context:ctx greet_ctx_tool input with
   | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
     let greeting = Yojson.Safe.Util.(json |> member "greeting" |> to_string) in
-    Alcotest.(check string) "ctx bridge" "Hey Hello, World" greeting
+    Alcotest.(check string) "context tool" "Hey Hello, World" greeting
   | Error e -> Alcotest.fail e.message
 ;;
 
 let test_null_input_parse () =
-  match Typed_tool.execute greet_tool `Null with
+  match Tool.execute greet_tool `Null with
   | Error e -> Alcotest.(check bool) "recoverable" true e.recoverable
   | Ok _ -> Alcotest.fail "expected error on null input"
 ;;
@@ -279,17 +279,20 @@ let () =
             test_execute_handler_error
         ; Alcotest.test_case "null input" `Quick test_null_input_parse
         ] )
-    ; ( "execute_parsed"
+    ; ( "typed_components"
       , [ Alcotest.test_case
             "success with intermediate"
             `Quick
-            test_execute_parsed_success
-        ; Alcotest.test_case "parse error" `Quick test_execute_parsed_parse_error
+            test_typed_components_success
+        ; Alcotest.test_case "parse error" `Quick test_typed_components_parse_error
         ] )
-    ; ( "to_untyped"
-      , [ Alcotest.test_case "bridge execution" `Quick test_to_untyped_bridge
-        ; Alcotest.test_case "preserves schema" `Quick test_to_untyped_preserves_schema
-        ; Alcotest.test_case "context bridge" `Quick test_to_untyped_context_bridge
+    ; ( "canonical_tool"
+      , [ Alcotest.test_case "execution" `Quick test_canonical_tool_execution
+        ; Alcotest.test_case
+            "preserves schema"
+            `Quick
+            test_canonical_tool_preserves_schema
+        ; Alcotest.test_case "context execution" `Quick test_canonical_context_tool
         ] )
     ; ( "introspection"
       , [ Alcotest.test_case "schema" `Quick test_schema_extraction

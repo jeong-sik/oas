@@ -187,6 +187,7 @@ let test_execution_env_handler_observes_missing_invocation () =
 let test_schema_to_json_structure () =
   let tool =
     Tool.create
+      ~strict:true
       ~name:"calc"
       ~description:"Calculate"
       ~parameters:
@@ -207,6 +208,7 @@ let test_schema_to_json_structure () =
   let open Yojson.Safe.Util in
   check string "name" "calc" (json |> member "name" |> to_string);
   check string "description" "Calculate" (json |> member "description" |> to_string);
+  check bool "strict" true (json |> member "strict" |> to_bool);
   let schema = json |> member "input_schema" in
   check string "schema type" "object" (schema |> member "type" |> to_string);
   let props = schema |> member "properties" in

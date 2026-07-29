@@ -7,10 +7,8 @@ type tool_handler = Yojson.Safe.t -> Types.tool_result
 type context_tool_handler = Context.t -> Yojson.Safe.t -> Types.tool_result
 
 (** Explicit resources available at one tool execution occurrence.
-    Context and invocation are orthogonal optional capabilities, not mutually
-    exclusive handler variants. Future execution metadata belongs in this
-    record-shaped boundary rather than in additional [handler_kind]
-    constructors.
+    Context and invocation are orthogonal optional capabilities rather than
+    mutually exclusive handler variants.
 
     @since 0.215.0 *)
 module Execution_env : sig
@@ -32,19 +30,15 @@ val terminal_descriptor : Tool_contract.failure_effect_disposition -> descriptor
 val descriptor_execution_mode : descriptor -> Tool_contract.execution_mode
 val descriptor_completion : descriptor -> Tool_contract.completion
 
-type handler_kind =
-  | Simple of tool_handler
-  | WithContext of context_tool_handler
-  | WithExecutionEnv of execution_env_tool_handler
-
 type t =
   { schema : Types.tool_schema
   ; descriptor : descriptor option
-  ; handler : handler_kind
+  ; handler : execution_env_tool_handler
   }
 
 val create
   :  ?descriptor:descriptor
+  -> ?strict:bool
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
@@ -53,6 +47,7 @@ val create
 
 val create_with_context
   :  ?descriptor:descriptor
+  -> ?strict:bool
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
@@ -66,6 +61,7 @@ val create_with_context
     @since 0.215.0 *)
 val create_with_execution_env
   :  ?descriptor:descriptor
+  -> ?strict:bool
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
