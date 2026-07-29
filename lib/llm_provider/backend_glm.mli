@@ -98,6 +98,9 @@ val parse_response : string -> api_response
     as a {!Types.Thinking} content block to the parsed response. *)
 val extract_reasoning_content : api_response -> string -> api_response
 
-(** Parse a Glm SSE streaming chunk.
-    Delegates to {!Streaming.parse_openai_sse_chunk}. *)
-val parse_stream_chunk : string -> Streaming.openai_sse_parse_result
+(** Parse a GLM SSE streaming chunk using the resolved typed reasoning
+    dialect. Delegates to {!Streaming.parse_openai_sse_chunk}. *)
+val parse_stream_chunk
+  :  streaming_reasoning:Reasoning_dialect.streaming_reasoning
+  -> string
+  -> Streaming.openai_sse_parse_result

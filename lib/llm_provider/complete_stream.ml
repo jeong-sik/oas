@@ -774,7 +774,7 @@ let complete_stream_http
                                     ]
                                   , None ))
                              | Provider_http_codec.Glm_chat ->
-                               Backend_glm.parse_stream_chunk data
+                               Backend_glm.parse_stream_chunk ~streaming_reasoning data
                                |> Streaming.openai_sse_parse_result_to_events
                                     (get_state ())
                              | Provider_http_codec.Ollama_chat ->
