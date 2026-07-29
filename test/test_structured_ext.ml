@@ -1,16 +1,14 @@
 (** Extended coverage tests for Structured module pure functions.
-    Targets: json_extractor, text_extractor, schema_to_tool_json. *)
+    Targets: json_extractor, text_extractor, schema_to_json_schema. *)
 
 open Alcotest
 open Agent_sdk
 
-(* ── schema_to_tool_json ─────────────────────────────── *)
+(* ── schema_to_json_schema ─────────────────────────────── *)
 
 let test_schema_basic () =
   let schema : int Structured.schema =
-    { name = "get_count"
-    ; description = "Returns a count"
-    ; params =
+    { params =
         [ { name = "value"
           ; param_type = Types.Integer
           ; description = "the count"
@@ -23,21 +21,22 @@ let test_schema_basic () =
           Ok (json |> member "value" |> to_int))
     }
   in
-  let json = Structured.schema_to_tool_json schema in
+  let json = Structured.schema_to_json_schema schema in
   let open Yojson.Safe.Util in
-  check string "name" "get_count" (json |> member "name" |> to_string);
-  check string "description" "Returns a count" (json |> member "description" |> to_string);
-  let input_schema = json |> member "input_schema" in
-  check string "type" "object" (input_schema |> member "type" |> to_string);
-  let required = input_schema |> member "required" |> to_list in
+  check string "type" "object" (json |> member "type" |> to_string);
+  let properties = json |> member "properties" in
+  check
+    string
+    "value type"
+    "integer"
+    (properties |> member "value" |> member "type" |> to_string);
+  let required = json |> member "required" |> to_list in
   check int "1 required" 1 (List.length required)
 ;;
 
 let test_schema_no_required () =
   let schema : string Structured.schema =
-    { name = "optional_tool"
-    ; description = "All optional"
-    ; params =
+    { params =
         [ { name = "hint"
           ; param_type = Types.String
           ; description = "optional hint"
@@ -47,23 +46,17 @@ let test_schema_no_required () =
     ; parse = (fun _ -> Ok "ok")
     }
   in
-  let json = Structured.schema_to_tool_json schema in
+  let json = Structured.schema_to_json_schema schema in
   let open Yojson.Safe.Util in
-  let required = json |> member "input_schema" |> member "required" |> to_list in
+  let required = json |> member "required" |> to_list in
   check int "0 required" 0 (List.length required)
 ;;
 
 let test_schema_empty_params () =
-  let schema : unit Structured.schema =
-    { name = "no_params"
-    ; description = "No parameters"
-    ; params = []
-    ; parse = (fun _ -> Ok ())
-    }
-  in
-  let json = Structured.schema_to_tool_json schema in
+  let schema : unit Structured.schema = { params = []; parse = (fun _ -> Ok ()) } in
+  let json = Structured.schema_to_json_schema schema in
   let open Yojson.Safe.Util in
-  let props = json |> member "input_schema" |> member "properties" in
+  let props = json |> member "properties" in
   check
     bool
     "empty properties"
@@ -72,65 +65,6 @@ let test_schema_empty_params () =
      | `Assoc [] -> true
      | _ -> false)
 ;;
-
-(* ── extract_tool_input ──────────────────────────────── *)
-
-let int_schema : int Structured.schema =
-  { name = "get_number"
-  ; description = "Returns a number"
-  ; params = []
-  ; parse =
-      (fun json ->
-        let open Yojson.Safe.Util in
-        Ok (json |> member "value" |> to_int))
-  }
-;;
-
-let test_extract_found () =
-  let content =
-    [ Types.Text "thinking..."
-    ; Types.ToolUse
-        { id = "t1"; name = "get_number"; input = `Assoc [ "value", `Int 42 ] }
-    ]
-  in
-  match Structured.extract_tool_input ~schema:int_schema content with
-  | Ok v -> check int "value" 42 v
-  | Error _ -> fail "expected Ok"
-;;
-
-let test_extract_not_found () =
-  let content = [ Types.Text "no tools here" ] in
-  match Structured.extract_tool_input ~schema:int_schema content with
-  | Ok _ -> fail "expected Error"
-  | Error _ -> ()
-;;
-
-let test_extract_wrong_name () =
-  let content =
-    [ Types.ToolUse
-        { id = "t1"; name = "wrong_tool"; input = `Assoc [ "value", `Int 42 ] }
-    ]
-  in
-  match Structured.extract_tool_input ~schema:int_schema content with
-  | Ok _ -> fail "expected Error for wrong name"
-  | Error _ -> ()
-;;
-
-let test_extract_parse_error () =
-  let bad_schema : int Structured.schema =
-    { name = "get_number"
-    ; description = ""
-    ; params = []
-    ; parse = (fun _ -> Error "parse failed")
-    }
-  in
-  let content = [ Types.ToolUse { id = "t1"; name = "get_number"; input = `Assoc [] } ] in
-  match Structured.extract_tool_input ~schema:bad_schema content with
-  | Ok _ -> fail "expected Error"
-  | Error _ -> ()
-;;
-
-(* ── json_extractor ──────────────────────────────────── *)
 
 let test_json_extractor_valid () =
   let extract =
@@ -260,16 +194,10 @@ let test_text_extractor_empty () =
 let () =
   run
     "structured_ext"
-    [ ( "schema_to_tool_json"
+    [ ( "schema_to_json_schema"
       , [ test_case "basic" `Quick test_schema_basic
         ; test_case "no required" `Quick test_schema_no_required
         ; test_case "empty params" `Quick test_schema_empty_params
-        ] )
-    ; ( "extract_tool_input"
-      , [ test_case "found" `Quick test_extract_found
-        ; test_case "not found" `Quick test_extract_not_found
-        ; test_case "wrong name" `Quick test_extract_wrong_name
-        ; test_case "parse error" `Quick test_extract_parse_error
         ] )
     ; ( "json_extractor"
       , [ test_case "valid" `Quick test_json_extractor_valid
