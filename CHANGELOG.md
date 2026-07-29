@@ -72,6 +72,13 @@ The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical
 `Llm_provider.Provider_config.t` values.
 
+## [0.231.2](https://github.com/jeong-sik/oas/compare/v0.231.1...v0.231.2) (2026-07-29)
+
+
+### Bug Fixes
+
+* **provider:** finish exact carrier hard cut ([#2878](https://github.com/jeong-sik/oas/issues/2878)) ([a5485c7](https://github.com/jeong-sik/oas/commit/a5485c74b8571b90e95fd258a549d54222da9eae))
+
 ## [0.231.1](https://github.com/jeong-sik/oas/compare/v0.231.0...v0.231.1) (2026-07-29)
 
 
