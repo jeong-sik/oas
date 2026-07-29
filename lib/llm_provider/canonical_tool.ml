@@ -46,7 +46,8 @@ type provider_tool_result =
     (** Mirror of [ToolResult.content_blocks] (multi-block result). *)
   ; structured_content : Yojson.Safe.t option
     (** Projection of [ToolResult.json] (WP4 parsed payload), verbatim — not a
-        fresh parse, and not [provider_config.output_schema] (RFC-OAS-024 D7). *)
+        fresh parse, and not the request-level structured-output contract
+        (RFC-OAS-024 D7). *)
   ; outcome : Types.tool_result_outcome
   }
 

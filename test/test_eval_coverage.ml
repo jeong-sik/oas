@@ -280,14 +280,20 @@ let test_compare_missing_candidate_metric () =
   in
   let candidate = mk_run ~run_id:"r2" [ mk_metric "a" (Float_val 1.0) ] in
   let specs =
-    [ { Eval.name = "a"; goal = Lower; tolerance_pct = None }
-    ; { Eval.name = "b"; goal = Lower; tolerance_pct = None }
+    [ { Eval.name = "a"
+      ; goal = Lower
+      ; tolerance_pct = Eval.default_delta_threshold_pct
+      }
+    ; { Eval.name = "b"
+      ; goal = Lower
+      ; tolerance_pct = Eval.default_delta_threshold_pct
+      }
     ]
   in
-  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate in
-  (* "b" is in baseline but not candidate -- it is simply absent from deltas
-     because compare only iterates baseline metrics and filters by candidate *)
-  Alcotest.(check int) "unchanged" 1 (List.length cmp.unchanged)
+  match Eval.compare_with_specs ~specs ~baseline ~candidate with
+  | Error (Eval.Missing_candidate_metric name) ->
+    Alcotest.(check string) "missing metric" "b" name
+  | Ok _ | Error _ -> Alcotest.fail "expected Missing_candidate_metric"
 ;;
 
 (* ── compare: string metric unchanged ─────────────────── *)
@@ -295,9 +301,10 @@ let test_compare_missing_candidate_metric () =
 let test_compare_string_metric () =
   let baseline = mk_run [ mk_metric "name" (String_val "test") ] in
   let candidate = mk_run ~run_id:"r2" [ mk_metric "name" (String_val "test") ] in
-  let specs = [ { Eval.name = "name"; goal = Exact; tolerance_pct = None } ] in
-  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate in
-  Alcotest.(check int) "unchanged" 1 (List.length cmp.unchanged)
+  let specs = [ { Eval.name = "name"; goal = Exact; tolerance_pct = 0.0 } ] in
+  match Eval.compare_with_specs ~specs ~baseline ~candidate with
+  | Ok cmp -> Alcotest.(check int) "unchanged" 1 (List.length cmp.unchanged)
+  | Error _ -> Alcotest.fail "expected comparison"
 ;;
 
 (* ── threshold: no matching metric ────────────────────── *)

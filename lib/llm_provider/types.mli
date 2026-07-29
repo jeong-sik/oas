@@ -135,7 +135,6 @@ type response_format =
 [@@deriving show]
 
 val response_format_to_json : response_format -> Yojson.Safe.t
-val response_format_of_json_mode : bool -> response_format
 
 (** {1 Content Types} *)
 

@@ -71,7 +71,6 @@ type context_fit = Prepared_completion_request.context_fit
 
 type wire_admission_error =
   | Capability_snapshot_missing
-  | Inconsistent_output_contract
   | Output_contract_unavailable
   | Cross_feature_not_allowed
   | Global_admission_not_allowed
@@ -208,7 +207,6 @@ let messages_for_response_format requirement response_format messages =
 ;;
 
 let exact_config (target : Resolver.selected_target) response_format =
-  let output_schema = PC.output_schema_of_response_format response_format in
   { target.config with
     temperature = None
   ; top_p = None
@@ -224,7 +222,6 @@ let exact_config (target : Resolver.selected_target) response_format =
   ; tool_choice = None
   ; disable_parallel_tool_use = false
   ; response_format
-  ; output_schema
   ; cache_system_prompt = false
   ; keep_alive = None
   ; internal_model_rotation_count = None
@@ -236,7 +233,6 @@ let exact_config (target : Resolver.selected_target) response_format =
 
 let wire_admission_error = function
   | Plan.Explicit_capability_snapshot_required -> Capability_snapshot_missing
-  | Plan.Contradictory_output_state -> Inconsistent_output_contract
   | Plan.Unsupported_output_contract _ -> Output_contract_unavailable
   | Plan.Unsupported_exact_cross_feature -> Cross_feature_not_allowed
   | Plan.Global_admission_not_allowed -> Global_admission_not_allowed

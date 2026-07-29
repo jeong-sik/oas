@@ -635,7 +635,7 @@ let test_complete_openai_responses_json_mode_body () =
         ~model_id:"gpt-5.5"
         ~base_url:url
         ~request_path:"/v1/responses"
-        ~response_format_json:true
+        ~response_format:Types.JsonMode
         ~temperature:0.0
         ~max_tokens:100
         ()

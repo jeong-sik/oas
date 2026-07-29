@@ -27,7 +27,6 @@ val with_tool_choice : Types.tool_choice -> t -> t
 val with_response_format : Types.response_format -> t -> t
 val with_disable_parallel_tool_use : bool -> t -> t
 val with_initial_messages : Types.message list -> t -> t
-val with_response_format_json : bool -> t -> t
 val with_cache_system_prompt : bool -> t -> t
 val with_cache_extended_ttl : bool -> t -> t
 

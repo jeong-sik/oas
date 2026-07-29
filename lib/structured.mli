@@ -1,8 +1,7 @@
 (** Structured output helpers.
 
     Direct extraction prefers provider-native JSON schema output via
-    {!Llm_provider.Complete}. The legacy tool-use helpers remain available
-    for callers that still want forced tool calls.
+    {!Llm_provider.Complete}.
 
     @stability Evolving
     @since 0.93.1 *)
@@ -12,24 +11,12 @@ open Types
 (** {1 Schema} *)
 
 type 'a schema =
-  { name : string
-  ; description : string
-  ; params : tool_param list
+  { params : tool_param list
   ; parse : Yojson.Safe.t -> ('a, string) result
   }
 
-val schema_to_tool_json : _ schema -> Yojson.Safe.t
-
-(** Return the object JSON schema used for provider-native structured output.
-
-    This is the same schema shape embedded under [input_schema] by
-    {!schema_to_tool_json}, but without the tool wrapper fields. *)
+(** Return the object JSON schema used for provider-native structured output. *)
 val schema_to_json_schema : _ schema -> Yojson.Safe.t
-
-val extract_tool_input
-  :  schema:'a schema
-  -> content_block list
-  -> ('a, Error.sdk_error) result
 
 (** {1 Direct extraction} *)
 

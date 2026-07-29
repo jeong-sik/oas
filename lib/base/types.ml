@@ -37,8 +37,6 @@ let response_format_of_json json =
   let open Yojson.Safe.Util in
   try
     match json with
-    | `Bool enabled -> Ok (response_format_of_json_mode enabled)
-    | `Null -> Ok Off
     | `Assoc _ ->
       (match json |> member "type" |> to_string with
        | "off" -> Ok Off

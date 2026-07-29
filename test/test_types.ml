@@ -138,7 +138,7 @@ let test_tool_choice_none () =
   | Error _ -> Alcotest.fail "expected Ok"
 ;;
 
-let test_response_format_json_helpers () =
+let test_response_format_json () =
   let schema = `Assoc [ "type", `String "object" ] in
   let cases =
     [ Types.Off, `Assoc [ "type", `String "off" ]
@@ -153,14 +153,14 @@ let test_response_format_json_helpers () =
          (Yojson.Safe.to_string expected)
          (Types.response_format_to_json format |> Yojson.Safe.to_string))
     cases;
-  Alcotest.(check string)
-    "enabled"
-    (Types.show_response_format Types.JsonMode)
-    (Types.response_format_of_json_mode true |> Types.show_response_format);
-  Alcotest.(check string)
-    "disabled"
-    (Types.show_response_format Types.Off)
-    (Types.response_format_of_json_mode false |> Types.show_response_format)
+  Alcotest.(check bool)
+    "boolean compatibility shape rejected"
+    true
+    (Result.is_error (Types.response_format_of_json (`Bool true)));
+  Alcotest.(check bool)
+    "null compatibility shape rejected"
+    true
+    (Result.is_error (Types.response_format_of_json `Null))
 ;;
 
 let test_add_usage () =
@@ -1205,8 +1205,7 @@ let () =
         ; Alcotest.test_case "tool" `Quick test_tool_choice_tool
         ; Alcotest.test_case "none roundtrip" `Quick test_tool_choice_none
         ] )
-    ; ( "response_format"
-      , [ Alcotest.test_case "json helpers" `Quick test_response_format_json_helpers ] )
+    ; "response_format", [ Alcotest.test_case "json" `Quick test_response_format_json ]
     ; ( "response_shape"
       , [ Alcotest.test_case
             "thinking-only is not deliverable"
