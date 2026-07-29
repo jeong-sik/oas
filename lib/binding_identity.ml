@@ -69,49 +69,6 @@ let of_provider_config ~transport config =
   }
 ;;
 
-let of_resolved_provider
-      ~transport
-      ~(provider : Provider.config)
-      ~base_url
-      ~request_path
-      ~api_key
-  =
-  let open Result_syntax in
-  let api_key_secret = Secret.of_string api_key in
-  let non_custom_identity kind =
-    let config =
-      PC.make ~kind ~model_id:provider.model_id ~base_url ~api_key ~request_path ()
-    in
-    let provider_identity, binding = provider_and_binding config in
-    let auth_scheme, credential_scope =
-      match binding with
-      | Some binding -> auth_scheme_of_binding binding, binding.credential_scope
-      | None -> (if Secret.is_empty api_key_secret then No_auth else Api_key), None
-    in
-    provider_identity, auth_scheme, credential_scope
-  in
-  let provider_identity, auth_scheme, credential_scope =
-    match provider.provider with
-    | Provider.Custom_registered { name } ->
-      (match Provider_runtime_binding.find name with
-       | Some binding ->
-         Registered binding.id, auth_scheme_of_binding binding, binding.credential_scope
-       | None -> Registered name, Provider_defined, None)
-    | Provider.Anthropic -> non_custom_identity PC.Anthropic
-    | Provider.Local _ | Provider.OpenAICompat _ -> non_custom_identity PC.OpenAI_compat
-  in
-  let+ model_id = Llm_provider.Model_id.of_string provider.model_id in
-  { provider = provider_identity
-  ; model_id
-  ; transport
-  ; endpoint = canonical_uri base_url
-  ; request_path = canonical_uri request_path
-  ; auth_scheme
-  ; credential_scope
-  ; credential_identity = Secret.identity api_key_secret
-  }
-;;
-
 let equal_provider left right =
   match left, right with
   | Registered left, Registered right -> String.equal left right

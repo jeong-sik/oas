@@ -25,6 +25,10 @@ field have been removed.
 `Eval.compare_with_specs` now compares only metrics selected by an explicit
 `metric_spec`.
 
+The unused `Binding_identity.of_resolved_provider` compatibility bridge has
+been removed. Binding identities are constructed only from canonical
+`Llm_provider.Provider_config.t` values.
+
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
 
