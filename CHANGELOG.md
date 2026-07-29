@@ -8,6 +8,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Changed
+
+Execution projection no longer re-checks committed event sequence uniqueness.
+The read-only event store owns this invariant for both initial snapshots and
+incremental suffixes before projection begins.
+
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
 
