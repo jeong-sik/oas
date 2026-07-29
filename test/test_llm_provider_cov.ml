@@ -95,7 +95,7 @@ let test_gemini_url_sync_no_key () =
       ~api_key:""
       ()
   in
-  let url = Complete.gemini_url ~config ~stream:false in
+  let url = Complete_sampling.gemini_url ~config ~stream:false in
   Alcotest.(check string) "sync no key" (gemini25_url ~stream:false ()) url
 ;;
 
@@ -108,7 +108,7 @@ let test_gemini_url_sync_with_key () =
       ~api_key:"mykey"
       ()
   in
-  let url = Complete.gemini_url ~config ~stream:false in
+  let url = Complete_sampling.gemini_url ~config ~stream:false in
   Alcotest.(check string)
     "sync with key"
     (gemini25_url ~api_key:"mykey" ~stream:false ())
@@ -124,7 +124,7 @@ let test_gemini_url_stream_with_key () =
       ~api_key:"mykey"
       ()
   in
-  let url = Complete.gemini_url ~config ~stream:true in
+  let url = Complete_sampling.gemini_url ~config ~stream:true in
   Alcotest.(check string)
     "stream with key"
     (gemini25_url ~api_key:"mykey" ~stream:true ())
@@ -140,7 +140,7 @@ let test_gemini_url_stream_no_key () =
       ~api_key:""
       ()
   in
-  let url = Complete.gemini_url ~config ~stream:true in
+  let url = Complete_sampling.gemini_url ~config ~stream:true in
   Alcotest.(check string) "stream no key" (gemini25_url ~stream:true ()) url
 ;;
 
