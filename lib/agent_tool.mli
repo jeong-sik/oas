@@ -49,13 +49,8 @@ val create : config -> Tool.t
 
     The typed wrapper parses tool input into {!child_invocation} and encodes
     the child result as structured JSON via {!child_output_to_json}. Use
-    {!Typed_tool.to_untyped} or {!create_typed_untyped} to register it in
-    existing {!Tool.t}-based dispatch. *)
+    {!Typed_tool.to_untyped} to register it in {!Tool.t}-based dispatch. *)
 val create_typed : config -> (child_invocation, child_output) Typed_tool.t
-
-(** Convenience bridge for existing {!Tool.t}-based dispatch while preserving
-    the structured child-output JSON contract. *)
-val create_typed_untyped : config -> Tool.t
 
 (** Convenience: create from a runner function with minimal config. *)
 val create_simple : name:string -> description:string -> agent_runner -> Tool.t

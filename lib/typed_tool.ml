@@ -18,17 +18,23 @@ type ('input, 'output) t =
   ; encode : 'output -> Yojson.Safe.t
   }
 
-let create ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
-  let schema : Types.tool_schema =
-    { name; description; parameters = params; strict = None }
-  in
+let create ~name ~description ~params ~parse ~handler ~encode ?descriptor ?strict () =
+  let schema : Types.tool_schema = { name; description; parameters = params; strict } in
   { schema; descriptor; parse; handler = Simple handler; encode }
 ;;
 
-let create_with_context ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
-  let schema : Types.tool_schema =
-    { name; description; parameters = params; strict = None }
-  in
+let create_with_context
+      ~name
+      ~description
+      ~params
+      ~parse
+      ~handler
+      ~encode
+      ?descriptor
+      ?strict
+      ()
+  =
+  let schema : Types.tool_schema = { name; description; parameters = params; strict } in
   { schema; descriptor; parse; handler = WithContext handler; encode }
 ;;
 

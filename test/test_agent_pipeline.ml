@@ -584,7 +584,7 @@ let test_agent_run_context_like_http_400_is_unknown_invalid_request_without_retr
         ; tool_call_id = None
         ; metadata = []
         }
-      ; { Types.role = User
+      ; { Types.role = Tool
         ; content =
             [ ToolResult
                 { tool_use_id = "tool_1"

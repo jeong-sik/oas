@@ -210,8 +210,6 @@ let create_typed config =
     ()
 ;;
 
-let create_typed_untyped config = config |> create_typed |> Typed_tool.to_untyped
-
 let create_simple ~name ~description runner =
   create { name; description; runner; output_summarizer = None }
 ;;

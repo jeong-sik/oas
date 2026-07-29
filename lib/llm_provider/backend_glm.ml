@@ -704,7 +704,13 @@ let%test "build_request adds tool_stream when enabled" =
       ~stream:true
       ~config
       ~messages
-      ~tools:[ `Assoc [ "name", `String "weather" ] ]
+      ~tools:
+        [ `Assoc
+            [ "name", `String "weather"
+            ; "description", `String "Get weather"
+            ; "input_schema", `Assoc [ "type", `String "object" ]
+            ]
+        ]
       ()
   in
   let json = Yojson.Safe.from_string body in
@@ -739,7 +745,13 @@ let%test "build_request defaults tool_stream on for streaming + tools (RFC-OAS-0
       ~stream:true
       ~config
       ~messages
-      ~tools:[ `Assoc [ "name", `String "weather" ] ]
+      ~tools:
+        [ `Assoc
+            [ "name", `String "weather"
+            ; "description", `String "Get weather"
+            ; "input_schema", `Assoc [ "type", `String "object" ]
+            ]
+        ]
       ()
   in
   let json = Yojson.Safe.from_string body in

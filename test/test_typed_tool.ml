@@ -49,6 +49,7 @@ let encode_greet (output : greet_output) : Yojson.Safe.t =
 
 let greet_tool =
   Typed_tool.create
+    ~strict:true
     ~name:"greet"
     ~description:"Greet someone"
     ~params:greet_params
@@ -139,7 +140,7 @@ let test_execute_parsed_parse_error () =
   | Ok _ -> Alcotest.fail "expected parse error"
 ;;
 
-let test_to_untyped_bridge () =
+let test_to_untyped_projection () =
   let untyped = Typed_tool.to_untyped greet_tool in
   let input = `Assoc [ "name", `String "Bridge" ] in
   match Tool.execute untyped input with
@@ -153,13 +154,15 @@ let test_to_untyped_bridge () =
 let test_to_untyped_preserves_schema () =
   let untyped = Typed_tool.to_untyped greet_tool in
   Alcotest.(check string) "name preserved" "greet" untyped.schema.name;
-  Alcotest.(check int) "params count" 2 (List.length untyped.schema.parameters)
+  Alcotest.(check int) "params count" 2 (List.length untyped.schema.parameters);
+  Alcotest.(check (option bool)) "strict preserved" (Some true) untyped.schema.strict
 ;;
 
 let test_schema_extraction () =
   let schema = Typed_tool.schema greet_tool in
   Alcotest.(check string) "name" "greet" schema.name;
-  Alcotest.(check string) "desc" "Greet someone" schema.description
+  Alcotest.(check string) "desc" "Greet someone" schema.description;
+  Alcotest.(check (option bool)) "strict" (Some true) schema.strict
 ;;
 
 let test_name_extraction () =
@@ -231,7 +234,7 @@ let test_context_handler_no_context () =
   | Error e -> Alcotest.(check bool) "not recoverable" false e.recoverable
 ;;
 
-let test_to_untyped_context_bridge () =
+let test_to_untyped_context_projection () =
   let untyped = Typed_tool.to_untyped greet_ctx_tool in
   let ctx = Context.create_sync () in
   Context.set ctx "prefix" (`String "Hey");
@@ -287,9 +290,12 @@ let () =
         ; Alcotest.test_case "parse error" `Quick test_execute_parsed_parse_error
         ] )
     ; ( "to_untyped"
-      , [ Alcotest.test_case "bridge execution" `Quick test_to_untyped_bridge
+      , [ Alcotest.test_case "projection execution" `Quick test_to_untyped_projection
         ; Alcotest.test_case "preserves schema" `Quick test_to_untyped_preserves_schema
-        ; Alcotest.test_case "context bridge" `Quick test_to_untyped_context_bridge
+        ; Alcotest.test_case
+            "context projection"
+            `Quick
+            test_to_untyped_context_projection
         ] )
     ; ( "introspection"
       , [ Alcotest.test_case "schema" `Quick test_schema_extraction
