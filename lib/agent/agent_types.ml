@@ -182,7 +182,7 @@ let typed_provider_name (cfg : Llm_provider.Provider_config.t) =
   Provider_runtime_binding.provider_id_of_provider_config cfg
 ;;
 
-let card t =
+let card ~supported_interfaces t =
   let supported_providers =
     match t.options.provider_config with
     | Some config -> [ typed_provider_name config ]
@@ -208,6 +208,7 @@ let card t =
     ; has_elicitation =
         Option.is_some t.options.elicitation || Option.is_some t.options.tool_approval
     ; skills
+    ; supported_interfaces
     }
 ;;
 

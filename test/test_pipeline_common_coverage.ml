@@ -15,6 +15,16 @@ let openai_config =
     ()
 ;;
 
+let card_interfaces =
+  Agent_card.create_supported_interface
+    ~url:"https://coverage-agent.example/a2a"
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:"1.0"
+    ()
+  |> Result.get_ok
+  |> fun interface -> Agent_card.supported_interfaces interface []
+;;
+
 let echo_tool =
   Tool.create
     ~name:"echo"
@@ -123,7 +133,7 @@ let test_agent_type_accessors_card_and_state_mutators () =
     "provider config option"
     true
     (Option.is_some (Internal_agent.options agent).provider_config);
-  let card = Internal_agent.card agent in
+  let card = Internal_agent.card ~supported_interfaces:card_interfaces agent in
   check_string "card name" "coverage-agent" card.name;
   check_opt_string "card description" (Some "Coverage agent") card.description;
   check_int "card tools" 1 (List.length card.tools);

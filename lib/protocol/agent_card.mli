@@ -38,12 +38,34 @@ type authentication =
   ; credential_ref : credential_ref
   }
 
-type supported_interface =
+type supported_interface = private
   { url : string
   ; protocol_binding : string
   ; protocol_version : string
   ; tenant : string option
   }
+
+(** A caller-owned, non-empty collection of validated interfaces. *)
+type supported_interfaces
+
+val create_supported_interface
+  :  url:string
+  -> protocol_binding:string
+  -> protocol_version:string
+  -> ?tenant:string
+  -> unit
+  -> (supported_interface, Error.sdk_error) result
+
+val supported_interfaces
+  :  supported_interface
+  -> supported_interface list
+  -> supported_interfaces
+
+val supported_interfaces_of_list
+  :  supported_interface list
+  -> (supported_interfaces, Error.sdk_error) result
+
+val supported_interfaces_to_list : supported_interfaces -> supported_interface list
 
 type skill_meta =
   { name : string
@@ -54,11 +76,9 @@ type skill_meta =
 type agent_card =
   { name : string
   ; description : string option
-  ; protocol_version : string
   ; version : string
-  ; url : string option
   ; authentication : authentication option
-  ; supported_interfaces : supported_interface list
+  ; supported_interfaces : supported_interfaces
   ; capabilities : capability list
   ; tools : Types.tool_schema list
   ; skills : skill_meta list
@@ -86,6 +106,9 @@ type agent_info =
   ; has_elicitation : bool
     (** [true] for generic elicitation, exact tool approval, or both. *)
   ; skills : skill_meta list
+  ; supported_interfaces : supported_interfaces
+    (** Exact caller-owned interface authority. Construction cannot synthesize
+        a default URL, binding, or protocol version. *)
   }
 
 val of_info : agent_info -> agent_card

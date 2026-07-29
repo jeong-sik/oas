@@ -1,8 +1,29 @@
 open Agent_sdk
 
-let jsonrpc_interface url : Agent_card.supported_interface =
-  { url; protocol_binding = "JSONRPC"; protocol_version = "1.0"; tenant = None }
+let expect_ok = function
+  | Ok value -> value
+  | Error error -> Alcotest.fail (Error.to_string error)
 ;;
+
+let expect_invalid_config ~field = function
+  | Error (Error.Config (Error.InvalidConfig { field = actual; _ })) ->
+    Alcotest.(check string) "invalid field path" field actual
+  | Error error ->
+    Alcotest.fail
+      (Printf.sprintf "expected InvalidConfig(%s), got %s" field (Error.to_string error))
+  | Ok _ -> Alcotest.fail (Printf.sprintf "expected InvalidConfig(%s)" field)
+;;
+
+let jsonrpc_interface url =
+  Agent_card.create_supported_interface
+    ~url
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:"1.0"
+    ()
+  |> expect_ok
+;;
+
+let jsonrpc_interfaces url = Agent_card.supported_interfaces (jsonrpc_interface url) []
 
 let base_info : Agent_card.agent_info =
   { agent_name = "test-agent"
@@ -30,6 +51,7 @@ let base_info : Agent_card.agent_info =
   ; mcp_clients_count = 0
   ; has_elicitation = false
   ; skills = []
+  ; supported_interfaces = jsonrpc_interfaces "https://agent.example/a2a"
   }
 ;;
 
@@ -37,7 +59,6 @@ let test_of_info_basic () =
   let card = Agent_card.of_info base_info in
   Alcotest.(check string) "name" "test-agent" card.name;
   Alcotest.(check (option string)) "description" (Some "A test agent") card.description;
-  Alcotest.(check string) "protocol version" "1.0" card.protocol_version;
   Alcotest.(check string) "version" Agent_sdk.Sdk_version.version card.version
 ;;
 
@@ -145,15 +166,20 @@ let test_json_roundtrip () =
   match Agent_card.of_json json with
   | Ok card2 ->
     Alcotest.(check string) "name preserved" card.name card2.name;
-    Alcotest.(check string)
-      "protocol preserved"
-      card.protocol_version
-      card2.protocol_version;
     Alcotest.(check string) "version preserved" card.version card2.version;
     Alcotest.(check int)
       "caps count"
       (List.length card.capabilities)
-      (List.length card2.capabilities)
+      (List.length card2.capabilities);
+    Alcotest.(check int) "tools preserved" 1 (List.length card2.tools);
+    (match Agent_card.supported_interfaces_to_list card2.supported_interfaces with
+     | [ interface ] ->
+       Alcotest.(check string)
+         "interface URL preserved"
+         "https://agent.example/a2a"
+         interface.url
+     | interfaces ->
+       Alcotest.failf "expected one interface, got %d" (List.length interfaces))
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
 
@@ -162,26 +188,27 @@ let test_to_json_structure () =
   let json = Agent_card.to_json card in
   let open Yojson.Safe.Util in
   let name = json |> member "name" |> to_string in
-  let protocol_version = json |> member "protocolVersion" |> to_string in
   let caps = json |> member "capabilities" |> to_list in
   let tools = json |> member "tools" |> to_list in
   let interfaces = json |> member "supportedInterfaces" |> to_list in
   Alcotest.(check string) "json name" "test-agent" name;
-  Alcotest.(check string) "json protocol version" "1.0" protocol_version;
+  Alcotest.(check bool) "no top-level url" true (json |> member "url" = `Null);
+  Alcotest.(check bool)
+    "no top-level protocol version"
+    true
+    (json |> member "protocolVersion" = `Null);
   Alcotest.(check bool) "has caps" true (List.length caps > 0);
   Alcotest.(check int) "1 tool" 1 (List.length tools);
-  Alcotest.(check int) "no interfaces by default" 0 (List.length interfaces)
+  Alcotest.(check int) "one declared interface" 1 (List.length interfaces)
 ;;
 
-let test_to_json_synthesizes_supported_interface () =
+let test_to_json_uses_declared_supported_interface () =
   let card : Agent_card.agent_card =
-    { name = "synth-agent"
+    { name = "explicit-interface-agent"
     ; description = None
-    ; protocol_version = "1.0"
     ; version = "1.0"
-    ; url = Some "http://agent.local/a2a"
     ; authentication = None
-    ; supported_interfaces = []
+    ; supported_interfaces = jsonrpc_interfaces "https://agent.example/a2a"
     ; capabilities = []
     ; tools = []
     ; skills = []
@@ -192,11 +219,11 @@ let test_to_json_synthesizes_supported_interface () =
   let json = Agent_card.to_json card in
   let open Yojson.Safe.Util in
   let interfaces = json |> member "supportedInterfaces" |> to_list in
-  Alcotest.(check int) "synthesized interface count" 1 (List.length interfaces);
+  Alcotest.(check int) "declared interface count" 1 (List.length interfaces);
   let iface = List.hd interfaces in
   Alcotest.(check string)
     "url"
-    "http://agent.local/a2a"
+    "https://agent.example/a2a"
     (iface |> member "url" |> to_string);
   Alcotest.(check string)
     "binding"
@@ -209,9 +236,7 @@ let test_to_json_synthesizes_supported_interface () =
 ;;
 
 let test_of_json_invalid () =
-  match Agent_card.of_json (`String "bad") with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "should fail on invalid json"
+  Agent_card.of_json (`String "bad") |> expect_invalid_config ~field:"agent_card"
 ;;
 
 (* ── capability_to/of_string roundtrip ──────────────────── *)
@@ -243,13 +268,11 @@ let test_json_with_authentication () =
   let card : Agent_card.agent_card =
     { name = "auth-agent"
     ; description = Some "with auth"
-    ; protocol_version = "1.0"
     ; version = "1.0"
-    ; url = Some "http://agent.local:8080"
     ; authentication =
         Some
           { schemes = [ "bearer"; "api-key" ]; credential_ref = Env "AGENT_CARD_API_KEY" }
-    ; supported_interfaces = [ jsonrpc_interface "http://agent.local:8080" ]
+    ; supported_interfaces = jsonrpc_interfaces "https://agent.example:8080"
     ; capabilities = [ Tools; Streaming ]
     ; tools = []
     ; skills = []
@@ -261,8 +284,6 @@ let test_json_with_authentication () =
   match Agent_card.of_json json with
   | Ok card2 ->
     Alcotest.(check string) "name" "auth-agent" card2.name;
-    Alcotest.(check string) "protocol version" "1.0" card2.protocol_version;
-    Alcotest.(check (option string)) "url" (Some "http://agent.local:8080") card2.url;
     (match card2.authentication with
      | Some auth ->
        Alcotest.(check (list string)) "schemes" [ "bearer"; "api-key" ] auth.schemes;
@@ -271,7 +292,10 @@ let test_json_with_authentication () =
          true
          (auth.credential_ref = Agent_card.Env "AGENT_CARD_API_KEY")
      | None -> Alcotest.fail "expected auth");
-    Alcotest.(check int) "interface count" 1 (List.length card2.supported_interfaces);
+    Alcotest.(check int)
+      "interface count"
+      1
+      (List.length (Agent_card.supported_interfaces_to_list card2.supported_interfaces));
     Alcotest.(check int) "metadata" 1 (List.length card2.metadata)
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;
@@ -280,11 +304,9 @@ let test_json_no_auth_no_metadata () =
   let card : Agent_card.agent_card =
     { name = "simple"
     ; description = None
-    ; protocol_version = "1.0"
     ; version = "0.1"
-    ; url = None
     ; authentication = None
-    ; supported_interfaces = []
+    ; supported_interfaces = jsonrpc_interfaces "https://simple.example/a2a"
     ; capabilities = []
     ; tools = []
     ; skills = []
@@ -296,7 +318,6 @@ let test_json_no_auth_no_metadata () =
   match Agent_card.of_json json with
   | Ok card2 ->
     Alcotest.(check (option string)) "no desc" None card2.description;
-    Alcotest.(check (option string)) "no url" None card2.url;
     Alcotest.(check bool) "no auth" true (Option.is_none card2.authentication);
     Alcotest.(check (list string)) "no metadata" [] (List.map fst card2.metadata)
   | Error e -> Alcotest.fail (Error.to_string e)
@@ -306,8 +327,15 @@ let test_json_rejects_literal_credentials () =
   let json =
     `Assoc
       [ "name", `String "bad-agent"
-      ; "protocolVersion", `String "1.0"
       ; "version", `String "1.0"
+      ; ( "supportedInterfaces"
+        , `List
+            [ `Assoc
+                [ "url", `String "https://bad-agent.example/a2a"
+                ; "protocolBinding", `String "JSONRPC"
+                ; "protocolVersion", `String "1.0"
+                ]
+            ] )
       ; "capabilities", `List []
       ; "tools", `List []
       ; "skills", `List []
@@ -321,22 +349,23 @@ let test_json_rejects_literal_credentials () =
   in
   match Agent_card.of_json json with
   | Ok _ -> Alcotest.fail "expected error for literal credentials"
-  | Error (Error.Config (SensitiveValueInConfig _)) ->
+  | Error (Error.Config (InvalidConfig { field; _ }))
+    when String.equal field "authentication.credentials" ->
     Alcotest.(check bool) "rejects literal credentials" true true
   | Error e ->
     Alcotest.fail
-      (Printf.sprintf "expected SensitiveValueInConfig, got %s" (Error.to_string e))
+      (Printf.sprintf
+         "expected InvalidConfig(authentication.credentials), got %s"
+         (Error.to_string e))
 ;;
 
 let test_json_auth_no_credentials () =
   let card : Agent_card.agent_card =
     { name = "auth-noc"
     ; description = None
-    ; protocol_version = "1.0"
     ; version = "1.0"
-    ; url = None
     ; authentication = Some { schemes = [ "oauth" ]; credential_ref = No_credential }
-    ; supported_interfaces = []
+    ; supported_interfaces = jsonrpc_interfaces "https://auth.example/a2a"
     ; capabilities = []
     ; tools = []
     ; skills = []
@@ -375,11 +404,9 @@ let test_to_json_with_skills () =
   let card : Agent_card.agent_card =
     { name = "skill-agent"
     ; description = None
-    ; protocol_version = "1.0"
     ; version = "1.0"
-    ; url = None
     ; authentication = None
-    ; supported_interfaces = []
+    ; supported_interfaces = jsonrpc_interfaces "https://skill.example/a2a"
     ; capabilities = []
     ; tools = []
     ; skills =
@@ -398,7 +425,7 @@ let test_to_json_with_skills () =
   Alcotest.(check string) "skill name" "greet" (first |> member "name" |> to_string)
 ;;
 
-let test_legacy_json_backfills_interfaces () =
+let test_legacy_only_json_is_rejected () =
   let legacy_json =
     `Assoc
       [ "name", `String "legacy-agent"
@@ -411,23 +438,18 @@ let test_legacy_json_backfills_interfaces () =
       ; "supported_providers", `List []
       ]
   in
-  match Agent_card.of_json legacy_json with
-  | Ok card ->
-    Alcotest.(check string) "default protocol version" "0.1" card.protocol_version;
-    Alcotest.(check int) "synthesized interface" 1 (List.length card.supported_interfaces)
-  | Error e -> Alcotest.fail (Error.to_string e)
+  Agent_card.of_json legacy_json |> expect_invalid_config ~field:"agent_card.url"
 ;;
 
-let test_interface_protocol_version_inherits_card_version () =
+let test_interface_requires_protocol_version () =
   let json =
     `Assoc
       [ "name", `String "v1-agent"
       ; "version", `String "1.2.3"
-      ; "protocolVersion", `String "1.0"
       ; ( "supportedInterfaces"
         , `List
             [ `Assoc
-                [ "url", `String "http://agent.local/a2a"
+                [ "url", `String "https://agent.example/a2a"
                 ; "protocolBinding", `String "JSONRPC"
                 ]
             ] )
@@ -437,12 +459,160 @@ let test_interface_protocol_version_inherits_card_version () =
       ; "supported_providers", `List []
       ]
   in
-  match Agent_card.of_json json with
-  | Ok card ->
-    Alcotest.(check string) "card protocol version" "1.0" card.protocol_version;
-    let iface = List.hd card.supported_interfaces in
-    Alcotest.(check string) "interface protocol version" "1.0" iface.protocol_version
-  | Error e -> Alcotest.fail (Error.to_string e)
+  Agent_card.of_json json
+  |> expect_invalid_config ~field:"supportedInterfaces[0].protocolVersion"
+;;
+
+let test_interface_rejects_type_alias () =
+  let json =
+    `Assoc
+      [ "name", `String "v1-agent"
+      ; "version", `String "1.2.3"
+      ; ( "supportedInterfaces"
+        , `List
+            [ `Assoc
+                [ "url", `String "https://agent.example/a2a"
+                ; "type", `String "JSONRPC"
+                ; "protocolVersion", `String "1.0"
+                ]
+            ] )
+      ; "capabilities", `List []
+      ; "tools", `List []
+      ; "skills", `List []
+      ; "supported_providers", `List []
+      ]
+  in
+  Agent_card.of_json json |> expect_invalid_config ~field:"supportedInterfaces[0].type"
+;;
+
+let test_supported_interfaces_rejects_empty () =
+  Agent_card.supported_interfaces_of_list []
+  |> expect_invalid_config ~field:"supported_interfaces"
+;;
+
+let test_interface_rejects_non_https_url () =
+  Agent_card.create_supported_interface
+    ~url:"http://agent.example/a2a"
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:"1.0"
+    ()
+  |> expect_invalid_config ~field:"supported_interface.url"
+;;
+
+let test_interface_rejects_relative_url () =
+  Agent_card.create_supported_interface
+    ~url:"/a2a"
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:"1.0"
+    ()
+  |> expect_invalid_config ~field:"supported_interface.url"
+;;
+
+let test_interface_rejects_empty_binding () =
+  Agent_card.create_supported_interface
+    ~url:"https://agent.example/a2a"
+    ~protocol_binding:""
+    ~protocol_version:"1.0"
+    ()
+  |> expect_invalid_config ~field:"supported_interface.protocolBinding"
+;;
+
+let test_interface_rejects_empty_version () =
+  Agent_card.create_supported_interface
+    ~url:"https://agent.example/a2a"
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:""
+    ()
+  |> expect_invalid_config ~field:"supported_interface.protocolVersion"
+;;
+
+let replace_json_field key value = function
+  | `Assoc fields -> `Assoc ((key, value) :: List.remove_assoc key fields)
+  | _ -> Alcotest.fail "test fixture must be an object"
+;;
+
+let valid_json () = Agent_card.of_info base_info |> Agent_card.to_json
+
+let test_json_rejects_empty_interfaces () =
+  valid_json ()
+  |> replace_json_field "supportedInterfaces" (`List [])
+  |> Agent_card.of_json
+  |> expect_invalid_config ~field:"supportedInterfaces"
+;;
+
+let test_json_rejects_malformed_metadata () =
+  valid_json ()
+  |> replace_json_field "metadata" (`List [])
+  |> Agent_card.of_json
+  |> expect_invalid_config ~field:"metadata"
+;;
+
+let test_json_rejects_malformed_authentication () =
+  valid_json ()
+  |> replace_json_field "authentication" (`String "bearer")
+  |> Agent_card.of_json
+  |> expect_invalid_config ~field:"authentication"
+;;
+
+let test_json_rejects_incomplete_credential_ref () =
+  let authentication =
+    `Assoc
+      [ "schemes", `List [ `String "bearer" ]
+      ; "credential_ref", `Assoc [ "type", `String "env" ]
+      ]
+  in
+  valid_json ()
+  |> replace_json_field "authentication" authentication
+  |> Agent_card.of_json
+  |> expect_invalid_config ~field:"authentication.credential_ref.name"
+;;
+
+let test_json_rejects_unknown_top_level_field () =
+  match valid_json () with
+  | `Assoc fields ->
+    Agent_card.of_json (`Assoc (("url", `String "https://legacy.example") :: fields))
+    |> expect_invalid_config ~field:"agent_card.url"
+  | _ -> Alcotest.fail "valid card must encode as an object"
+;;
+
+let test_json_rejects_duplicate_top_level_field () =
+  match valid_json () with
+  | `Assoc fields ->
+    Agent_card.of_json (`Assoc (("name", `String "duplicate") :: fields))
+    |> expect_invalid_config ~field:"agent_card.name"
+  | _ -> Alcotest.fail "valid card must encode as an object"
+;;
+
+let test_json_rejects_unknown_interface_field () =
+  let interface =
+    `Assoc
+      [ "url", `String "https://agent.example/a2a"
+      ; "protocolBinding", `String "JSONRPC"
+      ; "protocolVersion", `String "1.0"
+      ; "type", `String "legacy"
+      ]
+  in
+  valid_json ()
+  |> replace_json_field "supportedInterfaces" (`List [ interface ])
+  |> Agent_card.of_json
+  |> expect_invalid_config ~field:"supportedInterfaces[0].type"
+;;
+
+let test_interface_rejects_empty_tenant () =
+  Agent_card.create_supported_interface
+    ~url:"https://agent.example/a2a"
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:"1.0"
+    ~tenant:""
+    ()
+  |> expect_invalid_config ~field:"supported_interface.tenant"
+;;
+
+let test_json_rejects_duplicate_metadata_field () =
+  valid_json ()
+  |> replace_json_field "metadata" (`Assoc [ "env", `String "a"; "env", `String "b" ])
+  |> Agent_card.of_json
+  |> expect_invalid_config ~field:"metadata.env"
 ;;
 
 let () =
@@ -473,9 +643,9 @@ let () =
       , [ test_case "roundtrip" `Quick test_json_roundtrip
         ; test_case "to_json structure" `Quick test_to_json_structure
         ; test_case
-            "to_json synthesizes supported interface"
+            "to_json uses declared supported interface"
             `Quick
-            test_to_json_synthesizes_supported_interface
+            test_to_json_uses_declared_supported_interface
         ; test_case "of_json invalid" `Quick test_of_json_invalid
         ; test_case "with auth" `Quick test_json_with_authentication
         ; test_case "no auth no meta" `Quick test_json_no_auth_no_metadata
@@ -486,13 +656,73 @@ let () =
             test_json_rejects_literal_credentials
         ; test_case "with skills" `Quick test_to_json_with_skills
         ; test_case
-            "legacy json backfills interfaces"
+            "legacy-only json is rejected"
             `Quick
-            test_legacy_json_backfills_interfaces
+            test_legacy_only_json_is_rejected
         ; test_case
-            "interface protocol version inherits card version"
+            "interface requires protocol version"
             `Quick
-            test_interface_protocol_version_inherits_card_version
+            test_interface_requires_protocol_version
+        ; test_case
+            "interface rejects type alias"
+            `Quick
+            test_interface_rejects_type_alias
+        ; test_case
+            "supported interfaces reject empty"
+            `Quick
+            test_supported_interfaces_rejects_empty
+        ; test_case
+            "interface rejects non-HTTPS URL"
+            `Quick
+            test_interface_rejects_non_https_url
+        ; test_case
+            "interface rejects relative URL"
+            `Quick
+            test_interface_rejects_relative_url
+        ; test_case
+            "interface rejects empty binding"
+            `Quick
+            test_interface_rejects_empty_binding
+        ; test_case
+            "interface rejects empty version"
+            `Quick
+            test_interface_rejects_empty_version
+        ; test_case
+            "JSON rejects empty interfaces"
+            `Quick
+            test_json_rejects_empty_interfaces
+        ; test_case
+            "JSON rejects malformed metadata"
+            `Quick
+            test_json_rejects_malformed_metadata
+        ; test_case
+            "JSON rejects malformed authentication"
+            `Quick
+            test_json_rejects_malformed_authentication
+        ; test_case
+            "JSON rejects incomplete credential ref"
+            `Quick
+            test_json_rejects_incomplete_credential_ref
+        ; test_case
+            "JSON rejects unknown top-level field"
+            `Quick
+            test_json_rejects_unknown_top_level_field
+        ; test_case
+            "JSON rejects duplicate top-level field"
+            `Quick
+            test_json_rejects_duplicate_top_level_field
+        ; test_case
+            "JSON rejects unknown interface field"
+            `Quick
+            test_json_rejects_unknown_interface_field
+        ; test_case
+            "interface rejects empty tenant"
+            `Quick
+            test_interface_rejects_empty_tenant
+        ; test_case
+            "JSON rejects duplicate metadata field"
+            `Quick
+            test_json_rejects_duplicate_metadata_field
         ] )
     ]
 ;;
