@@ -76,9 +76,7 @@ type skill_meta =
 type agent_card =
   { name : string
   ; description : string option
-  ; protocol_version : string
   ; version : string
-  ; url : string option
   ; authentication : authentication option
   ; supported_interfaces : supported_interfaces
   ; capabilities : capability list
