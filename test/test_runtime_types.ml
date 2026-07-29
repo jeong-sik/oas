@@ -152,7 +152,16 @@ let test_session () =
     ~of_yojson:Runtime.session_of_yojson
     ~show:Runtime.show_session
     ~name:"session"
-    v
+    v;
+  let without_pending_input =
+    match Runtime.session_to_yojson v with
+    | `Assoc fields -> `Assoc (List.remove_assoc "pending_input" fields)
+    | _ -> Alcotest.fail "session must encode as an object"
+  in
+  Alcotest.(check bool)
+    "missing pending_input rejected"
+    true
+    (Result.is_error (Runtime.session_of_yojson without_pending_input))
 ;;
 
 let test_init_request () =
@@ -407,12 +416,23 @@ let test_event_kind () =
     events
 ;;
 
-let test_output_delta_legacy_json_defaults_raw_trace_run_id () =
-  let json = `Assoc [ "participant_name", `String "sub"; "delta", `String "legacy" ] in
-  match Runtime.output_delta_event_of_yojson json with
-  | Ok detail ->
-    Alcotest.(check (option string)) "raw trace default" None detail.raw_trace_run_id
-  | Error msg -> Alcotest.failf "output_delta_event parse failed: %s" msg
+let test_output_delta_requires_current_raw_trace_field () =
+  let current : Runtime.output_delta_event =
+    { participant_name = "sub"; delta = "current"; raw_trace_run_id = None }
+  in
+  roundtrip
+    ~to_yojson:Runtime.output_delta_event_to_yojson
+    ~of_yojson:Runtime.output_delta_event_of_yojson
+    ~show:Runtime.show_output_delta_event
+    ~name:"output_delta_event"
+    current;
+  let missing_field_json =
+    `Assoc [ "participant_name", `String "sub"; "delta", `String "historical" ]
+  in
+  Alcotest.(check bool)
+    "missing raw_trace_run_id rejected"
+    true
+    (Result.is_error (Runtime.output_delta_event_of_yojson missing_field_json))
 ;;
 
 let completion_anomaly count =
@@ -507,6 +527,28 @@ let test_participant_lifecycle_payloads_exclude_contradictions () =
   let completed_json = Runtime.participant_completed_event_to_yojson completed in
   let failed_json = Runtime.participant_failed_event_to_yojson failed in
   let live_json = Runtime.participant_live_event_to_yojson live in
+  let participant_json = Runtime.participant_event_common_to_yojson participant in
+  Alcotest.(check bool)
+    "participant requires raw trace field"
+    true
+    (participant_json
+     |> remove_field "raw_trace_run_id"
+     |> Runtime.participant_event_common_of_yojson
+     |> Result.is_error);
+  Alcotest.(check bool)
+    "completed requires stop reason field"
+    true
+    (completed_json
+     |> remove_field "stop_reason"
+     |> Runtime.participant_completed_event_of_yojson
+     |> Result.is_error);
+  Alcotest.(check bool)
+    "completed requires anomaly field"
+    true
+    (completed_json
+     |> remove_field "completion_anomaly"
+     |> Runtime.participant_completed_event_of_yojson
+     |> Result.is_error);
   Alcotest.(check bool)
     "completed rejects failure cause"
     true
@@ -538,10 +580,7 @@ let test_participant_lifecycle_payloads_exclude_contradictions () =
   Alcotest.(check bool)
     "legacy flat completed payload rejected"
     true
-    (participant
-     |> Runtime.participant_event_common_to_yojson
-     |> Runtime.participant_completed_event_of_yojson
-     |> Result.is_error)
+    (participant_json |> Runtime.participant_completed_event_of_yojson |> Result.is_error)
 ;;
 
 let test_event () =
@@ -596,9 +635,9 @@ let () =
             `Quick
             test_participant_lifecycle_payloads_exclude_contradictions
         ; Alcotest.test_case
-            "output delta legacy json"
+            "output delta requires current raw trace field"
             `Quick
-            test_output_delta_legacy_json_defaults_raw_trace_run_id
+            test_output_delta_requires_current_raw_trace_field
         ; Alcotest.test_case "event" `Quick test_event
         ] )
     ]

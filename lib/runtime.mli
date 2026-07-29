@@ -99,7 +99,7 @@ type session =
   ; planned_participants : string list
   ; participants : participant list
   ; artifacts : artifact list
-  ; pending_input : input_request option [@default None]
+  ; pending_input : input_request option
   ; turn_count : int
   ; last_seq : int
   ; outcome : string option
@@ -251,7 +251,7 @@ type participant_event_common =
   ; summary : string option
   ; provider : string option
   ; model : string option
-  ; raw_trace_run_id : string option [@default None]
+  ; raw_trace_run_id : string option
   }
 [@@deriving yojson, show]
 
@@ -262,8 +262,8 @@ type participant_live_event = { participant : participant_event_common }
     payload. *)
 type participant_completed_event =
   { participant : participant_event_common
-  ; stop_reason : string option [@default None]
-  ; completion_anomaly : completion_anomaly option [@default None]
+  ; stop_reason : string option
+  ; completion_anomaly : completion_anomaly option
   }
 [@@deriving yojson, show]
 
@@ -277,7 +277,7 @@ type participant_failed_event =
 type output_delta_event =
   { participant_name : string
   ; delta : string
-  ; raw_trace_run_id : string option [@default None]
+  ; raw_trace_run_id : string option
   }
 [@@deriving yojson, show]
 

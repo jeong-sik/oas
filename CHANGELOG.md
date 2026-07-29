@@ -25,6 +25,13 @@ instead of being inferred as `STOP` from tool-block presence.
 
 ### Breaking Changes
 
+Runtime session and participant event JSON now require all current optional
+fields to be present: `pending_input` on sessions, `raw_trace_run_id` on
+participant/output-delta payloads, and `stop_reason` /
+`completion_anomaly` on successful completion payloads. Their values remain
+optional and may be `null`, but historical payloads that omit the fields are
+no longer backfilled during decoding.
+
 `Structured.schema` now contains only the provider-native JSON Schema
 parameters and typed parser. The unused forced-tool `name` and `description`
 fields, `schema_to_tool_json`, and `extract_tool_input` are removed rather than
