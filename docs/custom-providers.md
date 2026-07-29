@@ -1,122 +1,146 @@
-# Custom Provider Registration
+# Custom Providers
 
-OAS supports runtime provider registration for third-party LLM endpoints
-(vLLM, TGI, custom inference servers) without modifying the SDK source.
+OAS accepts third-party HTTP endpoints through the same exact
+`Llm_provider.Provider_config.t` used by built-in provider kinds. Agent
+execution does not consult a callback-based implementation registry and does
+not choose a provider when `Agent.options.provider_config` is absent.
 
-For OpenAI-compatible HTTP providers that only need endpoint/auth/capability
-metadata, prefer the provider catalog first:
-[`docs/provider-catalog.md`](provider-catalog.md). Use `Provider.register_provider`
-when the provider needs custom request construction or response parsing code.
+Use one of these paths:
 
-## Quick Start (v0.27.0+)
+1. Construct `Provider_config.t` directly when the embedding application
+   already owns the endpoint and credential.
+2. Declare connection and capability facts in a provider catalog, resolve one
+   exact binding, then attach its required credential.
+
+Both paths are single-provider. Retry, failover, and provider selection remain
+caller-owned.
+
+## Direct Exact Configuration
+
+An OpenAI-compatible vLLM endpoint needs no provider-specific SDK registration:
 
 ```ocaml
 open Agent_sdk
 
-(* 1. Register the provider implementation *)
-let () =
-  Provider.register_provider {
-    name = "vllm-local";
-    request_kind = Provider.Openai_chat_completions;
-    request_path = "/v1/chat/completions";
-    capabilities = {
-      Provider.default_capabilities with
-      supports_tools = true;
-      supports_tool_choice = true;
-    };
-    build_body = (fun ~config ~messages ?tools () ->
-      Api.build_openai_body
-        ~provider_config:{
-          provider = OpenAICompat {
-            base_url = "http://localhost:8000";
-            auth_header = None;
-            path = "/v1/chat/completions";
-            static_token = None;
-          };
-          model_id = "my-model";
-          api_key_env = "DUMMY";
-        }
-        ~config ~messages ?tools ());
-    parse_response = Api.parse_openai_response;
-    resolve = (fun _cfg ->
-      Ok ("http://localhost:8000", "",
-          [("Content-Type", "application/json")]));
-  }
+let provider_config =
+  Llm_provider.Provider_config.make
+    ~kind:OpenAI_compat
+    ~provider_id:"vllm-local"
+    ~model_id:"my-finetuned-model"
+    ~base_url:"http://127.0.0.1:8000"
+    ~request_path:"/v1/chat/completions"
+    ()
 
-(* 2. Create a config using the convenience helper *)
-let provider_cfg = Provider.custom_provider
-  ~name:"vllm-local"
-  ~model_id:"my-finetuned-model"
-  ()
-
-(* 3. Use it with an Agent — works end-to-end *)
-let () =
-  Eio_main.run @@ fun env ->
-  Eio.Switch.run @@ fun sw ->
-  let net = Eio.Stdenv.net env in
-  let agent = Agent.create ~net
-    ~config:(Types.default_config ~model:provider_cfg.model_id)
-    ~options:{ Agent.default_options with
-      provider = Some provider_cfg;
-    }
-    () in
-  match Agent.run ~sw agent "Hello from custom provider" with
-  | Ok response ->
-    List.iter (function
-      | Types.Text s -> print_endline s
-      | _ -> ()
-    ) response.content
-  | Error e ->
-    Printf.eprintf "Error: %s\n" (Error.to_string e)
+let agent =
+  Agent.create
+    ~net
+    ~config:(Types.default_config ~model:provider_config.model_id)
+    ~options:{ Agent.default_options with provider_config = Some provider_config }
+    ~tools:[]
+    ()
 ```
 
-## How It Works
-
-1. `Provider.register_provider` stores the implementation in a global registry
-2. `Provider.custom_provider ~name:"vllm-local" ~model_id:"my-model" ()` creates a config with
-   `Custom_registered { name }` variant
-3. When `api.ml` dispatches, it looks up the registry by name and calls
-   `impl.build_body`/`impl.parse_response`
-4. Streaming falls back to sync + synthetic SSE events (same as Ollama)
-
-## Registration API
+For authenticated endpoints, obtain the credential at the application boundary
+and pass it as `~api_key`. Missing credentials must stop configuration:
 
 ```ocaml
-(* Register *)
-Provider.register_provider impl
-
-(* Lookup *)
-Provider.find_provider "vllm-local"  (* -> provider_impl option *)
-
-(* List all *)
-Provider.registered_providers ()  (* -> string list *)
-
-(* Convenience config constructor *)
-Provider.custom_provider ~name:"vllm-local" ~model_id:"my-model" ()
+let anthropic_config () =
+  match Sys.getenv_opt "ANTHROPIC_API_KEY" with
+  | None | Some "" -> Error "ANTHROPIC_API_KEY is required"
+  | Some api_key ->
+      Ok
+        (Llm_provider.Provider_config.make
+           ~kind:Anthropic
+           ~provider_id:"anthropic"
+           ~model_id:"claude-sonnet-4-6"
+           ~base_url:"https://api.anthropic.com"
+           ~api_key
+           ())
 ```
 
-## provider_impl Record
+OAS never derives provider identity from the URL or model name.
 
-| Field | Type | Purpose |
-|-------|------|---------|
-| `name` | `string` | Unique registry key |
-| `request_kind` | `request_kind` | Determines body format |
-| `request_path` | `string` | HTTP path (e.g. `/v1/chat/completions`) |
-| `capabilities` | `capabilities` | Feature flags for the provider |
-| `build_body` | `agent_state -> messages -> ?tools -> unit -> string` | Constructs request JSON |
-| `parse_response` | `string -> api_response` | Parses HTTP response body |
-| `resolve` | `config -> (url * key * headers) result` | Resolves connection details |
+## Catalog Binding
 
-## Thread Safety
+Prefer the provider catalog when endpoint, auth mode, and capabilities are
+deployment data. See [`docs/provider-catalog.md`](provider-catalog.md) for the
+closed JSON schema.
 
-The registry is protected by `Eio.Mutex`. Concurrent registration and
-lookup from multiple fibers is safe.
+```json
+{
+  "schema_version": 1,
+  "providers": [
+    {
+      "id": "vllm-local",
+      "kind": "openai_compat",
+      "base_url": "http://127.0.0.1:8000",
+      "request_path": "/v1/chat/completions",
+      "auth": {"type": "api_key_env", "env": "VLLM_API_KEY"},
+      "default_model": "my-finetuned-model",
+      "capabilities_base": "openai_chat",
+      "capabilities": {
+        "supports_tools": true,
+        "supports_tool_choice": true
+      }
+    }
+  ]
+}
+```
 
-## Limitations
+Load the file explicitly during bootstrap. Parse failure, unknown provider,
+missing model, and missing credential are all errors:
 
-- The registry is global mutable state. Register providers before
-  spawning agent fibers to avoid ordering issues.
-- Built-in providers (Anthropic, OpenAI, Ollama, Local) are not in
-  the registry. They use the `Provider.config` variant directly.
-- Custom providers do not support native SSE streaming. They fall back
-  to sync API calls with synthetic SSE events emitted afterward.
+```ocaml
+open Agent_sdk
+
+let ( let* ) = Result.bind
+
+let credential_for_binding (binding : Provider_runtime_binding.t) =
+  match binding.auth with
+  | No_auth -> Ok ""
+  | Api_key_env name | Setup_token_env name ->
+      (match Sys.getenv_opt name with
+       | Some value when value <> "" -> Ok value
+       | None | Some "" -> Error (Printf.sprintf "%s is required" name))
+
+let resolve_catalog_provider ~path ~provider_id ~model =
+  let* catalog = Llm_provider.Provider_catalog.load_file path in
+  Llm_provider.Provider_catalog.set_global catalog;
+  let* binding =
+    match Provider_runtime_binding.find_catalog provider_id with
+    | Some binding -> Ok binding
+    | None -> Error (Printf.sprintf "unknown catalog provider: %s" provider_id)
+  in
+  let* provider_config =
+    Provider_runtime_binding.to_provider_config ~model binding
+    |> Result.map_error Error.to_string
+  in
+  let* api_key = credential_for_binding binding in
+  Ok
+    { provider_config with
+      api_key = Llm_provider.Secret.of_string api_key
+    }
+```
+
+`Provider_runtime_binding.to_provider_config` preserves the catalog identity,
+wire kind, endpoint, request path, model, context limit, and declared
+capabilities. Credential material is attached separately so catalog metadata
+never becomes a secret store.
+
+## Failure Contract
+
+- `Agent.options.provider_config = None` does not mean “local” or
+  “Anthropic”; execution returns a configuration error.
+- `Provider_runtime_binding.find_catalog` returning `None` is terminal for that
+  selection. Do not fall back to a similarly named provider.
+- A missing auth environment variable is terminal. Do not replace it with an
+  empty token.
+- Unknown models are not rewritten or expanded. Supply an exact model or a
+  catalog `default_model`.
+- Catalog parse errors reject the whole catalog; malformed rows are not
+  skipped.
+
+There is no custom response-parser callback on the Agent provider carrier.
+Endpoints must implement one of the typed OAS wire kinds. A genuinely new wire
+protocol belongs in a provider backend with an explicit typed contract, not in
+a process-global callback registry.

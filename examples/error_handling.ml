@@ -57,9 +57,21 @@ let () =
   @@ fun env ->
   Eio.Switch.run
   @@ fun sw ->
-  let options = { Agent.default_options with hooks = error_hooks } in
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen3.5"
+      ~base_url:"http://127.0.0.1:8085"
+      ()
+  in
+  let options =
+    { Agent.default_options with
+      hooks = error_hooks
+    ; provider_config = Some provider_config
+    }
+  in
   let config =
-    { (default_config ~model:"claude-sonnet-4-6") with
+    { (default_config ~model:provider_config.model_id) with
       name = "error-demo"
     ; system_prompt = Some "Try to read /tmp/nonexistent.txt."
     }

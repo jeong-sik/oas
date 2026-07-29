@@ -327,6 +327,81 @@ let test_pipeline_sends_exact_supplied_tools () =
     (Option.equal (List.equal Yojson.Safe.equal) (Some expected) !captured)
 ;;
 
+let test_effective_provider_config_drives_lifecycle_and_pricing () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let effective_model = "claude-sonnet-4-6" in
+  let captured_model = ref None in
+  let response : Types.api_response =
+    { id = "effective-provider-config"
+    ; model = ""
+    ; stop_reason = EndTurn
+    ; content = [ Text "done" ]
+    ; usage =
+        Some
+          { input_tokens = 100
+          ; output_tokens = 50
+          ; cache_creation_input_tokens = 0
+          ; cache_read_input_tokens = 0
+          ; cost_usd = None
+          }
+    ; telemetry = None
+    }
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun request ->
+          captured_model := Some request.config.model_id;
+          { response = Ok response; latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+    }
+  in
+  let carrier =
+    Llm_provider.Provider_config.make
+      ~kind:Anthropic
+      ~provider_id:"anthropic"
+      ~model_id:"carrier-model-without-pricing"
+      ~base_url:"https://api.anthropic.com"
+      ~request_path:"/v1/messages"
+      ()
+  in
+  let options =
+    { Agent.default_options with
+      provider_config = Some carrier
+    ; transport = Some transport
+    }
+  in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:effective_model) with
+          name = "effective-provider-config-test"
+        }
+      ~options
+      ()
+  in
+  (match Agent.run ~sw agent "hello" with
+   | Ok _ -> ()
+   | Error error -> Alcotest.fail (Error.to_string error));
+  Alcotest.(check (option string)) "wire model" (Some effective_model) !captured_model;
+  (match Agent.lifecycle agent with
+   | Some snapshot ->
+     Alcotest.(check (option string))
+       "lifecycle resolved model"
+       (Some effective_model)
+       snapshot.resolved_model
+   | None -> Alcotest.fail "completed agent has no lifecycle snapshot");
+  let usage = (Agent.state agent).usage in
+  Alcotest.(check bool)
+    "effective model pricing applied"
+    true
+    (usage.estimated_cost_usd > 0.0);
+  Alcotest.(check bool) "no pricing gap" true (Option.is_none usage.pricing_gap)
+;;
+
 let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
   Eio_main.run
   @@ fun env ->
@@ -3630,6 +3705,10 @@ let () =
             "provider receives exact supplied tools"
             `Quick
             test_pipeline_sends_exact_supplied_tools
+        ; Alcotest.test_case
+            "effective provider config drives lifecycle and pricing"
+            `Quick
+            test_effective_provider_config_drives_lifecycle_and_pricing
         ; Alcotest.test_case
             "provider turn identity spans multiturn tool loop"
             `Quick

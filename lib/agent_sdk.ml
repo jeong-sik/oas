@@ -1,6 +1,6 @@
-(** Anthropic Agent SDK for OCaml
+(** OCaml Agent SDK
 
-    A type-safe, Eio-based implementation of the Anthropic Agent SDK.
+    A type-safe, Eio-based single-provider agent runtime.
 
     Example usage:
     {[
@@ -21,10 +21,20 @@
         Eio_main.run @@ fun env ->
         let net = Eio.Stdenv.net env in
         Eio.Switch.run @@ fun sw ->
+        let provider_config =
+          Llm_provider.Provider_config.make
+            ~kind:OpenAI_compat
+            ~model_id:"qwen3.5"
+            ~base_url:"http://127.0.0.1:8085"
+            ()
+        in
         let agent = Agent.create ~net
-          ~config:{ (Types.default_config ~model:"claude-sonnet-4-6") with
+          ~config:{ (Types.default_config ~model:provider_config.model_id) with
             name = "weather-agent";
             system_prompt = Some "You are a helpful weather assistant.";
+          }
+          ~options:{ Agent.default_options with
+            provider_config = Some provider_config;
           }
           ~tools:[weather_tool] () in
         match Agent.run ~sw agent "What's the weather in Seoul?" with

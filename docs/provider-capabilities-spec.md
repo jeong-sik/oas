@@ -80,7 +80,8 @@ infer them from model names.
 
 ### Tier 3: Protocol (how to talk to the provider)
 
-Already covered by `request_kind` and `Provider.provider` types.
+Already covered by `Provider_config.provider_kind` and
+`Provider_config.request_path`.
 Consider adding:
 
 | Field | Rationale |

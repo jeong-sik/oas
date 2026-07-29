@@ -14,6 +14,7 @@ let test_build_snapshot_fresh () =
   Alcotest.(check string) "agent_name" "test-agent" snap.agent_name;
   Alcotest.(check bool) "status running" true (snap.status = Agent_lifecycle.Running);
   Alcotest.(check (option string)) "no run_id" None snap.current_run_id;
+  Alcotest.(check (option string)) "no resolved model" None snap.resolved_model;
   Alcotest.(check (option (float 0.001))) "no accepted_at" None snap.accepted_at;
   Alcotest.(check (option (float 0.001))) "no finished_at" None snap.finished_at
 ;;

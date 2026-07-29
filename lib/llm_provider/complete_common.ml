@@ -794,9 +794,8 @@ let observe_request_wire
   observe_pre_dispatch_serialization ?request_wire_observer observation
 ;;
 
-(** Strip query string and userinfo from a URL before logging.  Built-in
-    providers use clean URLs, but [custom:model@url] accepts arbitrary
-    user-supplied URLs; a misconfigured one like
+(** Strip query string and userinfo from a URL before logging.  A caller-owned
+    [Provider_config.t] may contain an arbitrary endpoint; a misconfigured one like
     [https://user:token@api.example.com/v1?token=abc] must not leak the
     secret to stderr. *)
 let sanitize_url_for_log url =

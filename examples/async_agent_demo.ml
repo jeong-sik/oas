@@ -12,7 +12,6 @@
 
     Prerequisites:
     - A running llama-server (or any OpenAI-compatible endpoint) on port 8085
-    - Or set OAS_PROVIDER=anthropic and ANTHROPIC_API_KEY
 
     Usage:
       dune exec examples/async_agent_demo.exe *)
@@ -74,13 +73,21 @@ let external_fetch_tool =
 ;;
 
 let make_agent ~net name =
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen3.5"
+      ~base_url:"http://127.0.0.1:8085"
+      ()
+  in
   let config =
-    { (default_config ~model:"claude-sonnet-4-6") with
+    { (default_config ~model:provider_config.model_id) with
       name
     ; system_prompt = Some "You have a lookup tool. Use it when helpful. Be concise."
     }
   in
-  Agent.create ~net ~config ~tools:[ read_only_tool; external_fetch_tool ] ()
+  let options = { Agent.default_options with provider_config = Some provider_config } in
+  Agent.create ~net ~config ~options ~tools:[ read_only_tool; external_fetch_tool ] ()
 ;;
 
 let extract_text (resp : Types.api_response) =

@@ -42,13 +42,21 @@ let () =
   Eio_main.run @@ fun env ->
   let net = Eio.Stdenv.net env in
   Eio.Switch.run @@ fun sw ->
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen3.5"
+      ~base_url:"http://127.0.0.1:8085"
+      ()
+  in
   let agent =
     Agent.create ~net
       ~config:
-        { (Types.default_config ~model:"qwen3.5") with
+        { (Types.default_config ~model:provider_config.model_id) with
           name = "hello";
           system_prompt = Some "You are a helpful assistant. Be concise.";
         }
+      ~options:{ Agent.default_options with provider_config = Some provider_config }
       ~tools:[] ()
   in
   match Agent.run ~sw agent "What is 2 + 2?" with
@@ -59,16 +67,29 @@ let () =
   | Error e -> prerr_endline (Error.to_string e)
 ```
 
-This assumes a local LLM server (llama-server) on port 8085. For Anthropic API, configure a provider:
+This pins a local OpenAI-compatible server on port 8085. OAS does not select a
+provider when `provider_config` is absent. For Anthropic, supply the endpoint,
+model, and credential explicitly:
 
 ```ocaml
-let agent =
-  Agent.create ~net
-    ~config:{ (Types.default_config ~model:"claude-sonnet-4-6") with name = "hello" }
-    ~options:{ Agent.default_options with
-      provider = Some (Provider.anthropic ~model_id:"claude-sonnet-4-6" ());
-    }
-    ~tools:[] ()
+match Sys.getenv_opt "ANTHROPIC_API_KEY" with
+| None | Some "" -> Error "ANTHROPIC_API_KEY is required"
+| Some api_key ->
+    let provider_config =
+      Llm_provider.Provider_config.make
+        ~kind:Anthropic
+        ~provider_id:"anthropic"
+        ~model_id:"claude-sonnet-4-6"
+        ~base_url:"https://api.anthropic.com"
+        ~api_key
+        ()
+    in
+    Ok
+      (Agent.create ~net
+         ~config:
+           { (Types.default_config ~model:provider_config.model_id) with name = "hello" }
+         ~options:{ Agent.default_options with provider_config = Some provider_config }
+         ~tools:[] ())
 ```
 
 See `examples/` for more: `basic_agent.ml`, `tool_use.ml`,
@@ -78,17 +99,27 @@ For tool concurrency rules see `docs/tool-concurrency.md`.
 
 ## Provider support
 
-The provider variants actually wired in `lib/provider.ml` are:
+Agent execution has one provider carrier:
+`Agent.options.provider_config : Llm_provider.Provider_config.t option`.
+`Provider_config.kind` selects the wire format:
 
-| Variant | Constructor | Endpoint |
-|---------|-------------|----------|
-| `Local` (llama-server) | `Provider.Local { base_url }` / `Provider.local_llm ~base_url ~model_id ()` | Caller-selected endpoint |
-| `Anthropic` | `Provider.Anthropic` / `Provider.anthropic ~model_id ()` | `https://api.anthropic.com` |
-| `OpenAICompat` | `Provider.OpenAICompat { base_url; ... }` / `Provider.openrouter ~model_id ()` | Any `/chat/completions` host |
+| Kind | Endpoint family |
+|------|-----------------|
+| `Anthropic` / `Kimi` | Anthropic Messages-compatible |
+| `OpenAI_compat` | OpenAI Chat Completions-compatible |
+| `Ollama` | Ollama native chat |
+| `Gemini` | Gemini native |
+| `Glm` | GLM native |
+| `DashScope` | DashScope native |
 
-There is no separate `Gemini` variant in the wired provider type — Gemini is reached through an OpenAI-compatible endpoint when one is available. If you need first-class Gemini support, that is currently a planned item, not a shipped one.
-
-`Provider.resolve` returns `(base_url * api_key * headers, sdk_error) result`. Missing env vars produce `Error`, not silent fallback.
+Construct the exact value with `Llm_provider.Provider_config.make`, or resolve a
+declared provider catalog row with `Provider_runtime_binding.find` followed by
+`Provider_runtime_binding.to_provider_config`. The direct path carries the
+credential. The catalog path preserves provider identity, endpoint, request
+path, and declared capabilities; the application must resolve the binding's
+declared auth source and attach its credential explicitly. A missing catalog
+binding, missing credential, or absent agent provider is an explicit error;
+OAS does not guess from a model id, URL, or environment.
 
 ## Architecture
 
@@ -112,7 +143,8 @@ Anything outside this repository — multi-process coordination, repo-wide task 
 | Module | Role |
 |--------|------|
 | `Types` | Domain types: message, role, stop_reason, content_block, SSE events |
-| `Provider` | LLM endpoint abstraction (Local / Anthropic / OpenAICompat / Ollama), plus the custom-provider registry |
+| `Llm_provider.Provider_config` | Exact provider identity, wire kind, endpoint, credential, request path, and capability carrier |
+| `Provider_runtime_binding` | Fail-closed conversion from a declared catalog binding to `Provider_config.t` |
 | `Agent` | Multi-turn agent loop with automatic tool_use handling (abstract `Agent.t`) |
 | `Tool` / `Tool_set` | Tool definition, JSON Schema generation, O(1) lookup |
 | `Builder` | Fluent API for agent construction with `build_safe` validation |

@@ -410,7 +410,7 @@ through `Custom("provider.<name>.<event>", ...)`.
 | llama.cpp / llama-server (local) | ✓ | ✓ | ✓ | `provider.llama.*` |
 | Ollama (local) | ✓ | ✓ | ✓ | `provider.ollama.*` |
 | vLLM / LM Studio / TGI / MLX (local) | ✓ | ✓ | ✓ | `provider.<runtime>.*` |
-| Custom (`custom:model@url`) | ✓ | ✓ | ✓ | caller-defined |
+| Caller-supplied typed endpoint | ✓ | ✓ | ✓ | caller-defined |
 
 **Verification**: `test/test_multivendor_events.ml` asserts a golden
 Event_bus sequence (`AgentStarted → TurnStarted → ToolCalled →
@@ -452,9 +452,9 @@ provider. Missing credentials / endpoints skip gracefully.
 1. **Hosted API**: create `lib/llm_provider/backend_<name>.ml` implementing
    the same normalized streaming interface (`Types.sse_event` output).
    OpenAI-compatible endpoints don't need a new backend module — declare
-   the endpoint in `Llm_provider.Provider_registry`/`Provider_catalog`, or
-   register it at runtime via `Provider.register_provider`, or route via
-   `custom:model@url`.
+   the endpoint in `Llm_provider.Provider_registry`/`Provider_catalog`, then
+   pass the resulting exact `Provider_config.t` to
+   `Agent.options.provider_config`.
 2. **SSE normalization**: map the provider's wire events to
    `Types.sse_event` constructors. Document the mapping in §6.1.
 3. **Provider-specific extensions**: if the provider exposes unique

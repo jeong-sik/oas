@@ -56,7 +56,9 @@ field have been removed.
   provider adapter, and `Agent_sdk.create_agent` facade are removed rather
   than migrated. Standalone structured extraction now requires the same exact
   `Provider_config.t`, and agent cards no longer invent Anthropic when no
-  provider is configured.
+  provider is configured. Public examples now pass an exact
+  `Provider_config.t` or fail-closed catalog binding instead of relying on an
+  implicit local/default provider or the historical implementation registry.
 
 `Eval.compare` and its implicit lower-is-better policy have been removed.
 `Eval.compare_with_specs` now compares only metrics selected by an explicit

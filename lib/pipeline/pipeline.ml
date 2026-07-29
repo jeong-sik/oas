@@ -140,7 +140,7 @@ let stage_route
 
 (** Accumulate usage, invoke AfterTurn hook, emit events, append
     assistant message, and increment turn_count. *)
-let stage_collect ?raw_trace_run ?clock ~turn agent response =
+let stage_collect ?raw_trace_run ?clock ~turn ~turn_config agent response =
   Tracing.with_span
     agent.options.tracer
     { kind = Hook_invoke
@@ -161,10 +161,15 @@ let stage_collect ?raw_trace_run ?clock ~turn agent response =
           set_lifecycle agent ~last_progress_at:ts Running
         | _ -> set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running);
        let* () = trace_assistant_blocks raw_trace_run response.content in
+       let provider_config =
+         Option.map
+           (Provider.provider_config_with_agent_config ~config:turn_config)
+           agent.options.provider_config
+       in
        let usage =
          Agent_turn.accumulate_usage
            ~current_usage:agent.state.usage
-           ~provider_config:agent.options.provider_config
+           ~provider_config
            ~response_model:(Some response.model)
            ~response_usage:response.usage
        in
@@ -647,7 +652,7 @@ let run_new_turn
              |> tag_error "response"
            in
            let* () =
-             stage_collect ?raw_trace_run ?clock ~turn agent response
+             stage_collect ?raw_trace_run ?clock ~turn ~turn_config agent response
              |> tag_error "collect"
            in
            (match Pipeline_execution_scope.provider execution with

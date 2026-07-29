@@ -12,7 +12,7 @@
     OAS never derives this structural choice from a tool name or effect.
 
     Prerequisites:
-    - A running llama-server on port 8085 (or set provider accordingly)
+    - A running llama-server on port 8085
 
     Usage:
       dune exec examples/tool_use.exe *)
@@ -94,8 +94,15 @@ let () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen3.5"
+      ~base_url:"http://127.0.0.1:8085"
+      ()
+  in
   let config =
-    { (default_config ~model:"claude-sonnet-4-6") with
+    { (default_config ~model:provider_config.model_id) with
       name = "tool-demo"
     ; system_prompt =
         Some "You have access to a calculator, a weather API, and a counter. Use them."
@@ -105,6 +112,7 @@ let () =
     Agent.create
       ~net
       ~config
+      ~options:{ Agent.default_options with provider_config = Some provider_config }
       ~tools:[ calculator_tool; weather_api_tool; counter_tool ]
       ()
   in
