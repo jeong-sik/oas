@@ -15,16 +15,38 @@ The read-only event store supplies only private validated snapshots, and the
 journal reducer enforces the exact next sequence before projection mutates its
 derived index.
 
+### Bug Fixes
+
+Gemini streaming and non-streaming responses now share one finish-reason
+mapping. A function-call block truncated by `MAX_TOKENS` remains terminal and
+is not promoted to executable tool use. Documented policy filters map to
+refusal, while a missing or unknown terminal reason remains non-executable
+instead of being inferred as `STOP` from tool-block presence.
+
 ### Breaking Changes
+
+`Structured.schema` now contains only the provider-native JSON Schema
+parameters and typed parser. The unused forced-tool `name` and `description`
+fields, `schema_to_tool_json`, and `extract_tool_input` are removed rather than
+retained as compatibility state. Current callers use
+`schema_to_json_schema`, `extract`, `extract_stream`, or `schema_extractor`.
+
+`Provider_config` now carries provider-native JSON Schema requests only as
+`response_format = JsonSchema schema`. The duplicate `output_schema` record
+field, constructor argument, derivation helper, and the Exact Output
+contradictory-state errors are removed. This makes the previously gated
+inconsistent state unrepresentable; callers must set `response_format`
+directly. The boolean `response_format_json` constructor/builder shims and
+boolean/null response-format decoding are also removed.
 
 `Tool.t` now has one execution-environment handler shape. `Typed_tool`
 constructors return canonical `Tool.t` values directly, and the secondary
 typed runtime representation, erasure bridge, and unused agent-tool raw input
 field have been removed.
 
-* **checkpoint persistence:** accept only the exact current v8 checkpoint
-  schema. Released v5/v6 artifacts must be reset rather than migrated at
-  runtime.
+* **checkpoint persistence:** accept only the exact current v9 checkpoint
+  schema. All earlier artifacts, including released v8, must be reset rather
+  than migrated at runtime.
 * **provider tools:** reject historical OpenAI `parameters` lists; current
   callers must supply `input_schema` or an already-provider-shaped JSON Schema
   object.

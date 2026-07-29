@@ -2082,15 +2082,9 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
   (match chunk.gem_finish_reason with
    | Some reason ->
      let stop_reason =
-       (* Gemini wire vocabulary -> stop_reason. Kept in sync with the
-          non-streaming parser (Backend_gemini.parse_response): SAFETY and
-          RECITATION both surface as Refusal. *)
-       match String.uppercase_ascii reason with
-       | "STOP" when Hashtbl.length state.tool_block_indices > 0 -> StopToolUse
-       | "STOP" -> EndTurn
-       | "MAX_TOKENS" -> MaxTokens
-       | "SAFETY" | "RECITATION" -> Refusal
-       | other -> Unknown other
+       Backend_gemini.stop_reason_of_finish_reason
+         ~has_tool_use:(Hashtbl.length state.tool_block_indices > 0)
+         reason
      in
      emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.gem_usage })
    | None -> ());

@@ -132,10 +132,9 @@ let validate_thinking_controls mode (config : Provider_config.t) =
 
 let output_config_for_config _mode (config : Provider_config.t) =
   let output_format =
-    match config.output_schema, config.response_format with
-    | Some schema, _ -> Some schema
-    | None, JsonSchema schema -> Some schema
-    | None, JsonMode | None, Off -> None
+    match config.response_format with
+    | JsonSchema schema -> Some schema
+    | JsonMode | Off -> None
   in
   let fields =
     match output_format with

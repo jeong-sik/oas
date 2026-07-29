@@ -89,11 +89,22 @@ let test_collector_verdict () =
 
 (* ── comparison tests ─────────────────────────────────────────── *)
 
+let comparison_or_fail = function
+  | Ok comparison -> comparison
+  | Error _ -> Alcotest.fail "expected comparison"
+;;
+
 let test_compare_regression () =
   let baseline = mk_run_metrics [ mk_metric "latency" (Float_val 100.0) ] in
   let candidate = mk_run_metrics ~run_id:"r2" [ mk_metric "latency" (Float_val 120.0) ] in
-  let specs = [ { Eval.name = "latency"; goal = Lower; tolerance_pct = None } ] in
-  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate in
+  let specs =
+    [ { Eval.name = "latency"
+      ; goal = Lower
+      ; tolerance_pct = Eval.default_delta_threshold_pct
+      }
+    ]
+  in
+  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate |> comparison_or_fail in
   Alcotest.(check int) "regressions" 1 (List.length cmp.regressions);
   Alcotest.(check int) "improvements" 0 (List.length cmp.improvements)
 ;;
@@ -101,8 +112,14 @@ let test_compare_regression () =
 let test_compare_improvement () =
   let baseline = mk_run_metrics [ mk_metric "latency" (Float_val 100.0) ] in
   let candidate = mk_run_metrics ~run_id:"r2" [ mk_metric "latency" (Float_val 80.0) ] in
-  let specs = [ { Eval.name = "latency"; goal = Lower; tolerance_pct = None } ] in
-  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate in
+  let specs =
+    [ { Eval.name = "latency"
+      ; goal = Lower
+      ; tolerance_pct = Eval.default_delta_threshold_pct
+      }
+    ]
+  in
+  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate |> comparison_or_fail in
   Alcotest.(check int) "regressions" 0 (List.length cmp.regressions);
   Alcotest.(check int) "improvements" 1 (List.length cmp.improvements)
 ;;
@@ -110,8 +127,14 @@ let test_compare_improvement () =
 let test_compare_unchanged () =
   let baseline = mk_run_metrics [ mk_metric "score" (Float_val 0.95) ] in
   let candidate = mk_run_metrics ~run_id:"r2" [ mk_metric "score" (Float_val 0.96) ] in
-  let specs = [ { Eval.name = "score"; goal = Higher; tolerance_pct = None } ] in
-  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate in
+  let specs =
+    [ { Eval.name = "score"
+      ; goal = Higher
+      ; tolerance_pct = Eval.default_delta_threshold_pct
+      }
+    ]
+  in
+  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate |> comparison_or_fail in
   Alcotest.(check int) "unchanged" 1 (List.length cmp.unchanged)
 ;;
 
@@ -119,9 +142,9 @@ let test_compare_with_specs_higher_is_better () =
   let baseline = mk_run_metrics [ mk_metric "accuracy" (Float_val 0.90) ] in
   let candidate = mk_run_metrics ~run_id:"r2" [ mk_metric "accuracy" (Float_val 0.95) ] in
   let specs =
-    [ { Eval.name = "accuracy"; goal = Eval.Higher; tolerance_pct = Some 1.0 } ]
+    [ { Eval.name = "accuracy"; goal = Eval.Higher; tolerance_pct = 1.0 } ]
   in
-  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate in
+  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate |> comparison_or_fail in
   Alcotest.(check int) "improvements" 1 (List.length cmp.improvements);
   Alcotest.(check int) "regressions" 0 (List.length cmp.regressions)
 ;;
@@ -137,11 +160,21 @@ let test_compare_with_specs_excludes_unspecified_metrics () =
       [ mk_metric "accuracy" (Float_val 0.95); mk_metric "latency" (Float_val 200.0) ]
   in
   let specs =
-    [ { Eval.name = "accuracy"; goal = Eval.Higher; tolerance_pct = Some 1.0 } ]
+    [ { Eval.name = "accuracy"; goal = Eval.Higher; tolerance_pct = 1.0 } ]
   in
-  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate in
+  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate |> comparison_or_fail in
   Alcotest.(check int) "selected improvement" 1 (List.length cmp.improvements);
   Alcotest.(check int) "unspecified regression excluded" 0 (List.length cmp.regressions)
+;;
+
+let test_compare_rejects_invalid_tolerance () =
+  let baseline = mk_run_metrics [ mk_metric "latency" (Float_val 100.0) ] in
+  let candidate = mk_run_metrics ~run_id:"r2" [ mk_metric "latency" (Float_val 101.0) ] in
+  let specs = [ { Eval.name = "latency"; goal = Lower; tolerance_pct = Float.nan } ] in
+  match Eval.compare_with_specs ~specs ~baseline ~candidate with
+  | Error (Eval.Invalid_tolerance_pct { metric_name; _ }) ->
+    Alcotest.(check string) "metric name" "latency" metric_name
+  | Ok _ | Error _ -> Alcotest.fail "expected Invalid_tolerance_pct"
 ;;
 
 (* ── threshold tests ──────────────────────────────────────────── *)
@@ -231,6 +264,10 @@ let () =
             "unspecified metrics excluded"
             `Quick
             test_compare_with_specs_excludes_unspecified_metrics
+        ; Alcotest.test_case
+            "invalid tolerance rejected"
+            `Quick
+            test_compare_rejects_invalid_tolerance
         ] )
     ; ( "threshold"
       , [ Alcotest.test_case "pass" `Quick test_threshold_pass

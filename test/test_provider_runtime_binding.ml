@@ -396,10 +396,7 @@ let test_catalog_structured_output_capability_projects_to_provider_config () =
     in
     let schema = `Assoc [ "type", `String "object" ] in
     let cfg =
-      { cfg with
-        Llm_provider.Provider_config.response_format = Types.JsonSchema schema
-      ; output_schema = Some schema
-      }
+      { cfg with Llm_provider.Provider_config.response_format = Types.JsonSchema schema }
     in
     Alcotest.(check bool)
       "catalog endpoint accepts declared structured output"

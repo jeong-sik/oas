@@ -70,7 +70,6 @@ type context_fit = Prepared_completion_request.context_fit
 
 type wire_admission_error =
   | Capability_snapshot_missing
-  | Inconsistent_output_contract
   | Output_contract_unavailable
   | Cross_feature_not_allowed
   | Global_admission_not_allowed

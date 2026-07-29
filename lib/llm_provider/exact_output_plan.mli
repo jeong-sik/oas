@@ -10,7 +10,6 @@ type preflight
 
 type output_admission_error =
   | Explicit_capability_snapshot_required
-  | Contradictory_output_state
   | Unsupported_output_contract of
       { provider_kind : Provider_config.provider_kind
       ; model_id : string

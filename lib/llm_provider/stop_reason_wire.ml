@@ -44,10 +44,7 @@ let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
   | Content_filter -> Types.ContentFilter
   | Repetition_truncation -> Types.RepetitionTruncation
   | Context_window_exceeded -> Types.ContextWindowExceeded
-  (* "trust content over label": a non-tool finish that nonetheless carried tool
-     blocks is a tool-use turn (mirrors the historical non-streaming guard);
-     without tool blocks it is surfaced verbatim as [Unknown]. *)
-  | Other other -> if has_tool_blocks then Types.StopToolUse else Types.Unknown other
+  | Other other -> Types.Unknown other
 ;;
 
 let provisional_of_string s : Types.stop_reason =
@@ -66,7 +63,6 @@ let reconcile (sr : Types.stop_reason) ~has_tool_blocks : Types.stop_reason =
   match sr with
   | Types.StopToolUse when not has_tool_blocks -> Types.UnmatchedToolCalls
   | Types.UnmatchedToolCalls when has_tool_blocks -> Types.StopToolUse
-  | Types.Unknown _ when has_tool_blocks -> Types.StopToolUse
   (* "trust content over label" for normal completion: a provider that emitted
      complete tool_use blocks but labeled the turn [EndTurn]
      (OpenAI/GLM finish_reason=stop) is mislabeling a tool-request turn. The
@@ -147,6 +143,11 @@ let%test "reconcile upgrades EndTurn with tools to StopToolUse" =
 (* A normal completion with no tool blocks still ends the turn. *)
 let%test "reconcile preserves EndTurn without tools" =
   reconcile Types.EndTurn ~has_tool_blocks:false = Types.EndTurn
+;;
+
+let%test "reconcile preserves Unknown with tools as non-executable" =
+  reconcile (Types.Unknown "provider_terminal") ~has_tool_blocks:true
+  = Types.Unknown "provider_terminal"
 ;;
 
 (* Truncation safety: MaxTokens + tool blocks is NOT upgraded, because a

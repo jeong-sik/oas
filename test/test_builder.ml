@@ -448,11 +448,7 @@ let test_with_provider_config_reaches_dispatch_losslessly () =
   Alcotest.(check string)
     "later response format setter wins"
     (Types.show_response_format Types.JsonMode)
-    (Types.show_response_format dispatched.response_format);
-  Alcotest.(check bool)
-    "changed response format clears stale output schema"
-    true
-    (Option.is_none dispatched.output_schema)
+    (Types.show_response_format dispatched.response_format)
 ;;
 
 let test_handoff_inherits_injected_transport () =

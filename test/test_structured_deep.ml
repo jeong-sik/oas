@@ -1,8 +1,8 @@
 (** Deep coverage tests for Structured module.
 
-    Targets uncovered branches in structured.ml (51 uncovered points).
-    Focuses on schema property ordering, complex parse functions, error path
-    classification, and exact extract_tool_input edge cases. *)
+    Targets uncovered branches in structured.ml.
+    Focuses on schema property ordering, complex parse functions, and error
+    path classification. *)
 
 open Agent_sdk
 open Types
@@ -15,13 +15,11 @@ let make_response ?(usage = None) content : Types.api_response =
 
 (* ── Schema property ordering: fold_left + List.rev ─────────── *)
 
-(** schema_to_tool_json uses fold_left then List.rev to preserve
+(** schema_to_json_schema uses fold_left then List.rev to preserve
     parameter declaration order in properties. Verify ordering. *)
 let test_property_ordering_preserved () =
   let schema : unit Structured.schema =
-    { name = "ordered"
-    ; description = "Test ordering"
-    ; params =
+    { params =
         [ { name = "first"; description = "1st"; param_type = String; required = true }
         ; { name = "second"; description = "2nd"; param_type = Integer; required = true }
         ; { name = "third"; description = "3rd"; param_type = Boolean; required = false }
@@ -29,11 +27,9 @@ let test_property_ordering_preserved () =
     ; parse = (fun _ -> Ok ())
     }
   in
-  let json = Structured.schema_to_tool_json schema in
+  let json = Structured.schema_to_json_schema schema in
   let open Yojson.Safe.Util in
-  let prop_names =
-    json |> member "input_schema" |> member "properties" |> to_assoc |> List.map fst
-  in
+  let prop_names = json |> member "properties" |> to_assoc |> List.map fst in
   Alcotest.(check (list string))
     "property order matches declaration"
     [ "first"; "second"; "third" ]
@@ -43,9 +39,7 @@ let test_property_ordering_preserved () =
 (** Required list preserves filter_map order (declaration order). *)
 let test_required_ordering () =
   let schema : unit Structured.schema =
-    { name = "req_order"
-    ; description = "Required ordering"
-    ; params =
+    { params =
         [ { name = "z_last"; description = "Z"; param_type = String; required = true }
         ; { name = "a_first"; description = "A"; param_type = Integer; required = true }
         ; { name = "m_mid"; description = "M"; param_type = Number; required = false }
@@ -53,11 +47,9 @@ let test_required_ordering () =
     ; parse = (fun _ -> Ok ())
     }
   in
-  let json = Structured.schema_to_tool_json schema in
+  let json = Structured.schema_to_json_schema schema in
   let open Yojson.Safe.Util in
-  let required =
-    json |> member "input_schema" |> member "required" |> to_list |> List.map to_string
-  in
+  let required = json |> member "required" |> to_list |> List.map to_string in
   (* filter_map preserves order: z_last first, a_first second *)
   Alcotest.(check (list string))
     "required in declaration order"
@@ -68,129 +60,6 @@ let test_required_ordering () =
 (* ── Complex parse functions ────────────────────────────────── *)
 
 (** Schema with a parse that returns a nested record type. *)
-let test_complex_parse_success () =
-  let schema : (string * float * bool) Structured.schema =
-    { name = "complex_parse"
-    ; description = "Parse complex structure"
-    ; params =
-        [ { name = "label"; description = "Label"; param_type = String; required = true }
-        ; { name = "score"; description = "Score"; param_type = Number; required = true }
-        ; { name = "active"
-          ; description = "Active"
-          ; param_type = Boolean
-          ; required = true
-          }
-        ]
-    ; parse =
-        (fun json ->
-          let open Yojson.Safe.Util in
-          try
-            let label = json |> member "label" |> to_string in
-            let score = json |> member "score" |> to_float in
-            let active = json |> member "active" |> to_bool in
-            Ok (label, score, active)
-          with
-          | exn -> Error (Printexc.to_string exn))
-    }
-  in
-  let input_json =
-    `Assoc [ "label", `String "test"; "score", `Float 0.95; "active", `Bool true ]
-  in
-  let content =
-    [ ToolUse { id = "tu_cx"; name = "complex_parse"; input = input_json } ]
-  in
-  match Structured.extract_tool_input ~schema content with
-  | Ok (label, score, active) ->
-    Alcotest.(check string) "label" "test" label;
-    Alcotest.(check (float 0.001)) "score" 0.95 score;
-    Alcotest.(check bool) "active" true active
-  | Error e -> Alcotest.fail ("unexpected: " ^ Error.to_string e)
-;;
-
-(** Parse function that returns Error with a detailed message. *)
-let test_complex_parse_detailed_error () =
-  let schema : int Structured.schema =
-    { name = "detail_error"
-    ; description = "Detailed error"
-    ; params = []
-    ; parse =
-        (fun json ->
-          let open Yojson.Safe.Util in
-          match json |> member "value" with
-          | `Null -> Error "value field is null"
-          | `Int n when n < 0 -> Error "value must be non-negative"
-          | `Int n -> Ok n
-          | _ -> Error "value must be an integer")
-    }
-  in
-  (* Test null value path *)
-  let content_null =
-    [ ToolUse { id = "tu_n"; name = "detail_error"; input = `Assoc [ "value", `Null ] } ]
-  in
-  (match Structured.extract_tool_input ~schema content_null with
-   | Error (Error.Serialization (JsonParseError { detail })) ->
-     Alcotest.(check string) "null error detail" "value field is null" detail
-   | Error e -> Alcotest.failf "expected Serialization, got: %s" (Error.to_string e)
-   | Ok _ -> Alcotest.fail "expected error");
-  (* Test negative value path *)
-  let content_neg =
-    [ ToolUse
-        { id = "tu_neg"; name = "detail_error"; input = `Assoc [ "value", `Int (-5) ] }
-    ]
-  in
-  (match Structured.extract_tool_input ~schema content_neg with
-   | Error (Error.Serialization (JsonParseError { detail })) ->
-     Alcotest.(check string) "neg error detail" "value must be non-negative" detail
-   | Error e -> Alcotest.failf "expected Serialization, got: %s" (Error.to_string e)
-   | Ok _ -> Alcotest.fail "expected error");
-  (* Test non-integer path *)
-  let content_str =
-    [ ToolUse
-        { id = "tu_s"
-        ; name = "detail_error"
-        ; input = `Assoc [ "value", `String "not a number" ]
-        }
-    ]
-  in
-  match Structured.extract_tool_input ~schema content_str with
-  | Error (Error.Serialization (JsonParseError { detail })) ->
-    Alcotest.(check string) "string error detail" "value must be an integer" detail
-  | Error e -> Alcotest.failf "expected Serialization, got: %s" (Error.to_string e)
-  | Ok _ -> Alcotest.fail "expected error"
-;;
-
-(* ── extract_tool_input: multiple ToolUse with different names ── *)
-
-(** When content has ToolUse blocks for different schemas, only the
-    matching one is extracted. *)
-let test_extract_skips_unrelated_tools () =
-  let schema : string Structured.schema =
-    { name = "target_tool"
-    ; description = "Target"
-    ; params = []
-    ; parse =
-        (fun json ->
-          let open Yojson.Safe.Util in
-          Ok (json |> member "data" |> to_string))
-    }
-  in
-  let content =
-    [ ToolUse { id = "tu_a"; name = "other_tool_1"; input = `Assoc [ "x", `Int 1 ] }
-    ; ToolUse { id = "tu_b"; name = "other_tool_2"; input = `Assoc [ "y", `Int 2 ] }
-    ; ToolUse
-        { id = "tu_c"; name = "target_tool"; input = `Assoc [ "data", `String "found" ] }
-    ; ToolUse
-        { id = "tu_d"; name = "target_tool"; input = `Assoc [ "data", `String "second" ] }
-    ]
-  in
-  match Structured.extract_tool_input ~schema content with
-  | Ok v -> Alcotest.(check string) "first matching tool" "found" v
-  | Error e -> Alcotest.fail ("unexpected: " ^ Error.to_string e)
-;;
-
-(* ── json_extractor with different JSON structures ──────────── *)
-
-(** json_extractor parsing a JSON array from text block. *)
 let test_json_extractor_array () =
   let extract =
     Structured.json_extractor (fun json ->
@@ -262,9 +131,7 @@ let test_text_extractor_empty_string () =
 
 let test_schema_all_six_param_types () =
   let schema : unit Structured.schema =
-    { name = "all_six"
-    ; description = "All 6 types"
-    ; params =
+    { params =
         [ { name = "s"; description = "string"; param_type = String; required = true }
         ; { name = "i"; description = "integer"; param_type = Integer; required = true }
         ; { name = "n"; description = "number"; param_type = Number; required = true }
@@ -275,9 +142,9 @@ let test_schema_all_six_param_types () =
     ; parse = (fun _ -> Ok ())
     }
   in
-  let json = Structured.schema_to_tool_json schema in
+  let json = Structured.schema_to_json_schema schema in
   let open Yojson.Safe.Util in
-  let props = json |> member "input_schema" |> member "properties" in
+  let props = json |> member "properties" in
   Alcotest.(check string)
     "string"
     "string"
@@ -302,20 +169,16 @@ let test_schema_all_six_param_types () =
     "object"
     "object"
     (props |> member "o" |> member "type" |> to_string);
-  let required =
-    json |> member "input_schema" |> member "required" |> to_list |> List.map to_string
-  in
+  let required = json |> member "required" |> to_list |> List.map to_string in
   Alcotest.(check int) "6 required" 6 (List.length required)
 ;;
 
 (* ── Schema JSON structure validation ───────────────────────── *)
 
-(** Verify the full JSON structure matches Anthropic tool definition format. *)
+(** Verify the full provider-native JSON Schema structure. *)
 let test_schema_json_full_structure () =
   let schema : string Structured.schema =
-    { name = "get_weather"
-    ; description = "Get weather for a city"
-    ; params =
+    { params =
         [ { name = "city"
           ; description = "City name"
           ; param_type = String
@@ -333,58 +196,20 @@ let test_schema_json_full_structure () =
           Ok (json |> member "city" |> to_string))
     }
   in
-  let json = Structured.schema_to_tool_json schema in
+  let json = Structured.schema_to_json_schema schema in
   let open Yojson.Safe.Util in
   (* Top-level keys *)
   let keys = json |> to_assoc |> List.map fst in
   Alcotest.(check (list string))
     "top-level keys"
-    [ "name"; "description"; "input_schema" ]
-    keys;
-  (* input_schema keys *)
-  let is_keys = json |> member "input_schema" |> to_assoc |> List.map fst in
-  Alcotest.(check (list string))
-    "input_schema keys"
     [ "type"; "properties"; "required" ]
-    is_keys;
+    keys;
   (* Property descriptions preserved *)
   let city_desc =
-    json
-    |> member "input_schema"
-    |> member "properties"
-    |> member "city"
-    |> member "description"
-    |> to_string
+    json |> member "properties" |> member "city" |> member "description" |> to_string
   in
   Alcotest.(check string) "city description" "City name" city_desc
 ;;
-
-(* ── extract_tool_input with ToolUse containing complex input ── *)
-
-(** Extract from ToolUse where input is a deeply nested JSON. *)
-let test_extract_deeply_nested_input () =
-  let schema : string Structured.schema =
-    { name = "nested_tool"
-    ; description = "Nested"
-    ; params = []
-    ; parse =
-        (fun json ->
-          let open Yojson.Safe.Util in
-          Ok (json |> member "level1" |> member "level2" |> member "value" |> to_string))
-    }
-  in
-  let nested_input =
-    `Assoc [ "level1", `Assoc [ "level2", `Assoc [ "value", `String "deep_value" ] ] ]
-  in
-  let content =
-    [ ToolUse { id = "tu_deep"; name = "nested_tool"; input = nested_input } ]
-  in
-  match Structured.extract_tool_input ~schema content with
-  | Ok v -> Alcotest.(check string) "deep value" "deep_value" v
-  | Error e -> Alcotest.fail ("unexpected: " ^ Error.to_string e)
-;;
-
-(* ── Suite ──────────────────────────────────────────────────── *)
 
 let () =
   Alcotest.run
@@ -395,20 +220,6 @@ let () =
             `Quick
             test_property_ordering_preserved
         ; Alcotest.test_case "required ordering" `Quick test_required_ordering
-        ] )
-    ; ( "complex_parse"
-      , [ Alcotest.test_case "nested record parse" `Quick test_complex_parse_success
-        ; Alcotest.test_case
-            "detailed error paths"
-            `Quick
-            test_complex_parse_detailed_error
-        ] )
-    ; ( "extract_tool_input_deep"
-      , [ Alcotest.test_case
-            "skips unrelated tools"
-            `Quick
-            test_extract_skips_unrelated_tools
-        ; Alcotest.test_case "deeply nested input" `Quick test_extract_deeply_nested_input
         ] )
     ; ( "json_extractor_deep"
       , [ Alcotest.test_case "parse array" `Quick test_json_extractor_array
