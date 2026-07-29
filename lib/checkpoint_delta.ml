@@ -197,64 +197,70 @@ let apply_delta base delta =
       (Error.Serialization
          (VersionMismatch
             { expected = checkpoint_version; got = delta.base_checkpoint_version }))
-  else if Checkpoint_codec.checkpoint_hash base <> delta.base_checkpoint_hash
-  then
-    Error (Error.Io (ValidationFailed { detail = "Checkpoint.delta base hash mismatch" }))
-  else (
-    let apply_op (checkpoint : t) (op : delta_op) =
-      match op with
-      | Replace_identity (patch : identity_patch) ->
-        Ok
-          { checkpoint with
-            session_id = patch.session_id
-          ; agent_name = patch.agent_name
-          ; model = patch.model
-          ; created_at = patch.created_at
-          }
-      | Replace_system_prompt system_prompt -> Ok { checkpoint with system_prompt }
-      | Splice_messages splice ->
-        let+ messages = apply_message_splice checkpoint.messages splice in
-        { checkpoint with messages }
-      | Replace_usage usage -> Ok { checkpoint with usage }
-      | Replace_turn_count turn_count -> Ok { checkpoint with turn_count }
-      | Replace_tools tools -> Ok { checkpoint with tools }
-      | Replace_tool_choice tool_choice -> Ok { checkpoint with tool_choice }
-      | Replace_sampling (patch : sampling_patch) ->
-        Ok
-          { checkpoint with
-            temperature = patch.temperature
-          ; top_p = patch.top_p
-          ; top_k = patch.top_k
-          ; min_p = patch.min_p
-          ; enable_thinking = patch.enable_thinking
-          ; preserve_thinking = patch.preserve_thinking
-          ; thinking_budget = patch.thinking_budget
-          ; reasoning_effort = patch.reasoning_effort
-          }
-      | Replace_limits (patch : limits_patch) ->
-        Ok
-          { checkpoint with
-            disable_parallel_tool_use = patch.disable_parallel_tool_use
-          ; response_format = patch.response_format
-          ; cache_system_prompt = patch.cache_system_prompt
-          }
-      | Patch_context diff ->
-        Ok { checkpoint with context = apply_context_patch checkpoint.context diff }
-      | Replace_mcp_sessions mcp_sessions -> Ok { checkpoint with mcp_sessions }
-      | Replace_working_context working_context -> Ok { checkpoint with working_context }
-    in
-    let initial = { base with context = Context.copy base.context } in
-    let* checkpoint =
-      List.fold_left
-        (fun acc op ->
-           let* checkpoint = acc in
-           apply_op checkpoint op)
-        (Ok initial)
-        delta.operations
-    in
-    if Checkpoint_codec.checkpoint_hash checkpoint <> delta.result_checkpoint_hash
+  else
+    let* () = Checkpoint_codec.validate_checkpoint base in
+    if Checkpoint_codec.checkpoint_hash base <> delta.base_checkpoint_hash
     then
       Error
-        (Error.Io (ValidationFailed { detail = "Checkpoint.delta result hash mismatch" }))
-    else Ok checkpoint)
+        (Error.Io (ValidationFailed { detail = "Checkpoint.delta base hash mismatch" }))
+    else (
+      let apply_op (checkpoint : t) (op : delta_op) =
+        match op with
+        | Replace_identity (patch : identity_patch) ->
+          Ok
+            { checkpoint with
+              session_id = patch.session_id
+            ; agent_name = patch.agent_name
+            ; model = patch.model
+            ; created_at = patch.created_at
+            }
+        | Replace_system_prompt system_prompt -> Ok { checkpoint with system_prompt }
+        | Splice_messages splice ->
+          let+ messages = apply_message_splice checkpoint.messages splice in
+          { checkpoint with messages }
+        | Replace_usage usage -> Ok { checkpoint with usage }
+        | Replace_turn_count turn_count -> Ok { checkpoint with turn_count }
+        | Replace_tools tools -> Ok { checkpoint with tools }
+        | Replace_tool_choice tool_choice -> Ok { checkpoint with tool_choice }
+        | Replace_sampling (patch : sampling_patch) ->
+          Ok
+            { checkpoint with
+              temperature = patch.temperature
+            ; top_p = patch.top_p
+            ; top_k = patch.top_k
+            ; min_p = patch.min_p
+            ; enable_thinking = patch.enable_thinking
+            ; preserve_thinking = patch.preserve_thinking
+            ; thinking_budget = patch.thinking_budget
+            ; reasoning_effort = patch.reasoning_effort
+            }
+        | Replace_limits (patch : limits_patch) ->
+          Ok
+            { checkpoint with
+              disable_parallel_tool_use = patch.disable_parallel_tool_use
+            ; response_format = patch.response_format
+            ; cache_system_prompt = patch.cache_system_prompt
+            }
+        | Patch_context diff ->
+          Ok { checkpoint with context = apply_context_patch checkpoint.context diff }
+        | Replace_mcp_sessions mcp_sessions -> Ok { checkpoint with mcp_sessions }
+        | Replace_working_context working_context ->
+          Ok { checkpoint with working_context }
+      in
+      let initial = { base with context = Context.copy base.context } in
+      let* checkpoint =
+        List.fold_left
+          (fun acc op ->
+             let* checkpoint = acc in
+             apply_op checkpoint op)
+          (Ok initial)
+          delta.operations
+      in
+      let* () = Checkpoint_codec.validate_checkpoint checkpoint in
+      if Checkpoint_codec.checkpoint_hash checkpoint <> delta.result_checkpoint_hash
+      then
+        Error
+          (Error.Io
+             (ValidationFailed { detail = "Checkpoint.delta result hash mismatch" }))
+      else Ok checkpoint)
 ;;

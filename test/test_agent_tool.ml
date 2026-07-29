@@ -192,7 +192,7 @@ let typed_config runner =
 
 let test_create_typed_schema () =
   let tool = Agent_tool.create_typed (typed_config structured_runner) in
-  let schema = Typed_tool.schema tool in
+  let schema = tool.schema in
   Alcotest.(check string) "name" "typed_child" schema.name;
   Alcotest.(check bool)
     "has prompt param"
@@ -200,10 +200,10 @@ let test_create_typed_schema () =
     (List.exists (fun (p : Types.tool_param) -> p.name = "prompt") schema.parameters)
 ;;
 
-let test_typed_child_invocation_output_json () =
+let test_typed_child_output_json () =
   let open Yojson.Safe.Util in
   let tool = Agent_tool.create_typed (typed_config structured_runner) in
-  match Typed_tool.execute tool (`Assoc [ "prompt", `String "hello" ]) with
+  match Tool.execute tool (`Assoc [ "prompt", `String "hello" ]) with
   | Error { message; _ } -> Alcotest.failf "error: %s" message
   | Ok { content; _meta = _ } ->
     let json = Yojson.Safe.from_string content in
@@ -227,25 +227,9 @@ let test_typed_child_invocation_output_json () =
       (json |> member "usage" |> member "input_tokens" |> to_int)
 ;;
 
-let test_typed_child_invocation_preserves_raw_input () =
+let test_typed_constructor_returns_canonical_tool () =
   let open Yojson.Safe.Util in
-  let raw_input = `Assoc [ "prompt", `String "hello"; "parent_run_id", `String "p1" ] in
   let tool = Agent_tool.create_typed (typed_config structured_runner) in
-  match Typed_tool.execute_parsed tool raw_input with
-  | Error message -> Alcotest.failf "parse error: %s" message
-  | Ok ((input : Agent_tool.child_invocation), Ok output) ->
-    Alcotest.(check string) "prompt" "hello" input.prompt;
-    Alcotest.(check string)
-      "parent_run_id"
-      "p1"
-      (input.raw_input |> member "parent_run_id" |> to_string);
-    Alcotest.(check string) "text" "child: hello" output.text
-  | Ok (_, Error message) -> Alcotest.failf "handler error: %s" message
-;;
-
-let test_typed_untyped_bridge_returns_json () =
-  let open Yojson.Safe.Util in
-  let tool = Agent_tool.create_typed_untyped (typed_config structured_runner) in
   match Tool.execute tool (`Assoc [ "prompt", `String "bridge" ]) with
   | Error { message; _ } -> Alcotest.failf "error: %s" message
   | Ok { content; _meta = _ } ->
@@ -255,7 +239,7 @@ let test_typed_untyped_bridge_returns_json () =
 
 let test_typed_missing_prompt_recoverable () =
   let tool = Agent_tool.create_typed (typed_config structured_runner) in
-  match Typed_tool.execute tool (`Assoc [ "other", `String "x" ]) with
+  match Tool.execute tool (`Assoc [ "other", `String "x" ]) with
   | Ok _ -> Alcotest.fail "expected parse error"
   | Error { recoverable; message; _ } ->
     Alcotest.(check bool) "recoverable" true recoverable;
@@ -284,15 +268,11 @@ let () =
     ; "multi_content", [ Alcotest.test_case "joined" `Quick test_multi_content ]
     ; ( "typed_child"
       , [ Alcotest.test_case "schema" `Quick test_create_typed_schema
-        ; Alcotest.test_case "output_json" `Quick test_typed_child_invocation_output_json
+        ; Alcotest.test_case "output_json" `Quick test_typed_child_output_json
         ; Alcotest.test_case
-            "preserves_raw_input"
+            "canonical_tool"
             `Quick
-            test_typed_child_invocation_preserves_raw_input
-        ; Alcotest.test_case
-            "untyped_bridge"
-            `Quick
-            test_typed_untyped_bridge_returns_json
+            test_typed_constructor_returns_canonical_tool
         ; Alcotest.test_case "missing_prompt" `Quick test_typed_missing_prompt_recoverable
         ] )
     ]

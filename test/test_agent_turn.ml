@@ -44,6 +44,7 @@ let test_prepare_turn_empty_tools () =
 let test_prepare_turn_with_tools () =
   let tool =
     Tool.create
+      ~strict:true
       ~name:"echo"
       ~description:"Echo"
       ~parameters:
@@ -68,6 +69,12 @@ let test_prepare_turn_with_tools () =
     true
     (match prep.tools_json with
      | Some (_ :: _) -> true
+     | _ -> false);
+  Alcotest.(check bool)
+    "strict reaches prepared provider input"
+    true
+    (match prep.tools_json with
+     | Some [ json ] -> Yojson.Safe.Util.(json |> member "strict" |> to_bool)
      | _ -> false)
 ;;
 

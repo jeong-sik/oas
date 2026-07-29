@@ -1,82 +1,44 @@
-(** Typed tool — compile-time enforced schema/handler type agreement.
+(** Type-safe constructors for canonical tools.
 
     @since 0.120.0 *)
 
-open Result_syntax
-
-(** Internal handler representation. Parametric variant — the type parameters
-    ['input] and ['output] are threaded through both constructors. *)
-type ('input, 'output) handler_kind =
-  | Simple of ('input -> ('output, string) result)
-  | WithContext of (Context.t -> 'input -> ('output, string) result)
-
-type ('input, 'output) t =
-  { schema : Types.tool_schema
-  ; descriptor : Tool.descriptor option
-  ; parse : Yojson.Safe.t -> ('input, string) result
-  ; handler : ('input, 'output) handler_kind
-  ; encode : 'output -> Yojson.Safe.t
-  }
-
-let create ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
-  let schema : Types.tool_schema =
-    { name; description; parameters = params; strict = None }
-  in
-  { schema; descriptor; parse; handler = Simple handler; encode }
-;;
-
-let create_with_context ~name ~description ~params ~parse ~handler ~encode ?descriptor () =
-  let schema : Types.tool_schema =
-    { name; description; parameters = params; strict = None }
-  in
-  { schema; descriptor; parse; handler = WithContext handler; encode }
-;;
-
-let run_handler
-  : type i o. ?context:Context.t -> (i, o) handler_kind -> i -> (o, string) result
-  =
-  fun ?context handler input ->
-  match handler with
-  | Simple f -> f input
-  | WithContext f ->
-    (match context with
-     | Some c -> f c input
-     | None -> Error "WithContext handler requires a context argument")
-;;
-
-let execute_parsed ?context tool json =
-  let* input = tool.parse json in
-  Ok (input, run_handler ?context tool.handler input)
-;;
-
-let execute ?context tool json =
-  match tool.parse json with
-  | Error e -> Error { Types.message = e; recoverable = true; error_class = None }
+let execute_typed ~parse ~handler ~encode json =
+  match parse json with
+  | Error message -> Error { Types.message; recoverable = true; error_class = None }
   | Ok input ->
-    (match run_handler ?context tool.handler input with
+    (match handler input with
+     | Error message -> Error { Types.message; recoverable = false; error_class = None }
      | Ok output ->
-       let json_output = tool.encode output in
-       let content = Yojson.Safe.to_string json_output in
-       Ok { Types.content; _meta = None }
-     | Error e -> Error { Types.message = e; recoverable = false; error_class = None })
+       let content = output |> encode |> Yojson.Safe.to_string in
+       Ok { Types.content; _meta = None })
 ;;
 
-let to_untyped tool =
-  let untyped_handler : Tool.handler_kind =
-    match tool.handler with
-    | Simple _ -> Tool.Simple (fun json -> execute tool json)
-    | WithContext _ -> Tool.WithContext (fun ctx json -> execute ~context:ctx tool json)
-  in
-  { Tool.schema = tool.schema; descriptor = tool.descriptor; handler = untyped_handler }
+let create ~name ~description ~params ~parse ~handler ~encode ?descriptor ?strict () =
+  Tool.create
+    ?descriptor
+    ?strict
+    ~name
+    ~description
+    ~parameters:params
+    (execute_typed ~parse ~handler ~encode)
 ;;
 
-let schema tool = tool.schema
-let name tool = tool.schema.name
-let descriptor tool = tool.descriptor
-
-let completion tool =
-  Option.fold
-    ~none:Tool_contract.Continue_after_success
-    ~some:Tool.descriptor_completion
-    tool.descriptor
+let create_with_context
+      ~name
+      ~description
+      ~params
+      ~parse
+      ~handler
+      ~encode
+      ?descriptor
+      ?strict
+      ()
+  =
+  Tool.create_with_context
+    ?descriptor
+    ?strict
+    ~name
+    ~description
+    ~parameters:params
+    (fun context -> execute_typed ~parse ~handler:(handler context) ~encode)
 ;;
