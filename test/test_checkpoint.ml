@@ -621,7 +621,7 @@ let () =
                 ; content =
                     [ Types.ToolResult
                         { tool_use_id = "t1"
-                        ; content = "historical mixed role"
+                        ; content = "invalid role/content pair"
                         ; outcome = Tool_succeeded
                         ; json = None
                         ; content_blocks = None
@@ -633,8 +633,14 @@ let () =
                 }
               ]
             in
-            let json = Checkpoint.to_json (make_checkpoint ~messages ()) in
-            check bool "rejected" true (Result.is_error (Checkpoint.of_json json)))
+            match Checkpoint.to_json (make_checkpoint ~messages ()) with
+            | _ -> fail "invalid current checkpoint was serialized"
+            | exception Invalid_argument message ->
+              check
+                bool
+                "serializer rejects non-canonical role/content"
+                true
+                (String.starts_with ~prefix:"Checkpoint.to_json:" message))
         ; test_case "message metadata roundtrip" `Quick (fun () ->
             let replay_metadata =
               [ ( "replay.namespace"

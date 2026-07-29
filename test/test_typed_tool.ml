@@ -49,6 +49,7 @@ let encode_greet (output : greet_output) : Yojson.Safe.t =
 
 let greet_tool =
   Typed_tool.create
+    ~strict:true
     ~name:"greet"
     ~description:"Greet someone"
     ~params:greet_params
@@ -153,13 +154,15 @@ let test_to_untyped_bridge () =
 let test_to_untyped_preserves_schema () =
   let untyped = Typed_tool.to_untyped greet_tool in
   Alcotest.(check string) "name preserved" "greet" untyped.schema.name;
-  Alcotest.(check int) "params count" 2 (List.length untyped.schema.parameters)
+  Alcotest.(check int) "params count" 2 (List.length untyped.schema.parameters);
+  Alcotest.(check (option bool)) "strict preserved" (Some true) untyped.schema.strict
 ;;
 
 let test_schema_extraction () =
   let schema = Typed_tool.schema greet_tool in
   Alcotest.(check string) "name" "greet" schema.name;
-  Alcotest.(check string) "desc" "Greet someone" schema.description
+  Alcotest.(check string) "desc" "Greet someone" schema.description;
+  Alcotest.(check (option bool)) "strict" (Some true) schema.strict
 ;;
 
 let test_name_extraction () =

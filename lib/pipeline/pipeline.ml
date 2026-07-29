@@ -765,7 +765,7 @@ let%test "last_tool_results_from finds tool results in last tool message" =
   | _ -> false
 ;;
 
-let%test "last_tool_results_from skips non-tool user messages" =
+let%test "last_tool_results_from ignores tool results outside tool role" =
   let msgs =
     [ { role = User
       ; content =
@@ -795,11 +795,7 @@ let%test "last_tool_results_from skips non-tool user messages" =
       }
     ]
   in
-  (* Should find the legacy user-role tool result since the last user message
-     has no tool results. *)
-  match last_tool_results_from msgs with
-  | [ Ok { content = "first"; _meta = _ } ] -> true
-  | _ -> false
+  last_tool_results_from msgs = []
 ;;
 
 let%test "tag_error passes through Ok" =
@@ -878,7 +874,7 @@ let%test "last_tool_results_from picks last tool-result message" =
   | _ -> false
 ;;
 
-let%test "last_tool_results_from mixed content in user message" =
+let%test "last_tool_results_from ignores mixed content outside tool role" =
   let msgs =
     [ { role = User
       ; content =
@@ -898,9 +894,7 @@ let%test "last_tool_results_from mixed content in user message" =
       }
     ]
   in
-  match last_tool_results_from msgs with
-  | [ Ok { content = "ok"; _meta = _ } ] -> true
-  | _ -> false
+  last_tool_results_from msgs = []
 ;;
 
 let%test "last_tool_results_from error tool result" =

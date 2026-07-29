@@ -353,6 +353,45 @@ let openai_tool_messages_of_blocks blocks =
     | Audio _ -> None)
 ;;
 
+let validate_tool_result_role (msg : message) =
+  let has_tool_result =
+    List.exists
+      (function
+        | ToolResult _ -> true
+        | Text _
+        | Thinking _
+        | ReasoningDetails _
+        | RedactedThinking _
+        | ToolUse _
+        | Image _
+        | Document _
+        | Audio _ -> false)
+      msg.content
+  in
+  match msg.role, has_tool_result, msg.content with
+  | Tool, true, content
+    when List.for_all
+           (function
+             | ToolResult _ -> true
+             | Text _
+             | Thinking _
+             | ReasoningDetails _
+             | RedactedThinking _
+             | ToolUse _
+             | Image _
+             | Document _
+             | Audio _ -> false)
+           content -> ()
+  | Tool, _, _ ->
+    invalid_arg
+      "Backend_openai_serialize.openai_messages_of_message: role tool requires one or \
+       more ToolResult blocks and no other content"
+  | (User | Assistant | System), true, _ ->
+    invalid_arg
+      "Backend_openai_serialize.openai_messages_of_message: ToolResult requires role tool"
+  | (User | Assistant | System), false, _ -> ()
+;;
+
 let messages_of_message_with
       ?(tool_calls_fn = tool_calls_to_openai_json)
       ?(tool_messages_fn = openai_tool_messages_of_blocks)
@@ -363,25 +402,9 @@ let messages_of_message_with
       (msg : message)
   : Yojson.Safe.t list
   =
+  validate_tool_result_role msg;
   match msg.role with
   | User ->
-    if
-      List.exists
-        (function
-          | ToolResult _ -> true
-          | Text _
-          | Thinking _
-          | ReasoningDetails _
-          | RedactedThinking _
-          | ToolUse _
-          | Image _
-          | Document _
-          | Audio _ -> false)
-        msg.content
-    then
-      invalid_arg
-        "Backend_openai_serialize.openai_messages_of_message: ToolResult must use role \
-         Tool, got role user";
     (* Apply modality reordering policy before flattening into JSON parts.
        For [Preserve_input_order] (default) this is a no-op; for
        [Visual_first] image/audio/document blocks move ahead of text.
@@ -462,8 +485,9 @@ let messages_of_message_with
     |> tool_messages_fn
     |> (function
      | [] ->
-       let text = Api_common.text_blocks_to_string msg.content in
-       [ `Assoc [ "role", `String "user"; "content", `String text ] ]
+       invalid_arg
+         "Backend_openai_serialize.openai_messages_of_message: tool message projection \
+          produced no results"
      | tool_msgs -> tool_msgs)
 ;;
 
@@ -844,50 +868,81 @@ let parallel_tool_calls_fields ~disable_parallel ~tools_present
   if disable_parallel && tools_present then [ "parallel_tool_calls", `Bool false ] else []
 ;;
 
-let build_openai_tool_json = function
+type tool_definition =
+  { name : string
+  ; description : string
+  ; parameters : Yojson.Safe.t
+  ; strict : bool option
+  }
+
+let invalid_tool_definition format =
+  Printf.ksprintf
+    (fun detail ->
+       invalid_arg ("Backend_openai_serialize.tool_definition_of_json: " ^ detail))
+    format
+;;
+
+let tool_definition_of_json = function
   | `Assoc fields ->
+    let allowed = [ "name"; "description"; "input_schema"; "parameters"; "strict" ] in
+    let names = List.map fst fields in
+    let duplicate =
+      List.find_opt
+        (fun name -> List.length (List.filter (String.equal name) names) > 1)
+        names
+    in
+    (match duplicate with
+     | Some name -> invalid_tool_definition "duplicate field %S" name
+     | None -> ());
+    (match List.find_opt (fun name -> not (List.mem name allowed)) names with
+     | Some name -> invalid_tool_definition "unknown field %S" name
+     | None -> ());
     let name =
       match List.assoc_opt "name" fields with
-      | Some (`String s) -> s
-      | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None
-        -> "tool"
+      | Some (`String name) when not (String.equal (String.trim name) "") -> name
+      | Some (`String _) -> invalid_tool_definition "name must not be empty"
+      | Some _ -> invalid_tool_definition "name must be a string"
+      | None -> invalid_tool_definition "missing field \"name\""
     in
     let description =
       match List.assoc_opt "description" fields with
-      | Some (`String s) -> s
-      | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null) | None
-        -> ""
+      | Some (`String description) -> description
+      | Some _ -> invalid_tool_definition "description must be a string"
+      | None -> invalid_tool_definition "missing field \"description\""
     in
     let parameters =
-      match List.assoc_opt "input_schema" fields with
-      | Some schema -> schema
-      | None ->
-        (match List.assoc_opt "parameters" fields with
-         | Some (`List _) ->
-           invalid_arg
-             "Backend_openai_serialize.build_openai_tool_json: legacy parameter lists \
-              are not supported; use input_schema"
-         | Some schema -> schema
-         | None -> `Assoc [])
+      match List.assoc_opt "input_schema" fields, List.assoc_opt "parameters" fields with
+      | Some (`Assoc _ as schema), None | None, Some (`Assoc _ as schema) -> schema
+      | Some _, None -> invalid_tool_definition "input_schema must be a JSON object"
+      | None, Some _ -> invalid_tool_definition "parameters must be a JSON object"
+      | Some _, Some _ ->
+        invalid_tool_definition "input_schema and parameters are mutually exclusive"
+      | None, None ->
+        invalid_tool_definition "missing field \"input_schema\" or \"parameters\""
     in
-    (* Per-function strict mode (OpenAI / DeepSeek Beta / Kimi / MiMo): forward
-       it into the function object only when the tool carried [strict], so a
-       tool without it keeps the provider default. *)
-    let strict_field =
+    let strict =
       match List.assoc_opt "strict" fields with
-      | Some (`Bool b) -> [ "strict", `Bool b ]
-      | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Null)
-      | None -> []
+      | Some (`Bool strict) -> Some strict
+      | Some _ -> invalid_tool_definition "strict must be a boolean"
+      | None -> None
     in
-    `Assoc
-      [ "type", `String "function"
-      ; ( "function"
-        , `Assoc
-            ([ "name", `String name
-             ; "description", `String description
-             ; "parameters", parameters
-             ]
-             @ strict_field) )
-      ]
-  | other -> other
+    { name; description; parameters; strict }
+  | _ -> invalid_tool_definition "tool must be a JSON object"
+;;
+
+let tool_definition_fields definition =
+  [ "name", `String definition.name
+  ; "description", `String definition.description
+  ; "parameters", definition.parameters
+  ]
+  @
+  match definition.strict with
+  | Some strict -> [ "strict", `Bool strict ]
+  | None -> []
+;;
+
+let build_openai_tool_json tool =
+  let definition = tool_definition_of_json tool in
+  `Assoc
+    [ "type", `String "function"; "function", `Assoc (tool_definition_fields definition) ]
 ;;

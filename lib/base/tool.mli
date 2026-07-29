@@ -45,6 +45,7 @@ type t =
 
 val create
   :  ?descriptor:descriptor
+  -> ?strict:bool
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
@@ -53,6 +54,7 @@ val create
 
 val create_with_context
   :  ?descriptor:descriptor
+  -> ?strict:bool
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
@@ -66,6 +68,7 @@ val create_with_context
     @since 0.215.0 *)
 val create_with_execution_env
   :  ?descriptor:descriptor
+  -> ?strict:bool
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list

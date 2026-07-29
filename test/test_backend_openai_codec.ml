@@ -668,9 +668,36 @@ let test_openai_user_messages_reject_tool_result_and_drop_empty () =
   Alcotest.check_raises
     "ToolResult requires role Tool"
     (Invalid_argument
-       "Backend_openai_serialize.openai_messages_of_message: ToolResult must use role \
-        Tool, got role user")
+       "Backend_openai_serialize.openai_messages_of_message: ToolResult requires role \
+        tool")
     (fun () -> ignore (Serialize.openai_messages_of_message user));
+  List.iter
+    (fun role ->
+       Alcotest.check_raises
+         "ToolResult rejected outside role Tool"
+         (Invalid_argument
+            "Backend_openai_serialize.openai_messages_of_message: ToolResult requires \
+             role tool")
+         (fun () ->
+            ignore
+              (Serialize.openai_messages_of_message
+                 { user with
+                   role
+                 ; content =
+                     List.filter
+                       (function
+                         | ToolResult _ -> true
+                         | Text _
+                         | Thinking _
+                         | ReasoningDetails _
+                         | RedactedThinking _
+                         | ToolUse _
+                         | Image _
+                         | Document _
+                         | Audio _ -> false)
+                       user.content
+                 })))
+    [ Assistant; System ];
   let empty_user =
     Serialize.openai_messages_of_message
       (msg User [ Thinking { signature = None; content = "x" } ])
@@ -878,12 +905,13 @@ let test_system_and_tool_role_messages () =
   in
   check_string "tool role" "tool" (member "role" tool |> to_string);
   check_string "tool call id" "call-2" (member "tool_call_id" tool |> to_string);
-  let fallback =
-    Serialize.openai_messages_of_message (msg Tool [ Text "plain fallback" ])
-    |> only "fallback"
-  in
-  check_string "fallback role" "user" (member "role" fallback |> to_string);
-  check_string "fallback content" "plain fallback" (member "content" fallback |> to_string)
+  Alcotest.check_raises
+    "Tool role requires ToolResult"
+    (Invalid_argument
+       "Backend_openai_serialize.openai_messages_of_message: role tool requires one or \
+        more ToolResult blocks and no other content")
+    (fun () ->
+       ignore (Serialize.openai_messages_of_message (msg Tool [ Text "invalid" ])))
 ;;
 
 let test_kimi_replay_trace_preserves_all_historical_reasoning () =
@@ -955,23 +983,37 @@ let test_tool_choice_and_tool_schema_conversion () =
      |> member "parameters"
      |> member "type"
      |> to_string);
+  let provider_shaped =
+    Serialize.build_openai_tool_json
+      (`Assoc
+          [ "name", `String "provider"
+          ; "description", `String "d"
+          ; "parameters", schema
+          ; "strict", `Bool true
+          ])
+  in
+  check_bool
+    "provider-shaped strict passes through"
+    true
+    (member "function" provider_shaped |> member "strict" |> to_bool);
   Alcotest.check_raises
     "legacy parameter list rejected"
     (Invalid_argument
-       "Backend_openai_serialize.build_openai_tool_json: legacy parameter lists are not \
-        supported; use input_schema")
+       "Backend_openai_serialize.tool_definition_of_json: parameters must be a JSON \
+        object")
     (fun () ->
        ignore
          (Serialize.build_openai_tool_json
             (`Assoc
                 [ "name", `String "legacy"
+                ; "description", `String "invalid parameter shape"
                 ; "parameters", `List [ `Assoc [ "name", `String "city" ] ]
                 ])));
-  let passthrough = `String "raw" in
-  Alcotest.(check bool)
-    "non-object passthrough"
-    true
-    (Serialize.build_openai_tool_json passthrough = passthrough)
+  Alcotest.check_raises
+    "non-object tool rejected"
+    (Invalid_argument
+       "Backend_openai_serialize.tool_definition_of_json: tool must be a JSON object")
+    (fun () -> ignore (Serialize.build_openai_tool_json (`String "raw")))
 ;;
 
 let ignored_blocks : content_block list =
@@ -1075,19 +1117,30 @@ let test_parallel_tool_calls_fields () =
   | _ -> Alcotest.fail "expected parallel_tool_calls:false singleton"
 ;;
 
-let test_tool_schema_defaults () =
-  let defaulted =
-    Serialize.build_openai_tool_json
-      (`Assoc [ "name", `Int 1; "description", `Bool true ])
-  in
-  check_string
-    "default name"
-    "tool"
-    (member "function" defaulted |> member "name" |> to_string);
-  check_string
-    "default description"
-    ""
-    (member "function" defaulted |> member "description" |> to_string)
+let test_tool_schema_rejects_invalid_current_shape () =
+  Alcotest.check_raises
+    "mistyped name rejected"
+    (Invalid_argument
+       "Backend_openai_serialize.tool_definition_of_json: name must be a string")
+    (fun () ->
+       ignore
+         (Serialize.build_openai_tool_json
+            (`Assoc
+                [ "name", `Int 1; "description", `String ""; "input_schema", `Assoc [] ])));
+  Alcotest.check_raises
+    "competing schema authorities rejected"
+    (Invalid_argument
+       "Backend_openai_serialize.tool_definition_of_json: input_schema and parameters \
+        are mutually exclusive")
+    (fun () ->
+       ignore
+         (Serialize.build_openai_tool_json
+            (`Assoc
+                [ "name", `String "tool"
+                ; "description", `String ""
+                ; "input_schema", `Assoc []
+                ; "parameters", `Assoc []
+                ])))
 ;;
 
 let test_usage_openai_fallbacks () =
@@ -2187,7 +2240,10 @@ let () =
             "ignored block variants"
             `Quick
             test_serializer_ignored_block_variants
-        ; Alcotest.test_case "tool schema defaults" `Quick test_tool_schema_defaults
+        ; Alcotest.test_case
+            "tool schema rejects invalid current shape"
+            `Quick
+            test_tool_schema_rejects_invalid_current_shape
         ; Alcotest.test_case
             "parallel_tool_calls fields SSOT"
             `Quick

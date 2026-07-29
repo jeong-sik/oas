@@ -526,20 +526,24 @@ let validate_message index json =
   in
   match content with
   | `List blocks ->
+    let is_tool_result = function
+      | `Assoc fields ->
+        List.exists
+          (fun (name, value) -> String.equal name "type" && value = `String "tool_result")
+          fields
+      | _ -> false
+    in
+    let has_tool_result = List.exists is_tool_result blocks in
     let* () =
-      if
-        String.equal role "user"
-        && List.exists
-             (function
-               | `Assoc fields ->
-                 List.exists
-                   (fun (name, value) ->
-                      String.equal name "type" && value = `String "tool_result")
-                   fields
-               | _ -> false)
-             blocks
-      then json_errorf "%s ToolResult must use role tool, got role user" scope
-      else Ok ()
+      match role, blocks, has_tool_result with
+      | "tool", [], _ -> json_errorf "%s role tool requires at least one ToolResult" scope
+      | "tool", _, true when List.for_all is_tool_result blocks -> Ok ()
+      | "tool", _, _ ->
+        json_errorf "%s role tool may contain only ToolResult blocks" scope
+      | ("system" | "user" | "assistant"), _, true ->
+        json_errorf "%s ToolResult requires role tool" scope
+      | ("system" | "user" | "assistant"), _, false -> Ok ()
+      | _ -> json_errorf "%s has an unsupported role/content combination" scope
     in
     let* _ =
       blocks

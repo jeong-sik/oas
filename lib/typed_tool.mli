@@ -31,7 +31,8 @@ type ('input, 'output) t
     @param handler Pure business logic. Receives parsed, validated input.
                    Return [Error] for domain-level rejections (e.g. empty message).
     @param encode  Serialize output to JSON for tool_result content.
-    @param descriptor Optional caller-declared execution mode. *)
+    @param descriptor Optional caller-declared execution mode.
+    @param strict Optional provider JSON Schema strict mode. *)
 val create
   :  name:string
   -> description:string
@@ -40,6 +41,7 @@ val create
   -> handler:('input -> ('output, string) result)
   -> encode:('output -> Yojson.Safe.t)
   -> ?descriptor:Tool.descriptor
+  -> ?strict:bool
   -> unit
   -> ('input, 'output) t
 
@@ -55,6 +57,7 @@ val create_with_context
   -> handler:(Context.t -> 'input -> ('output, string) result)
   -> encode:('output -> Yojson.Safe.t)
   -> ?descriptor:Tool.descriptor
+  -> ?strict:bool
   -> unit
   -> ('input, 'output) t
 

@@ -97,7 +97,8 @@ type delta =
 
 (** {1 Serialization} *)
 
-(** Serialize checkpoint to JSON. *)
+(** Serialize an exact current checkpoint to JSON. Raises [Invalid_argument]
+    when a manually constructed value violates the v8 contract. *)
 val to_json : t -> Yojson.Safe.t
 
 (** Deserialize only the exact current v8 checkpoint schema. Every other
@@ -120,7 +121,8 @@ val delta_of_json : Yojson.Safe.t -> (delta, Error.sdk_error) result
 (** Compute a delta from a base checkpoint to a target checkpoint. *)
 val compute_delta : t -> t -> delta
 
-(** Apply a delta to a base checkpoint. *)
+(** Apply a delta to a base checkpoint. Both the base and resulting checkpoint
+    must satisfy the exact current v8 contract. *)
 val apply_delta : t -> delta -> (t, Error.sdk_error) result
 
 (** {1 Queries} *)

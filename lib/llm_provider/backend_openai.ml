@@ -19,7 +19,6 @@ let openai_content_parts_of_blocks =
 
 let openai_messages_of_message = Backend_openai_serialize.openai_messages_of_message
 let tool_choice_to_openai_json = Backend_openai_serialize.tool_choice_to_openai_json
-let build_openai_tool_json = Backend_openai_serialize.build_openai_tool_json
 
 (* ── Re-exports from parsing ──────────────────────────── *)
 
@@ -256,30 +255,6 @@ let%test "openai_content_parts_of_blocks filters text and image" =
   List.length result = 1
 ;;
 
-let%test "build_openai_tool_json converts input_schema to parameters" =
-  let tool_json =
-    `Assoc
-      [ "name", `String "my_fn"
-      ; "description", `String "does stuff"
-      ; "input_schema", `Assoc [ "type", `String "object" ]
-      ]
-  in
-  let result = build_openai_tool_json tool_json in
-  let open Yojson.Safe.Util in
-  result |> member "type" |> to_string = "function"
-  && result |> member "function" |> member "name" |> to_string = "my_fn"
-  && result
-     |> member "function"
-     |> member "parameters"
-     |> member "type"
-     |> to_string
-     = "object"
-;;
-
-let%test "build_openai_tool_json non-assoc passthrough" =
-  build_openai_tool_json (`String "bad") = `String "bad"
-;;
-
 let%test "usage_of_openai_json parses usage" =
   let json =
     `Assoc [ "usage", `Assoc [ "prompt_tokens", `Int 100; "completion_tokens", `Int 50 ] ]
@@ -438,8 +413,7 @@ let%test "openai_messages_of_message rejects user with tool_result" =
   | exception Invalid_argument message ->
     String.equal
       message
-      "Backend_openai_serialize.openai_messages_of_message: ToolResult must use role \
-       Tool, got role user"
+      "Backend_openai_serialize.openai_messages_of_message: ToolResult requires role tool"
 ;;
 
 let%test "build_request preserves orphaned tool results without synthetic repair" =
@@ -641,7 +615,7 @@ let%test "openai_messages_of_message Tool role with ToolResult" =
   json |> member "role" |> to_string = "tool"
 ;;
 
-let%test "openai_messages_of_message Tool role without ToolResult fallback to user" =
+let%test "openai_messages_of_message rejects Tool role without ToolResult" =
   let msg =
     { role = Tool
     ; content = [ Text "fallback" ]
@@ -650,98 +624,13 @@ let%test "openai_messages_of_message Tool role without ToolResult fallback to us
     ; metadata = []
     }
   in
-  let result = openai_messages_of_message msg in
-  let json = List.hd result in
-  let open Yojson.Safe.Util in
-  json |> member "role" |> to_string = "user"
-;;
-
-let%test "build_openai_tool_json with parameters field" =
-  let tool_json =
-    `Assoc
-      [ "name", `String "my_fn"
-      ; "description", `String "does stuff"
-      ; "parameters", `Assoc [ "type", `String "object" ]
-      ]
-  in
-  let result = build_openai_tool_json tool_json in
-  let open Yojson.Safe.Util in
-  result
-  |> member "function"
-  |> member "parameters"
-  |> member "type"
-  |> to_string
-  = "object"
-;;
-
-let%test "build_openai_tool_json forwards strict into the function object" =
-  let tool_json =
-    `Assoc
-      [ "name", `String "my_fn"
-      ; "description", `String "does stuff"
-      ; "parameters", `Assoc [ "type", `String "object" ]
-      ; "strict", `Bool true
-      ]
-  in
-  let result = build_openai_tool_json tool_json in
-  let open Yojson.Safe.Util in
-  result |> member "function" |> member "strict" = `Bool true
-;;
-
-let%test "build_openai_tool_json omits strict when the tool did not set it" =
-  let tool_json =
-    `Assoc
-      [ "name", `String "my_fn"
-      ; "description", `String "does stuff"
-      ; "parameters", `Assoc [ "type", `String "object" ]
-      ]
-  in
-  let result = build_openai_tool_json tool_json in
-  let open Yojson.Safe.Util in
-  result |> member "function" |> member "strict" = `Null
-;;
-
-let%test "build_openai_tool_json rejects legacy parameter lists" =
-  let tool_json =
-    `Assoc
-      [ "name", `String "my_fn"
-      ; "description", `String "does stuff"
-      ; ( "parameters"
-        , `List
-            [ `Assoc
-                [ "name", `String "query"
-                ; "description", `String "search query"
-                ; "param_type", `String "string"
-                ; "required", `Bool true
-                ]
-            ; `Assoc
-                [ "name", `String "limit"
-                ; "description", `String "max results"
-                ; "param_type", `String "integer"
-                ; "required", `Bool false
-                ]
-            ] )
-      ]
-  in
-  match build_openai_tool_json tool_json with
+  match openai_messages_of_message msg with
   | _ -> false
   | exception Invalid_argument message ->
     String.equal
       message
-      "Backend_openai_serialize.build_openai_tool_json: legacy parameter lists are not \
-       supported; use input_schema"
-;;
-
-let%test "build_openai_tool_json missing all optional fields" =
-  let tool_json = `Assoc [] in
-  let result = build_openai_tool_json tool_json in
-  let open Yojson.Safe.Util in
-  result |> member "function" |> member "name" |> to_string = "tool"
-  && result |> member "function" |> member "description" |> to_string = ""
-;;
-
-let%test "build_openai_tool_json list passthrough" =
-  build_openai_tool_json (`List [ `String "bad" ]) = `List [ `String "bad" ]
+      "Backend_openai_serialize.openai_messages_of_message: role tool requires one or \
+       more ToolResult blocks and no other content"
 ;;
 
 let%test "response_format_to_openai_json wraps raw json schema" =
