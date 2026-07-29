@@ -126,7 +126,7 @@ let extract_text_json ~(schema : _ schema) (response : api_response)
 
 let sdk_error_of_http_error =
   Http_error_sdk.of_http_error
-    ~accept_rejected:(Config_invalid_config { field = "output_schema" })
+    ~accept_rejected:(Config_invalid_config { field = "response_format" })
 ;;
 
 let provider_config_for_schema ~base_url ?provider ~config ~(schema : _ schema) () =
