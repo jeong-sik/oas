@@ -309,34 +309,25 @@ let compute_delta_for_goal
        if baseline_val = candidate_val then Unchanged, None else Regression, None)
 ;;
 
-let compare_with specs ~(baseline : run_metrics) ~(candidate : run_metrics) =
+let compare_with_specs ~specs ~(baseline : run_metrics) ~(candidate : run_metrics) =
   let deltas =
     List.filter_map
       (fun (bm : metric) ->
          match
-           List.find_opt (fun (cm : metric) -> cm.name = bm.name) candidate.metrics
+           ( List.find_opt (fun (spec : metric_spec) -> spec.name = bm.name) specs
+           , List.find_opt (fun (cm : metric) -> cm.name = bm.name) candidate.metrics )
          with
-         | None -> None
-         | Some cm ->
+         | Some spec, Some cm ->
+           let threshold_pct =
+             Option.value spec.tolerance_pct ~default:default_delta_threshold_pct
+           in
            let direction, delta_pct =
-             match specs with
-             | None -> compute_delta ~baseline_val:bm.value ~candidate_val:cm.value ()
-             | Some specs ->
-               let threshold_pct, goal =
-                 match
-                   List.find_opt (fun (spec : metric_spec) -> spec.name = bm.name) specs
-                 with
-                 | None -> default_delta_threshold_pct, Lower
-                 | Some spec ->
-                   ( Option.value spec.tolerance_pct ~default:default_delta_threshold_pct
-                   , spec.goal )
-               in
-               compute_delta_for_goal
-                 ~threshold_pct
-                 ~goal
-                 ~baseline_val:bm.value
-                 ~candidate_val:cm.value
-                 ()
+             compute_delta_for_goal
+               ~threshold_pct
+               ~goal:spec.goal
+               ~baseline_val:bm.value
+               ~candidate_val:cm.value
+               ()
            in
            Some
              { metric_name = bm.name
@@ -344,21 +335,14 @@ let compare_with specs ~(baseline : run_metrics) ~(candidate : run_metrics) =
              ; candidate_value = cm.value
              ; direction
              ; delta_pct
-             })
+             }
+         | None, _ | _, None -> None)
       baseline.metrics
   in
   let regressions = List.filter (fun d -> d.direction = Regression) deltas in
   let improvements = List.filter (fun d -> d.direction = Improvement) deltas in
   let unchanged = List.filter (fun d -> d.direction = Unchanged) deltas in
   { baseline; candidate; regressions; improvements; unchanged }
-;;
-
-let compare ~(baseline : run_metrics) ~(candidate : run_metrics) =
-  compare_with None ~baseline ~candidate
-;;
-
-let compare_with_specs ~specs ~(baseline : run_metrics) ~(candidate : run_metrics) =
-  compare_with (Some specs) ~baseline ~candidate
 ;;
 
 (* ── Threshold checking ───────────────────────────────────────── *)

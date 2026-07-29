@@ -1,47 +1,9 @@
-(** Finite persistence migration from the released checkpoint-v5/v6 JSON
-    schemas to the exact checkpoint-v8 JSON schema. This module does not widen
-    the current checkpoint domain: only documents emitted by the v5/v6
-    serializers are accepted. The shared validators also enforce the exact
-    nested v8 persistence schema before the current decoder runs. *)
+(** Exact validator for the current checkpoint-v8 persistence schema. *)
 
 open Result_syntax
 
 let target_version = 8
-
-type schema =
-  | Released_v5_pre_preserve_capped
-  | Released_v5_preserve_capped
-  | Released_v5_preserve_unbounded
-  | Released_v6
-  | Current_v8
-
-let source_version_supported = function
-  | 5 | 6 -> true
-  | _ -> false
-;;
-
-let schema_version = function
-  | Released_v5_pre_preserve_capped
-  | Released_v5_preserve_capped
-  | Released_v5_preserve_unbounded -> 5
-  | Released_v6 -> 6
-  | Current_v8 -> target_version
-;;
-
-let schema_scope = function
-  | Released_v5_pre_preserve_capped -> "Checkpoint v5 pre-preserve capped"
-  | Released_v5_preserve_capped -> "Checkpoint v5 preserve capped"
-  | Released_v5_preserve_unbounded -> "Checkpoint v5 preserve unbounded"
-  | Released_v6 -> "Checkpoint v6"
-  | Current_v8 -> "Checkpoint v8"
-;;
-
-let is_released_v5 = function
-  | Released_v5_pre_preserve_capped
-  | Released_v5_preserve_capped
-  | Released_v5_preserve_unbounded -> true
-  | Released_v6 | Current_v8 -> false
-;;
+let checkpoint_scope = "Checkpoint v8"
 
 let json_errorf format =
   Printf.ksprintf
@@ -73,15 +35,6 @@ let duplicate_names names =
   |> List.sort_uniq String.compare
 ;;
 
-let object_fields_without_duplicates ~scope = function
-  | `Assoc fields ->
-    let duplicates = duplicate_names (List.map fst fields) in
-    if duplicates = []
-    then Ok fields
-    else json_errorf "%s duplicates fields [%s]" scope (String.concat "," duplicates)
-  | _ -> json_errorf "%s must be a JSON object" scope
-;;
-
 let validate_object_shape ~scope ~required ~optional = function
   | `Assoc fields ->
     let names = List.map fst fields in
@@ -105,13 +58,6 @@ let required_field ~scope name fields =
   match List.assoc_opt name fields with
   | Some value -> Ok value
   | None -> json_errorf "%s is missing field %s" scope name
-;;
-
-let replace_field name value fields =
-  List.map
-    (fun (field_name, field_value) ->
-       if String.equal name field_name then field_name, value else field_name, field_value)
-    fields
 ;;
 
 let validate_string ~scope = function
@@ -267,7 +213,7 @@ let validate_response_format ~scope = function
   | _ -> json_errorf "%s must be a JSON object" scope
 ;;
 
-let released_checkpoint_common_fields =
+let current_checkpoint_fields =
   [ "version"
   ; "session_id"
   ; "agent_name"
@@ -284,8 +230,10 @@ let released_checkpoint_common_fields =
   ; "top_k"
   ; "min_p"
   ; "enable_thinking"
+  ; "preserve_thinking"
   ; "response_format"
   ; "thinking_budget"
+  ; "reasoning_effort"
   ; "disable_parallel_tool_use"
   ; "cache_system_prompt"
   ; "context"
@@ -294,54 +242,7 @@ let released_checkpoint_common_fields =
   ]
 ;;
 
-let preserve_thinking_field = "preserve_thinking"
-let max_input_tokens_field = "max_input_tokens"
-let max_total_tokens_field = "max_total_tokens"
-
-let checkpoint_fields = function
-  | Released_v5_pre_preserve_capped ->
-    max_input_tokens_field :: max_total_tokens_field :: released_checkpoint_common_fields
-  | Released_v5_preserve_capped ->
-    preserve_thinking_field
-    :: max_input_tokens_field
-    :: max_total_tokens_field
-    :: released_checkpoint_common_fields
-  | Released_v5_preserve_unbounded | Released_v6 ->
-    preserve_thinking_field :: released_checkpoint_common_fields
-  | Current_v8 ->
-    "reasoning_effort" :: preserve_thinking_field :: released_checkpoint_common_fields
-;;
-
-let current_checkpoint_fields = checkpoint_fields Current_v8
-
-let schema_of_source_fields ~version fields =
-  match version with
-  | 5 ->
-    (match
-       ( List.mem_assoc preserve_thinking_field fields
-       , List.mem_assoc max_input_tokens_field fields
-       , List.mem_assoc max_total_tokens_field fields )
-     with
-     | false, true, true -> Ok Released_v5_pre_preserve_capped
-     | true, true, true -> Ok Released_v5_preserve_capped
-     | true, false, false -> Ok Released_v5_preserve_unbounded
-     | false, false, false ->
-       json_errorf
-         "Checkpoint v5 does not match a released shape: preserve_thinking and both \
-          token cap fields are absent"
-     | _, has_max_input_tokens, has_max_total_tokens ->
-       json_errorf
-         "Checkpoint v5 has a partial released token-cap shape (max_input_tokens=%b, \
-          max_total_tokens=%b)"
-         has_max_input_tokens
-         has_max_total_tokens)
-  | 6 -> Ok Released_v6
-  | version ->
-    Error
-      (Error.Serialization (VersionMismatch { expected = target_version; got = version }))
-;;
-
-let released_usage_common_fields =
+let usage_number_fields =
   [ "total_input_tokens"
   ; "total_output_tokens"
   ; "total_cache_creation_input_tokens"
@@ -351,7 +252,7 @@ let released_usage_common_fields =
   ]
 ;;
 
-let current_usage_fields = "pricing_gap" :: released_usage_common_fields
+let current_usage_fields = "pricing_gap" :: usage_number_fields
 
 let validate_usage_numbers ~scope fields =
   let* total_input_tokens = required_field ~scope "total_input_tokens" fields in
@@ -378,60 +279,6 @@ let validate_usage_numbers ~scope fields =
   in
   let* () = validate_int ~scope:(scope ^ ".api_calls") api_calls in
   validate_float ~scope:(scope ^ ".estimated_cost_usd") estimated_cost_usd
-;;
-
-type released_usage_shape =
-  | Without_unpriced_model
-  | With_unpriced_model
-
-let migrate_usage ~schema json =
-  let scope = schema_scope schema ^ " usage" in
-  let allows_missing_unpriced_model =
-    match schema with
-    | Released_v5_pre_preserve_capped -> true
-    | Released_v5_preserve_capped
-    | Released_v5_preserve_unbounded
-    | Released_v6
-    | Current_v8 -> false
-  in
-  let* fields =
-    if allows_missing_unpriced_model
-    then
-      validate_object_shape
-        ~scope
-        ~required:released_usage_common_fields
-        ~optional:[ "unpriced_model" ]
-        json
-    else
-      validate_object_shape
-        ~scope
-        ~required:("unpriced_model" :: released_usage_common_fields)
-        ~optional:[]
-        json
-  in
-  let* () = validate_usage_numbers ~scope fields in
-  let usage_shape, unpriced_model =
-    match List.assoc_opt "unpriced_model" fields with
-    | None -> Without_unpriced_model, `Null
-    | Some unpriced_model -> With_unpriced_model, unpriced_model
-  in
-  let* pricing_gap =
-    match usage_shape, unpriced_model with
-    | Without_unpriced_model, `Null -> Ok `Null
-    | With_unpriced_model, `Null -> Ok `Null
-    | With_unpriced_model, `String "<unknown>" ->
-      Ok (`Assoc [ "kind", `String "model_identity_unavailable" ])
-    | With_unpriced_model, `String "" ->
-      json_errorf "%s unpriced_model must not be empty" scope
-    | With_unpriced_model, `String model_id ->
-      Ok (`Assoc [ "kind", `String "pricing_unavailable"; "model_id", `String model_id ])
-    | With_unpriced_model, _ ->
-      json_errorf "%s unpriced_model must be string or null" scope
-    | Without_unpriced_model, _ -> json_errorf "%s internal usage-shape mismatch" scope
-  in
-  Ok
-    ( `Assoc (("pricing_gap", pricing_gap) :: List.remove_assoc "unpriced_model" fields)
-    , usage_shape )
 ;;
 
 let validate_pricing_gap ~scope = function
@@ -472,24 +319,12 @@ let validate_current_usage json =
   validate_pricing_gap ~scope:(scope ^ ".pricing_gap") pricing_gap
 ;;
 
-let released_v6_failure_kind ~scope = function
-  | Types.Validation_error | Types.Recoverable_tool_error | Types.Non_retryable_tool_error
-    -> Ok ()
-  | Types.Reported_tool_error | Types.Unattributed_tool_error ->
-    json_errorf "%s.failure_kind is not a released v6 value" scope
-;;
-
-let current_failure_kind _ = Ok ()
-
-let rec normalize_tool_result ~schema ~scope json =
-  let optional_provenance_fields =
-    if is_released_v5 schema then [] else [ "failure_kind"; "error_class" ]
-  in
+let rec validate_tool_result ~scope json =
   let* fields =
     validate_object_shape
       ~scope
       ~required:[ "type"; "tool_use_id"; "content"; "is_error" ]
-      ~optional:optional_provenance_fields
+      ~optional:[ "failure_kind"; "error_class" ]
       json
   in
   let* type_value = required_field ~scope "type" fields in
@@ -503,23 +338,17 @@ let rec normalize_tool_result ~schema ~scope json =
     | _ -> json_errorf "%s.type must be a string" scope
   in
   let* () = validate_string ~scope:(scope ^ ".tool_use_id") tool_use_id in
-  let* migrated_content =
+  let* () =
     match content with
-    | `String _ -> Ok content
+    | `String _ -> Ok ()
     | `List blocks ->
-      let+ migrated_blocks =
-        blocks
-        |> List.mapi (fun index block ->
-          normalize_content_block
-            ~schema
-            ~scope:(Printf.sprintf "%s.content[%d]" scope index)
-            block)
-        |> result_all
-      in
-      `List migrated_blocks
+      blocks
+      |> List.mapi (fun index block ->
+        validate_content_block ~scope:(Printf.sprintf "%s.content[%d]" scope index) block)
+      |> result_all
+      |> Result.map (fun _ -> ())
     | _ -> json_errorf "%s.content must be a string or an array" scope
   in
-  let fields = replace_field "content" migrated_content fields in
   let failure_kind = List.assoc_opt "failure_kind" fields in
   let error_class = List.assoc_opt "error_class" fields in
   let* () =
@@ -527,14 +356,12 @@ let rec normalize_tool_result ~schema ~scope json =
     | None -> Ok ()
     | Some value ->
       (match Types.tool_failure_kind_of_yojson value with
-       | Ok failure_kind ->
-         (match schema with
-          | Released_v5_pre_preserve_capped
-          | Released_v5_preserve_capped
-          | Released_v5_preserve_unbounded ->
-            json_errorf "%s.failure_kind is not a released v5 field" scope
-          | Released_v6 -> released_v6_failure_kind ~scope failure_kind
-          | Current_v8 -> current_failure_kind failure_kind)
+       | Ok
+           ( Types.Validation_error
+           | Types.Recoverable_tool_error
+           | Types.Non_retryable_tool_error
+           | Types.Reported_tool_error
+           | Types.Unattributed_tool_error ) -> Ok ()
        | Error _ -> json_errorf "%s.failure_kind is not a supported value" scope)
   in
   let* () =
@@ -547,27 +374,16 @@ let rec normalize_tool_result ~schema ~scope json =
   in
   match is_error, failure_kind, error_class with
   | `Bool true, None, None ->
-    (match schema with
-     | Released_v5_pre_preserve_capped
-     | Released_v5_preserve_capped
-     | Released_v5_preserve_unbounded
-     | Released_v6 ->
-       Ok
-         (`Assoc
-             (fields
-              @ [ ( "failure_kind"
-                  , Types.tool_failure_kind_to_yojson Types.Unattributed_tool_error )
-                ]))
-     | Current_v8 -> json_errorf "%s failure is missing failure_kind provenance" scope)
-  | `Bool true, Some _, _ -> Ok (`Assoc fields)
+    json_errorf "%s failure is missing failure_kind provenance" scope
+  | `Bool true, Some _, _ -> Ok json
   | `Bool true, None, Some _ ->
     json_errorf "%s has error_class without failure_kind" scope
-  | `Bool false, None, None -> Ok (`Assoc fields)
+  | `Bool false, None, None -> Ok json
   | `Bool false, Some _, _ | `Bool false, None, Some _ ->
     json_errorf "%s marks success but contains failure provenance" scope
   | _, _, _ -> json_errorf "%s is_error must be boolean" scope
 
-and normalize_content_block ~schema ~scope json =
+and validate_content_block ~scope json =
   match json with
   | `Assoc fields ->
     let type_values =
@@ -576,7 +392,7 @@ and normalize_content_block ~schema ~scope json =
         fields
     in
     (match type_values with
-     | [ `String "tool_result" ] -> normalize_tool_result ~schema ~scope json
+     | [ `String "tool_result" ] -> validate_tool_result ~scope json
      | [ `String "text" ] ->
        let* fields =
          validate_object_shape ~scope ~required:[ "type"; "text" ] ~optional:[] json
@@ -674,8 +490,8 @@ and normalize_content_block ~schema ~scope json =
   | _ -> json_errorf "%s must be a JSON object" scope
 ;;
 
-let normalize_message ~schema index json =
-  let scope = Printf.sprintf "%s message[%d]" (schema_scope schema) index in
+let validate_message index json =
+  let scope = Printf.sprintf "%s message[%d]" checkpoint_scope index in
   let* fields =
     validate_object_shape
       ~scope
@@ -685,11 +501,11 @@ let normalize_message ~schema index json =
   in
   let* role = required_field ~scope "role" fields in
   let* content = required_field ~scope "content" fields in
-  let* () =
-    validate_string_value
-      ~scope:(scope ^ ".role")
-      ~allowed:[ "system"; "user"; "assistant"; "tool" ]
-      role
+  let* role =
+    match role with
+    | `String (("system" | "user" | "assistant" | "tool") as role) -> Ok role
+    | `String role -> json_errorf "%s.role has unsupported value %S" scope role
+    | _ -> json_errorf "%s.role must be a string" scope
   in
   let* () =
     match List.assoc_opt "name" fields with
@@ -710,22 +526,40 @@ let normalize_message ~schema index json =
   in
   match content with
   | `List blocks ->
-    let* migrated_blocks =
+    let is_tool_result = function
+      | `Assoc fields ->
+        List.exists
+          (fun (name, value) -> String.equal name "type" && value = `String "tool_result")
+          fields
+      | _ -> false
+    in
+    let has_tool_result = List.exists is_tool_result blocks in
+    let* () =
+      match role, blocks, has_tool_result with
+      | "tool", [], _ -> json_errorf "%s role tool requires at least one ToolResult" scope
+      | "tool", _, true when List.for_all is_tool_result blocks -> Ok ()
+      | "tool", _, _ ->
+        json_errorf "%s role tool may contain only ToolResult blocks" scope
+      | ("system" | "user" | "assistant"), _, true ->
+        json_errorf "%s ToolResult requires role tool" scope
+      | ("system" | "user" | "assistant"), _, false -> Ok ()
+      | _ -> json_errorf "%s has an unsupported role/content combination" scope
+    in
+    let* _ =
       blocks
       |> List.mapi (fun block_index block ->
-        normalize_content_block
-          ~schema
+        validate_content_block
           ~scope:(Printf.sprintf "%s content[%d]" scope block_index)
           block)
       |> result_all
     in
-    Ok (`Assoc (replace_field "content" (`List migrated_blocks) fields))
+    Ok json
   | _ -> json_errorf "%s content must be an array" scope
 ;;
 
-let normalize_messages ~schema = function
-  | `List messages -> messages |> List.mapi (normalize_message ~schema) |> result_all
-  | _ -> json_errorf "%s messages must be an array" (schema_scope schema)
+let validate_messages = function
+  | `List messages -> messages |> List.mapi validate_message |> result_all
+  | _ -> json_errorf "%s messages must be an array" checkpoint_scope
 ;;
 
 let mcp_session_common_fields =
@@ -736,80 +570,18 @@ let mcp_session_http_fields =
   "http_base_url" :: "http_headers" :: mcp_session_common_fields
 ;;
 
-let mcp_session_policy_fields = "env_policy" :: mcp_session_http_fields
-
-type transport_kind =
-  | Stdio
-  | Http
-
-type env_policy =
-  | Inherit
-  | Minimal
-  | Explicit
-
-type mcp_session_shape =
-  | Pre_http_fields
-  | Http_fields_without_policy
-  | Http_fields_with_policy
-
-type checkpoint_usage_shape =
-  | Released_usage of released_usage_shape
-  | Current_usage
-
 let transport_kind_of_json ~scope = function
-  | `String "stdio" -> Ok Stdio
-  | `String "http" -> Ok Http
+  | `String "stdio" -> Ok `Stdio
+  | `String "http" -> Ok `Http
   | `String value -> json_errorf "%s has unsupported value %S" scope value
   | _ -> json_errorf "%s must be a string" scope
 ;;
 
-let env_policy_of_json ~scope = function
-  | `String "inherit" -> Ok Inherit
-  | `String "minimal" -> Ok Minimal
-  | `String "explicit" -> Ok Explicit
-  | `String value -> json_errorf "%s has unsupported value %S" scope value
-  | _ -> json_errorf "%s must be a string" scope
-;;
-
-let mcp_session_shape ~schema ~usage_shape ~scope fields =
-  match schema, usage_shape with
-  | Released_v5_pre_preserve_capped, Released_usage Without_unpriced_model ->
-    (match
-       List.mem_assoc "http_base_url" fields, List.mem_assoc "http_headers" fields
-     with
-     | false, false -> Ok Pre_http_fields
-     | true, true -> Ok Http_fields_without_policy
-     | has_http_base_url, has_http_headers ->
-       json_errorf
-         "%s has a partial released HTTP field shape (http_base_url=%b, http_headers=%b)"
-         scope
-         has_http_base_url
-         has_http_headers)
-  | Released_v5_pre_preserve_capped, Released_usage With_unpriced_model
-  | Released_v5_preserve_capped, Released_usage With_unpriced_model ->
-    Ok Http_fields_without_policy
-  | Released_v5_preserve_unbounded, Released_usage With_unpriced_model
-  | Released_v6, Released_usage With_unpriced_model -> Ok Http_fields_with_policy
-  | Current_v8, Current_usage -> Ok Http_fields_without_policy
-  | ( ( Released_v5_pre_preserve_capped
-      | Released_v5_preserve_capped
-      | Released_v5_preserve_unbounded
-      | Released_v6
-      | Current_v8 )
-    , (Released_usage _ | Current_usage) ) ->
-    json_errorf "%s has an inconsistent checkpoint and usage release shape" scope
-;;
-
-let fields_for_mcp_session_shape = function
-  | Pre_http_fields -> mcp_session_common_fields
-  | Http_fields_without_policy -> mcp_session_http_fields
-  | Http_fields_with_policy -> mcp_session_policy_fields
-;;
-
-let normalize_mcp_session ~schema ~mcp_shape index json =
-  let scope = Printf.sprintf "%s mcp_sessions[%d]" (schema_scope schema) index in
-  let required = fields_for_mcp_session_shape mcp_shape in
-  let* fields = validate_object_shape ~scope ~required ~optional:[] json in
+let validate_mcp_session index json =
+  let scope = Printf.sprintf "%s mcp_sessions[%d]" checkpoint_scope index in
+  let* fields =
+    validate_object_shape ~scope ~required:mcp_session_http_fields ~optional:[] json
+  in
   let* server_name = required_field ~scope "server_name" fields in
   let* command = required_field ~scope "command" fields in
   let* args = required_field ~scope "args" fields in
@@ -826,96 +598,22 @@ let normalize_mcp_session ~schema ~mcp_shape index json =
   let* transport_kind =
     transport_kind_of_json ~scope:(scope ^ ".transport_kind") transport_kind
   in
-  let* fields, http_base_url =
-    match mcp_shape with
-    | Pre_http_fields ->
-      (match transport_kind with
-       | Stdio ->
-         Ok (("http_base_url", `Null) :: ("http_headers", `List []) :: fields, `Null)
-       | Http ->
-         json_errorf
-           "%s cannot migrate a pre-HTTP-field HTTP session without inventing its \
-            reconnect URL"
-           scope)
-    | Http_fields_without_policy | Http_fields_with_policy ->
-      let* http_base_url = required_field ~scope "http_base_url" fields in
-      let* http_headers = required_field ~scope "http_headers" fields in
-      let* () =
-        validate_optional ~scope:(scope ^ ".http_base_url") validate_string http_base_url
-      in
-      let* () =
-        validate_list ~scope:(scope ^ ".http_headers") validate_env_pair http_headers
-      in
-      Ok (fields, http_base_url)
+  let* http_base_url = required_field ~scope "http_base_url" fields in
+  let* http_headers = required_field ~scope "http_headers" fields in
+  let* () =
+    validate_optional ~scope:(scope ^ ".http_base_url") validate_string http_base_url
   in
   let* () =
-    match transport_kind, http_base_url with
-    | Http, `Null -> json_errorf "%s HTTP transport requires http_base_url" scope
-    | (Http | Stdio), _ -> Ok ()
+    validate_list ~scope:(scope ^ ".http_headers") validate_env_pair http_headers
   in
-  match mcp_shape with
-  | Pre_http_fields | Http_fields_without_policy -> Ok (`Assoc fields)
-  | Http_fields_with_policy ->
-    let* env_policy_json = required_field ~scope "env_policy" fields in
-    let* env_policy = env_policy_of_json ~scope:(scope ^ ".env_policy") env_policy_json in
-    (match transport_kind, env_policy with
-     | Http, (Inherit | Minimal | Explicit) ->
-       (* HTTP reconnect never consults subprocess environment policy. Removing
-          this released-only field cannot widen process credentials. *)
-       Ok (`Assoc (List.remove_assoc "env_policy" fields))
-     | Stdio, Inherit -> Ok (`Assoc (List.remove_assoc "env_policy" fields))
-     | Stdio, (Minimal | Explicit) ->
-       json_errorf
-         "%s cannot migrate stdio env_policy %s without widening the saved subprocess \
-          environment"
-         scope
-         (Yojson.Safe.to_string env_policy_json))
+  match transport_kind, http_base_url with
+  | `Http, `Null -> json_errorf "%s HTTP transport requires http_base_url" scope
+  | (`Http | `Stdio), _ -> Ok json
 ;;
 
-let normalize_mcp_sessions ~schema ~usage_shape = function
-  | `List [] -> Ok []
-  | `List (first_session :: _ as sessions) ->
-    let first_scope = Printf.sprintf "%s mcp_sessions[0]" (schema_scope schema) in
-    let* first_fields =
-      object_fields_without_duplicates ~scope:first_scope first_session
-    in
-    let* mcp_shape =
-      mcp_session_shape ~schema ~usage_shape ~scope:first_scope first_fields
-    in
-    sessions |> List.mapi (normalize_mcp_session ~schema ~mcp_shape) |> result_all
-  | _ -> json_errorf "%s mcp_sessions must be an array" (schema_scope schema)
-;;
-
-let normalize_released_checkpoint_fields ~schema fields =
-  let scope = schema_scope schema in
-  let* () =
-    match schema with
-    | Released_v5_pre_preserve_capped | Released_v5_preserve_capped ->
-      let* max_input_tokens = required_field ~scope max_input_tokens_field fields in
-      let* max_total_tokens = required_field ~scope max_total_tokens_field fields in
-      let* () =
-        validate_optional
-          ~scope:(scope ^ "." ^ max_input_tokens_field)
-          validate_int
-          max_input_tokens
-      in
-      validate_optional
-        ~scope:(scope ^ "." ^ max_total_tokens_field)
-        validate_int
-        max_total_tokens
-    | Released_v5_preserve_unbounded | Released_v6 -> Ok ()
-    | Current_v8 -> json_errorf "%s is not a released checkpoint" scope
-  in
-  let fields =
-    fields
-    |> List.remove_assoc max_input_tokens_field
-    |> List.remove_assoc max_total_tokens_field
-  in
-  match schema with
-  | Released_v5_pre_preserve_capped -> Ok ((preserve_thinking_field, `Null) :: fields)
-  | Released_v5_preserve_capped | Released_v5_preserve_unbounded | Released_v6 ->
-    Ok fields
-  | Current_v8 -> json_errorf "%s is not a released checkpoint" scope
+let validate_mcp_sessions = function
+  | `List sessions -> sessions |> List.mapi validate_mcp_session |> result_all
+  | _ -> json_errorf "%s mcp_sessions must be an array" checkpoint_scope
 ;;
 
 let validate_common_checkpoint_fields ~scope fields =
@@ -978,45 +676,8 @@ let validate_common_checkpoint_fields ~scope fields =
   validate_unique_object ~scope:(scope ^ ".context") context
 ;;
 
-let to_v8_json json =
-  let bootstrap_scope = "Checkpoint v5/v6" in
-  let* source_fields = object_fields_without_duplicates ~scope:bootstrap_scope json in
-  let* version = required_field ~scope:bootstrap_scope "version" source_fields in
-  let* schema =
-    match version with
-    | `Int version -> schema_of_source_fields ~version source_fields
-    | _ -> json_errorf "%s version must be an integer" bootstrap_scope
-  in
-  let scope = schema_scope schema in
-  let* source_fields =
-    validate_object_shape ~scope ~required:(checkpoint_fields schema) ~optional:[] json
-  in
-  let* fields = normalize_released_checkpoint_fields ~schema source_fields in
-  let* () = validate_common_checkpoint_fields ~scope fields in
-  let* usage_json = required_field ~scope "usage" fields in
-  let* usage, released_usage_shape = migrate_usage ~schema usage_json in
-  let* messages_json = required_field ~scope "messages" fields in
-  let* messages = normalize_messages ~schema messages_json in
-  let* mcp_sessions_json = required_field ~scope "mcp_sessions" fields in
-  let* mcp_sessions =
-    normalize_mcp_sessions
-      ~schema
-      ~usage_shape:(Released_usage released_usage_shape)
-      mcp_sessions_json
-  in
-  let migrated =
-    fields
-    |> replace_field "version" (`Int target_version)
-    |> replace_field "usage" usage
-    |> replace_field "messages" (`List messages)
-    |> replace_field "mcp_sessions" (`List mcp_sessions)
-  in
-  Ok (`Assoc (("reasoning_effort", `Null) :: migrated))
-;;
-
 let validate_v8_json json =
-  let schema = Current_v8 in
-  let scope = schema_scope schema in
+  let scope = checkpoint_scope in
   let* fields =
     validate_object_shape ~scope ~required:current_checkpoint_fields ~optional:[] json
   in
@@ -1032,9 +693,9 @@ let validate_v8_json json =
   let* usage = required_field ~scope "usage" fields in
   let* () = validate_current_usage usage in
   let* messages = required_field ~scope "messages" fields in
-  let* _ = normalize_messages ~schema messages in
+  let* _ = validate_messages messages in
   let* mcp_sessions = required_field ~scope "mcp_sessions" fields in
-  let* _ = normalize_mcp_sessions ~schema ~usage_shape:Current_usage mcp_sessions in
+  let* _ = validate_mcp_sessions mcp_sessions in
   let* reasoning_effort = required_field ~scope "reasoning_effort" fields in
   validate_optional
     ~scope:(scope ^ ".reasoning_effort")

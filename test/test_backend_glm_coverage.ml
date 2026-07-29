@@ -92,7 +92,13 @@ let test_build_request_thinking_modes_and_tool_stream () =
       ~config:
         (glm_config ~enable_thinking:true ~clear_thinking:false ~tool_stream:true ())
       ~messages
-      ~tools:[ `Assoc [ "name", `String "calc" ] ]
+      ~tools:
+        [ `Assoc
+            [ "name", `String "calc"
+            ; "description", `String "Calculate a value"
+            ; "input_schema", `Assoc [ "type", `String "object" ]
+            ]
+        ]
       ()
     |> Yojson.Safe.from_string
   in

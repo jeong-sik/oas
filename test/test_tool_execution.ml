@@ -839,11 +839,10 @@ let test_concurrent_tools_share_batch () =
     |> fun tool ->
     { tool with
       Tool.handler =
-        Tool.Simple
-          (fun input ->
-            Eio.Promise.resolve resolve_self ();
-            Eio.Time.with_timeout_exn clock 0.05 (fun () -> Eio.Promise.await await_other);
-            Ok { Types.content = Yojson.Safe.to_string input; _meta = None })
+        (fun _execution_env input ->
+          Eio.Promise.resolve resolve_self ();
+          Eio.Time.with_timeout_exn clock 0.05 (fun () -> Eio.Promise.await await_other);
+          Ok { Types.content = Yojson.Safe.to_string input; _meta = None })
     }
   in
   let tools =
@@ -877,13 +876,12 @@ let test_serial_tools_run_sequentially () =
     |> fun tool ->
     { tool with
       Tool.handler =
-        Tool.Simple
-          (fun _ ->
-            if !running then failwith "serial overlap detected";
-            running := true;
-            Eio.Time.sleep clock 0.01;
-            running := false;
-            Ok { Types.content = name; _meta = None })
+        (fun _execution_env _ ->
+          if !running then failwith "serial overlap detected";
+          running := true;
+          Eio.Time.sleep clock 0.01;
+          running := false;
+          Ok { Types.content = name; _meta = None })
     }
   in
   let results =
@@ -914,13 +912,12 @@ let test_undeclared_tools_default_to_sequential () =
     |> fun tool ->
     { tool with
       Tool.handler =
-        Tool.Simple
-          (fun _ ->
-            if !running then failwith "undeclared tool overlap detected";
-            running := true;
-            Eio.Time.sleep clock 0.01;
-            running := false;
-            Ok { Types.content = name; _meta = None })
+        (fun _execution_env _ ->
+          if !running then failwith "undeclared tool overlap detected";
+          running := true;
+          Eio.Time.sleep clock 0.01;
+          running := false;
+          Ok { Types.content = name; _meta = None })
     }
   in
   let results =
@@ -952,13 +949,12 @@ let test_serial_barrier_splits_concurrent_batches () =
     |> fun tool ->
     { tool with
       Tool.handler =
-        Tool.Simple
-          (fun _ ->
-            if !serial_running then failwith "concurrent call overlapped with serial call";
-            incr concurrent_running;
-            Eio.Time.sleep clock 0.02;
-            decr concurrent_running;
-            Ok { Types.content = name; _meta = None })
+        (fun _execution_env _ ->
+          if !serial_running then failwith "concurrent call overlapped with serial call";
+          incr concurrent_running;
+          Eio.Time.sleep clock 0.02;
+          decr concurrent_running;
+          Ok { Types.content = name; _meta = None })
     }
   in
   let make_serial_tool name =
@@ -966,14 +962,13 @@ let test_serial_barrier_splits_concurrent_batches () =
     |> fun tool ->
     { tool with
       Tool.handler =
-        Tool.Simple
-          (fun _ ->
-            if !concurrent_running > 0
-            then failwith "serial call overlapped with concurrent call";
-            serial_running := true;
-            Eio.Time.sleep clock 0.02;
-            serial_running := false;
-            Ok { Types.content = name; _meta = None })
+        (fun _execution_env _ ->
+          if !concurrent_running > 0
+          then failwith "serial call overlapped with concurrent call";
+          serial_running := true;
+          Eio.Time.sleep clock 0.02;
+          serial_running := false;
+          Ok { Types.content = name; _meta = None })
     }
   in
   let tools =

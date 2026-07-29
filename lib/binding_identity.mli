@@ -22,18 +22,6 @@ val of_provider_config
   -> Llm_provider.Provider_config.t
   -> (t, string) result
 
-(** Construct from a successfully resolved legacy {!Provider.config} call.
-    [base_url], [request_path], and [api_key] are the exact values selected by
-    the OAS adapter for that call.  This is the OAS-owned compatibility bridge;
-    no embedding runtime reconstructs provider identity from display strings. *)
-val of_resolved_provider
-  :  transport:transport
-  -> provider:Provider.config
-  -> base_url:string
-  -> request_path:string
-  -> api_key:string
-  -> (t, string) result
-
 val equal : t -> t -> bool
 val hash : t -> int
 

@@ -11,9 +11,30 @@ original tag dates. `0.100.4` was never tagged or released.
 ### Changed
 
 `Llm_provider.Complete` no longer includes its sampling, common, sync, and
-stream implementation modules. It keeps the same public completion Feature
-surface while depending on those owners internally and re-exporting only the
-documented `gemini_url` helper.
+stream implementation modules. It exposes only the completion Feature and its
+required transport contract; the test-only `gemini_url` facade is removed and
+tests call its sampling owner directly.
+
+### Breaking Changes
+
+`Tool.t` now has one execution-environment handler shape. `Typed_tool`
+constructors return canonical `Tool.t` values directly, and the secondary
+typed runtime representation, erasure bridge, and unused agent-tool raw input
+field have been removed.
+
+* **checkpoint persistence:** accept only the exact current v8 checkpoint
+  schema. Released v5/v6 artifacts must be reset rather than migrated at
+  runtime.
+* **provider tools:** reject historical OpenAI `parameters` lists; current
+  callers must supply `input_schema` or an already-provider-shaped JSON Schema
+  object.
+`Eval.compare` and its implicit lower-is-better policy have been removed.
+`Eval.compare_with_specs` now compares only metrics selected by an explicit
+`metric_spec`.
+
+The unused `Binding_identity.of_resolved_provider` compatibility bridge has
+been removed. Binding identities are constructed only from canonical
+`Llm_provider.Provider_config.t` values.
 
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
@@ -391,8 +412,8 @@ The generated body previously listed ~292 pull requests reaching back to `#10`, 
   or an HTTP reconnect URL. Legacy MCP sessions are rejected when reconnecting
   stdio would widen their saved subprocess environment; released HTTP policy
   metadata is removed because HTTP reconnect never consumed it. Versions 1-4
-  remain unsupported and the v8 domain is not widened; see the [checkpoint
-  migration guide](docs/migrations/checkpoint-v5-v6-to-v8.md).
+  remain unsupported and the v8 domain is not widened. This runtime migration
+  was removed after the release; current OAS accepts only v8.
 * **agent resume:** make an explicitly supplied `Agent.resume ~config` the
   complete runtime configuration SSOT. Checkpoints still restore conversation,
   usage, turn count, and context, but can no longer overwrite the caller's

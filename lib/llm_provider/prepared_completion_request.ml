@@ -12,8 +12,9 @@ type serialized =
   }
 
 type measurement =
-  | Legacy_measurement of Count_tokens_sync.completion_request_measurement
-  | Exact_measurement of Exact_output_count_tokens.completion_request_measurement
+  { input_count : Input_token_count.count
+  ; output_token_receipt : Types.output_token_receipt
+  }
 
 type measured =
   { prepared : t
@@ -108,8 +109,14 @@ let measure_prepared ?connection_cache ?clock ?timeout_s ~sw ~net prepared =
       ~sw
       ~net
       prepared.request
-    |> Result.map (fun measurement ->
-      { prepared; admitted_body = None; measurement = Legacy_measurement measurement })
+    |> Result.map (fun (measurement : Count_tokens_sync.completion_request_measurement) ->
+      { prepared
+      ; admitted_body = None
+      ; measurement =
+          { input_count = measurement.input_count
+          ; output_token_receipt = measurement.output_token_receipt
+          }
+      })
   in
   match Complete_common.validate_all config with
   | Error (Http_client.AcceptRejected { reason }) ->
@@ -126,8 +133,17 @@ let measure ?connection_cache ?clock ?timeout_s ~sw ~net (serialized : serialize
     (measure_prepared ?connection_cache ?clock ?timeout_s ~sw ~net prepared)
 ;;
 
-let attach_measurement prepared measurement =
-  { prepared; admitted_body = None; measurement = Exact_measurement measurement }
+let attach_measurement
+      prepared
+      (measurement : Exact_output_count_tokens.completion_request_measurement)
+  =
+  { prepared
+  ; admitted_body = None
+  ; measurement =
+      { input_count = measurement.input_count
+      ; output_token_receipt = measurement.output_token_receipt
+      }
+  }
 ;;
 
 (* Pure single source for the context-token limit. Uses only the caller-owned
@@ -160,13 +176,7 @@ let requires_token_measurement prepared = Option.is_some (serving_constraint pre
 
 let admit ~now_unix_s ~max_context_tokens measured =
   let request = measured.prepared.request in
-  let input_count, output_token_receipt =
-    match measured.measurement with
-    | Legacy_measurement measurement ->
-      measurement.input_count, measurement.output_token_receipt
-    | Exact_measurement measurement ->
-      measurement.input_count, measurement.output_token_receipt
-  in
+  let { input_count; output_token_receipt } = measured.measurement in
   let input_tokens = input_count.input_tokens in
   let reserved_output_tokens =
     Types.output_token_receipt_effective output_token_receipt

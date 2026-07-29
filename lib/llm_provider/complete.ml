@@ -11,8 +11,6 @@ open Complete_common
 open Complete_sync
 open Complete_stream
 
-let gemini_url = Complete_sampling.gemini_url
-
 type latency_counter = Complete_common.latency_counter
 type prepared_request = Prepared_completion_request.t
 type serialized_request = Prepared_completion_request.serialized

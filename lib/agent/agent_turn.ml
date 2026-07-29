@@ -1,7 +1,6 @@
 (** Shared turn logic for sync and streaming paths.
 
-    Contains helper functions that both [Agent.run_turn_with_trace] and
-    [Agent.run_turn_stream_with_trace] call, eliminating ~60% code duplication.
+    Contains helper functions shared by the sync and streaming Agent drivers.
 
     These functions take explicit parameters (not Agent.t) to avoid
     circular module dependency: Agent -> Agent_turn is fine,
@@ -147,21 +146,21 @@ let tool_result_of_projection (proj : Llm_provider.Canonical_tool.provider_tool_
   Types.tool_result_of_outcome ~content:proj.content proj.outcome
 ;;
 
-let role_can_carry_tool_results = function
-  | User | Tool -> true
-  | System | Assistant -> false
-;;
-
 let last_tool_results_from messages =
   let extract_results msg =
-    if not (role_can_carry_tool_results msg.role)
-    then []
-    else
+    match msg.role, msg.content with
+    | Tool, (_ :: _ as content)
+      when List.for_all
+             (function
+               | ToolResult _ -> true
+               | _ -> false)
+             content ->
       List.filter_map
         (fun (block : content_block) ->
            Llm_provider.Canonical_tool.tool_result_of_block block
            |> Option.map tool_result_of_projection)
-        msg.content
+        content
+    | User, _ | System, _ | Assistant, _ | Tool, _ -> []
   in
   List.fold_left
     (fun acc msg ->
