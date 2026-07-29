@@ -10,10 +10,10 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Changed
 
-`Llm_provider.Complete` no longer includes its sampling, common, sync, and
-stream implementation modules. It exposes only the completion Feature and its
-required transport contract; the test-only `gemini_url` facade is removed and
-tests call its sampling owner directly.
+Execution projection no longer re-checks committed event sequence uniqueness.
+The read-only event store supplies only private validated snapshots, and the
+journal reducer enforces the exact next sequence before projection mutates its
+derived index.
 
 ### Bug Fixes
 

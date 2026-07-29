@@ -505,12 +505,7 @@ let validate_snapshot ~locator_run_id ?previous (durable : Durable.snapshot) =
       (match Journal.Reducer.apply reducer value with
        | Ok reducer ->
          let seq = Event.seq value in
-         if Sequence_map.mem seq events
-         then
-           Error
-             (Semantic_failure
-                { seq; detail = "committed suffix repeats an observed sequence" })
-         else reduce reducer (Sequence_map.add seq (event value) events) rest
+         reduce reducer (Sequence_map.add seq (event value) events) rest
        | Error violation ->
          Error
            (Semantic_failure
