@@ -658,6 +658,23 @@ let test_pipeline_output_rejects_unmatched_tool_stop () =
   | Ok _ -> Alcotest.fail "expected malformed tool-stop rejection"
 ;;
 
+let test_pipeline_output_rejects_injected_stop_tool_use_without_block () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let net = Eio.Stdenv.net env in
+  let agent = make_pipeline_test_agent ~net ~response:(pipeline_response StopToolUse) in
+  match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
+  | Error (Error.Agent (UnrecognizedStopReason { reason })) ->
+    Alcotest.(check string)
+      "injected transport cannot bypass tool-block invariant"
+      "StopToolUse turn carried no tool block"
+      reason
+  | Error err -> Alcotest.failf "unexpected run error: %s" (Error.to_string err)
+  | Ok _ -> Alcotest.fail "expected malformed injected tool-stop rejection"
+;;
+
 let test_pipeline_text_tool_intent_remains_text () =
   Eio_main.run
   @@ fun env ->
@@ -3643,6 +3660,10 @@ let () =
             "output rejects unmatched tool stop"
             `Quick
             test_pipeline_output_rejects_unmatched_tool_stop
+        ; Alcotest.test_case
+            "output rejects injected tool stop without block"
+            `Quick
+            test_pipeline_output_rejects_injected_stop_tool_use_without_block
         ; Alcotest.test_case
             "text tool intent remains text"
             `Quick
