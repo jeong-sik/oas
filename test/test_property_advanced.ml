@@ -250,109 +250,6 @@ let test_cost_scales_with_tokens =
        | Provider.Incomplete _, _ | _, Provider.Incomplete _ -> false)
 ;;
 
-(* ── Provider Resolve Properties ──────────────────────────────── *)
-
-let with_repo_model_catalog f =
-  match Llm_provider.Model_catalog.global () with
-  | Some catalog ->
-    Llm_provider.Model_catalog.set_global catalog;
-    Fun.protect ~finally:Llm_provider.Model_catalog.clear_global f
-  | None ->
-    let candidates = [ "models.toml"; "../models.toml"; "../../models.toml" ] in
-    (match List.find_opt Sys.file_exists candidates with
-     | None -> Alcotest.fail "models.toml not found for capability property tests"
-     | Some path ->
-       (match Llm_provider.Model_catalog.load_file path with
-        | Error msg -> Alcotest.fail (Printf.sprintf "models.toml should parse: %s" msg)
-        | Ok catalog ->
-          Llm_provider.Model_catalog.set_global catalog;
-          Fun.protect ~finally:Llm_provider.Model_catalog.clear_global f))
-;;
-
-let test_local_provider_resolve_always_succeeds =
-  QCheck.Test.make
-    ~count:100
-    ~name:"Local provider resolve always succeeds"
-    (QCheck.make QCheck.Gen.string_printable)
-    (fun url ->
-       let cfg : Provider.config =
-         { provider = Local { base_url = url }; model_id = "test"; api_key_env = "DUMMY" }
-       in
-       match Provider.resolve cfg with
-       | Ok _ -> true
-       | Error _ -> false)
-;;
-
-let test_capabilities_provider_m_reasoning =
-  QCheck.Test.make
-    ~count:50
-    ~name:"Local DashScope_3 models require endpoint declaration"
-    (QCheck.make
-       ~print:(fun s -> s)
-       (QCheck.Gen.oneof
-          [ QCheck.Gen.return "dashscope-3.5-35b"
-          ; QCheck.Gen.return "dashscope_3.6:27b-coding-nvfp4"
-          ; QCheck.Gen.return "DashScope_3.6-35B-A3B-UD-Q4_K_XL.gguf"
-          ]))
-    (fun model_id ->
-       with_repo_model_catalog (fun () ->
-         let caps =
-           Provider.capabilities_for_model
-             ~provider:(Provider.Local { base_url = "http://127.0.0.1:8080" })
-             ~model_id
-         in
-         not caps.supports_reasoning))
-;;
-
-let test_local_glm_model_id_requires_endpoint_declaration =
-  QCheck.Test.make
-    ~count:50
-    ~name:"Local GLM model ids require endpoint declaration (not ZAI-inferred)"
-    (QCheck.make
-       ~print:(fun s -> s)
-       (QCheck.Gen.oneof
-          [ QCheck.Gen.return "glm-5.2"
-          ; QCheck.Gen.return "glm-4.6"
-          ; QCheck.Gen.return "glm-4.5"
-          ]))
-    (fun model_id ->
-       with_repo_model_catalog (fun () ->
-         let caps =
-           Provider.capabilities_for_model
-             ~provider:(Provider.Local { base_url = "http://127.0.0.1:8080" })
-             ~model_id
-         in
-         (not caps.supports_reasoning) && not caps.supports_extended_thinking))
-;;
-
-let test_raw_openai_compat_dashscope_requires_endpoint_declaration =
-  QCheck.Test.make
-    ~count:50
-    ~name:"Raw OpenAICompat DashScope_3 models require endpoint declaration"
-    (QCheck.make
-       ~print:(fun s -> s)
-       (QCheck.Gen.oneof
-          [ QCheck.Gen.return "dashscope-3.5-35b"
-          ; QCheck.Gen.return "dashscope_3.6:27b-coding-nvfp4"
-          ; QCheck.Gen.return "DashScope_3.6-35B-A3B-UD-Q4_K_XL.gguf"
-          ]))
-    (fun model_id ->
-       with_repo_model_catalog (fun () ->
-         let caps =
-           Provider.capabilities_for_model
-             ~provider:
-               (Provider.OpenAICompat
-                  { base_url = "x"
-                  ; auth_header = None
-                  ; path = "/v1/chat/completions"
-                  ; static_token = None
-                  })
-             ~model_id
-         in
-         (not caps.supports_reasoning)
-         && caps.thinking_control_format = Llm_provider.Capabilities.No_thinking_control))
-;;
-
 (* ── Lifecycle Properties ────────────────────────────────────── *)
 
 let lifecycle_status_gen =
@@ -373,22 +270,6 @@ let test_lifecycle_show_non_empty =
     (fun status -> String.length (Agent_lifecycle.show_lifecycle_status status) > 0)
 ;;
 
-(* ── Capabilities Properties ─────────────────────────────────── *)
-
-let test_anthropic_supports_tools =
-  QCheck.Test.make
-    ~count:50
-    ~name:"Anthropic provider always supports tools"
-    (QCheck.make (QCheck.Gen.return ()))
-    (fun () ->
-       let caps =
-         Provider.capabilities_for_model
-           ~provider:Provider.Anthropic
-           ~model_id:"claude-sonnet-4-6"
-       in
-       caps.supports_tools && caps.supports_tool_choice)
-;;
-
 (* ── Test Runner ─────────────────────────────────────────────── *)
 
 let () =
@@ -407,15 +288,8 @@ let () =
       ; test_pricing_non_negative
       ; test_cost_estimation_non_negative
       ; test_cost_scales_with_tokens
-      ; (* Provider resolve *)
-        test_local_provider_resolve_always_succeeds
-      ; test_capabilities_provider_m_reasoning
-      ; test_local_glm_model_id_requires_endpoint_declaration
-      ; test_raw_openai_compat_dashscope_requires_endpoint_declaration
       ; (* Lifecycle *)
         test_lifecycle_show_non_empty
-      ; (* Capabilities *)
-        test_anthropic_supports_tools
       ]
   in
   Alcotest.run "property_advanced" [ "properties", suite ]

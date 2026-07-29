@@ -7,8 +7,7 @@
     etc.) was fully superseded by [Llm_provider.Complete]. Equivalent HTTP
     dispatch coverage (server-error mapping, malformed-response handling,
     empty-completion-to-ProviderUnavailable, Kimi codec routing) lives in
-    [test_complete_http.ml]. Custom-provider registry coverage (register/find
-    /resolve/capabilities) lives in [test_custom_provider.ml]. *)
+    [test_complete_http.ml]. *)
 
 open Agent_sdk
 

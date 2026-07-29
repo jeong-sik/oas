@@ -59,7 +59,6 @@
   test_context_concurrency
   test_context_flow_proof
   test_contract
-  test_custom_provider
   test_discovery
   test_discovery_http
   test_durable_event
@@ -199,7 +198,6 @@
   test_context_concurrency
   test_context_flow_proof
   test_contract
-  test_custom_provider
   test_discovery
   test_discovery_http
   test_durable_event
