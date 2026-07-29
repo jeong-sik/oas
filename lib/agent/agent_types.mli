@@ -34,9 +34,41 @@ type context_fit_admission =
   | Disabled
   | Enforce_when_supported
 
-(** Caller-owned provider-message projection. [Error detail] aborts the turn
-    before request measurement or dispatch. Canonical Agent state is unchanged. *)
-type model_input_projection = Types.message list -> (Types.message list, string) result
+(** Typed origin of one final provider-bound message before provider-specific
+    serialization. *)
+type prepared_message_origin =
+  | Canonical_history
+  | Current_user
+  | Extra_system_context
+  | Caller_projection of { source : string }
+
+(** An origin-bearing provider-bound message. The representation is abstract so
+    a caller projection can preserve an existing origin or create a new message
+    only through the explicit [Caller_projection] constructor below. *)
+type prepared_message
+
+val prepared_message_value : prepared_message -> Types.message
+val prepared_message_origin : prepared_message -> prepared_message_origin
+
+(** Transform one prepared message while preserving its origin. OAS-owned
+    internal metadata is removed from the returned provider carrier. *)
+val map_prepared_message
+  :  (Types.message -> Types.message)
+  -> prepared_message
+  -> prepared_message
+
+(** Construct a caller-added provider message with an explicit, non-empty
+    producer identity. *)
+val caller_projected_message
+  :  source:string
+  -> Types.message
+  -> (prepared_message, string) result
+
+(** Caller-owned provider-message projection. Every final message retains a
+    typed origin. [Error detail] aborts the turn before request measurement or
+    dispatch. Canonical Agent state is unchanged. *)
+type model_input_projection =
+  prepared_message list -> (prepared_message list, string) result
 
 type pre_dispatch_serialization_observer = Llm_provider.Request_wire_observer.try_observe
 
@@ -192,6 +224,14 @@ val net : t -> [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
 val set_state : t -> Types.agent_state -> unit
 val update_state : t -> (Types.agent_state -> Types.agent_state) -> unit
 val description : t -> string option
+
+(** Internal run-boundary helpers. The current-user marker is checkpoint-only
+    and is removed before provider dispatch. *)
+val mark_current_user_message : Types.message -> Types.message
+
+val clear_current_user_marker : Types.message -> Types.message
+val prepared_message_of_canonical : Types.message -> (prepared_message, string) result
+val prepared_extra_system_context : Types.message -> prepared_message
 
 (** {1 SDK version} *)
 

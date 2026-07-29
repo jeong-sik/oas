@@ -31,7 +31,78 @@ type context_fit_admission =
   | Disabled
   | Enforce_when_supported
 
-type model_input_projection = message list -> (message list, string) result
+type prepared_message_origin =
+  | Canonical_history
+  | Current_user
+  | Extra_system_context
+  | Caller_projection of { source : string }
+
+type prepared_message =
+  { message : message
+  ; origin : prepared_message_origin
+  }
+
+let current_user_marker_key = "oas.prepared_input.current_user.v1"
+
+let clear_current_user_marker message =
+  { message with
+    metadata =
+      List.filter
+        (fun (key, _) -> not (String.equal key current_user_marker_key))
+        message.metadata
+  }
+;;
+
+let mark_current_user_message message =
+  let message = clear_current_user_marker message in
+  { message with metadata = (current_user_marker_key, `Bool true) :: message.metadata }
+;;
+
+let current_user_marker_values message =
+  List.filter_map
+    (fun (key, value) ->
+       if String.equal key current_user_marker_key then Some value else None)
+    message.metadata
+;;
+
+let prepared_message_of_canonical message =
+  let origin =
+    match current_user_marker_values message with
+    | [] -> Ok Canonical_history
+    | [ `Bool true ] -> Ok Current_user
+    | [ _ ] -> Error "current-user origin marker is malformed"
+    | _ -> Error "current-user origin marker is duplicated"
+  in
+  Result.map
+    (fun origin -> { message = clear_current_user_marker message; origin })
+    origin
+;;
+
+let prepared_extra_system_context message =
+  { message = clear_current_user_marker message; origin = Extra_system_context }
+;;
+
+let prepared_message_value prepared = prepared.message
+let prepared_message_origin prepared = prepared.origin
+
+let map_prepared_message project prepared =
+  { prepared with message = clear_current_user_marker (project prepared.message) }
+;;
+
+let caller_projected_message ~source message =
+  let source = String.trim source in
+  if source = ""
+  then Error "caller projection source must be non-empty"
+  else
+    Ok
+      { message = clear_current_user_marker message
+      ; origin = Caller_projection { source }
+      }
+;;
+
+type model_input_projection =
+  prepared_message list -> (prepared_message list, string) result
+
 type pre_dispatch_serialization_observer = Llm_provider.Request_wire_observer.try_observe
 
 type options =

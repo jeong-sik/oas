@@ -127,10 +127,14 @@ val with_provider_config : Llm_provider.Provider_config.t -> t -> t
     [Complete] compatibility behavior. *)
 val with_context_fit_admission : Agent.context_fit_admission -> t -> t
 
-(** Apply a caller-owned projection once to the complete provider-bound message
-    list. Native request measurement and actual dispatch consume that same
-    projected request; canonical Agent state and checkpoints remain unchanged.
-    [Error detail] fails the turn as a typed hook execution error. *)
+(** Apply a caller-owned projection once to the complete provider-bound
+    message list. Each input is an abstract {!Agent.prepared_message}: transform
+    it with {!Agent.map_prepared_message} to preserve its typed origin, and add
+    a new provider-only message with {!Agent.caller_projected_message} and an
+    explicit producer identity. Native request measurement and actual dispatch
+    consume that same projected request; canonical Agent state and checkpoints
+    remain unchanged. [Error detail] fails the turn as a typed hook execution
+    error. *)
 val with_model_input_projection : Agent.model_input_projection -> t -> t
 
 (** Observe metadata-only evidence for the exact provider serialization prepared

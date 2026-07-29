@@ -1114,6 +1114,7 @@ let test_agent_admitted_stream_observer_sees_dispatched_body () =
 
 let test_agent_projection_is_shared_by_measurement_and_dispatch () =
   let projection_calls = ref 0 in
+  let projected_origins = ref [] in
   let (result, dispatched), (_, _, measured_body) =
     with_mock ~status:`OK ~response:{|{"input_tokens":321}|}
     @@ fun ~sw ~net ~base_url ->
@@ -1136,7 +1137,17 @@ let test_agent_projection_is_shared_by_measurement_and_dispatch () =
         ~transport
         ~model_input_projection:(fun provider_messages ->
           incr projection_calls;
-          Ok (provider_messages @ [ hydrated ]))
+          match
+            Agent_sdk.Agent.caller_projected_message
+              ~source:"test_hydrated_artifact"
+              hydrated
+          with
+          | Error detail -> Error detail
+          | Ok hydrated ->
+            let projected = provider_messages @ [ hydrated ] in
+            projected_origins
+            := List.map Agent_sdk.Agent.prepared_message_origin projected;
+            Ok projected)
         ()
     in
     let result = Agent_sdk.Agent.run ~sw agent "canonical input" in
@@ -1147,7 +1158,19 @@ let test_agent_projection_is_shared_by_measurement_and_dispatch () =
   | Ok _, None -> fail "projected request was not dispatched"
   | Ok _, Some request ->
     check int "projection is applied exactly once" 1 !projection_calls;
+    (match !projected_origins with
+     | [ Agent_sdk.Agent.Current_user
+       ; Agent_sdk.Agent.Caller_projection { source = "test_hydrated_artifact" }
+       ] -> ()
+     | _ -> fail "actual Agent projection lost typed message origins");
     check int "dispatch receives projected messages" 2 (List.length request.messages);
+    check
+      bool
+      "checkpoint-only origin marker is absent from provider messages"
+      true
+      (List.for_all
+         (fun (message : Types.message) -> message.metadata = [])
+         request.messages);
     check
       string
       "measurement and dispatch share exact request"

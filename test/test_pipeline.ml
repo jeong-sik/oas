@@ -14,6 +14,8 @@ module Internal_scope = Internal.Execution_agent_scope
 module Internal_binding = Binding_identity
 module Internal_settlement = Internal.Execution_tool_settlement
 
+let current_user_msg text = Agent_types.mark_current_user_message (Types.user_msg text)
+
 let invocation tool_use_id =
   let schedule : Tool_contract.schedule =
     { planned_index = 0
@@ -1944,12 +1946,13 @@ let test_agent_run_resumes_tool_without_duplicate_effects
          agent
          { config
          ; messages =
-             [ { Types.role = User
-               ; content = [ Text "run the tool" ]
-               ; name = None
-               ; tool_call_id = None
-               ; metadata = []
-               }
+             [ Agent_types.mark_current_user_message
+                 { Types.role = User
+                 ; content = [ Text "run the tool" ]
+                 ; name = None
+                 ; tool_call_id = None
+                 ; metadata = []
+                 }
              ; { Types.role = Assistant
                ; content =
                    [ ToolUse
@@ -2217,10 +2220,8 @@ let test_unattempted_legacy_invocation_requires_typed_readmission () =
 (* A context injector appends User-role messages during a turn (see
    [Agent_turn.apply_context_injection]); after such a turn the latest User
    message in the restored checkpoint is the injected one, not the run's
-   original prompt. Resume must match the original prompt (at the base-messages
-   boundary), so it succeeds even though a later injected User message differs.
-   Reverting [resume_user_input] to a latest-User-message scan makes this fail:
-   the injected message no longer equals the resume prompt. *)
+   original prompt. Resume follows the typed current-user origin, so it succeeds
+   even though a later injected User message differs. *)
 let test_agent_run_resume_ignores_injected_user_context_message () =
   test_agent_run_resumes_tool_without_duplicate_effects
     ~settled:true
@@ -2482,12 +2483,7 @@ let test_agent_run_resumes_settled_closed_turn
          agent
          { config
          ; messages =
-             [ { Types.role = User
-               ; content = [ Text "run the tool" ]
-               ; name = None
-               ; tool_call_id = None
-               ; metadata = []
-               }
+             [ current_user_msg "run the tool"
              ; { Types.role = Assistant
                ; content =
                    [ ToolUse
@@ -3206,7 +3202,7 @@ let test_agent_run_replays_precheckpoint_terminal_settlement () =
          Internal_agent.set_state
            initial_agent
            { (Internal_agent.state initial_agent) with
-             messages = [ Types.user_msg "run the durable tool" ]
+             messages = [ current_user_msg "run the durable tool" ]
            };
          let locator_json = ref None in
          (match
@@ -3430,12 +3426,7 @@ let test_agent_run_resumes_all_blocked_settled_turn () =
          agent
          { config
          ; messages =
-             [ { Types.role = User
-               ; content = [ Text "run the tool" ]
-               ; name = None
-               ; tool_call_id = None
-               ; metadata = []
-               }
+             [ current_user_msg "run the tool"
              ; { Types.role = Assistant
                ; content =
                    [ ToolUse
@@ -3626,12 +3617,7 @@ let test_agent_run_resume_fires_on_yield () =
          agent
          { config
          ; messages =
-             [ { Types.role = User
-               ; content = [ Text "run the tool" ]
-               ; name = None
-               ; tool_call_id = None
-               ; metadata = []
-               }
+             [ current_user_msg "run the tool"
              ; { Types.role = Assistant
                ; content =
                    [ ToolUse

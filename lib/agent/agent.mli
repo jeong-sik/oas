@@ -38,6 +38,27 @@ type context_fit_admission = Agent_types.context_fit_admission =
   | Disabled
   | Enforce_when_supported
 
+type prepared_message_origin = Agent_types.prepared_message_origin =
+  | Canonical_history
+  | Current_user
+  | Extra_system_context
+  | Caller_projection of { source : string }
+
+type prepared_message = Agent_types.prepared_message
+
+val prepared_message_value : prepared_message -> Types.message
+val prepared_message_origin : prepared_message -> prepared_message_origin
+
+val map_prepared_message
+  :  (Types.message -> Types.message)
+  -> prepared_message
+  -> prepared_message
+
+val caller_projected_message
+  :  source:string
+  -> Types.message
+  -> (prepared_message, string) result
+
 type model_input_projection = Agent_types.model_input_projection
 type pre_dispatch_serialization_observer = Agent_types.pre_dispatch_serialization_observer
 
@@ -114,8 +135,10 @@ val sdk_version : string
     that construct options records remain source-compatible.
     The optional projection is applied once during turn preparation; native
     request measurement and provider dispatch consume the same projected
-    messages. A returned [Error detail] or non-reserved callback exception
-    fails the turn as {!Error.HookExecutionFailed}.
+    messages. Existing messages can only be transformed while preserving their
+    typed origin; caller-added messages require an explicit projection source.
+    A returned [Error detail] or non-reserved callback exception fails the turn
+    as {!Error.HookExecutionFailed}.
 
     [pre_dispatch_serialization_observer] receives metadata-only evidence for
     the admitted provider body before built-in HTTP dispatch is attempted. It

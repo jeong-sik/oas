@@ -40,7 +40,7 @@ val prepare_messages
   :  messages:Types.message list
   -> turn_params:Hooks.turn_params
   -> unit
-  -> Types.message list
+  -> (Agent_types.prepared_message list, string) result
 
 (** Full turn preparation: exact caller-supplied tools plus messages. A failed
     caller projection is returned before provider measurement or dispatch.

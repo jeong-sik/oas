@@ -27,30 +27,41 @@ let prepare_tools ~(tools : Tool_set.t) () =
 ;;
 
 let prepare_messages ~messages ~turn_params () =
-  match turn_params.Hooks.extra_system_context with
-  | None -> messages
-  | Some ctx ->
-    (* Append (not prepend) so that the conversation prefix remains
-       byte-identical across turns — critical for local LLM KV-cache
-       reuse.  The dynamic context (timestamps, tool counts) changes
-       every turn; placing it at the tail keeps the stable history
-       prefix cacheable.  Anthropic API handles caching server-side
-       regardless of position, but Ollama/llama.cpp prefix-match. *)
-    let system_msg =
-      { role = User
-      ; content = [ Text ("[system context] " ^ ctx) ]
-      ; name = None
-      ; tool_call_id = None
-      ; metadata = []
-      }
-    in
-    messages @ [ system_msg ]
+  let rec annotate acc = function
+    | [] -> Ok (List.rev acc)
+    | message :: rest ->
+      (match Agent_types.prepared_message_of_canonical message with
+       | Error _ as error -> error
+       | Ok prepared -> annotate (prepared :: acc) rest)
+  in
+  Result.map
+    (fun prepared ->
+       match turn_params.Hooks.extra_system_context with
+       | None -> prepared
+       | Some ctx ->
+         (* Append (not prepend) so that the conversation prefix remains
+            byte-identical across turns — critical for local LLM KV-cache
+            reuse.  The dynamic context (timestamps, tool counts) changes
+            every turn; placing it at the tail keeps the stable history
+            prefix cacheable.  Anthropic API handles caching server-side
+            regardless of position, but Ollama/llama.cpp prefix-match. *)
+         let system_msg =
+           { role = User
+           ; content = [ Text ("[system context] " ^ ctx) ]
+           ; name = None
+           ; tool_call_id = None
+           ; metadata = []
+           }
+         in
+         prepared @ [ Agent_types.prepared_extra_system_context system_msg ])
+    (annotate [] messages)
 ;;
 
 let prepare_turn ~tools ~messages ~turn_params ?model_input_projection () =
   let tools_json, visible_tool_names = prepare_tools ~tools () in
-  let prepared = prepare_messages ~messages ~turn_params () in
-  let effective_messages =
+  let ( let* ) = Result.bind in
+  let* prepared = prepare_messages ~messages ~turn_params () in
+  let* prepared_messages =
     match model_input_projection with
     | None -> Ok prepared
     | Some project ->
@@ -59,9 +70,10 @@ let prepare_turn ~tools ~messages ~turn_params ?model_input_projection () =
          Llm_provider.Reserved_exn.reraise_if_reserved exn;
          Error (Printexc.to_string exn))
   in
-  Result.map
-    (fun effective_messages -> { tools_json; effective_messages; visible_tool_names })
-    effective_messages
+  let effective_messages =
+    List.map Agent_types.prepared_message_value prepared_messages
+  in
+  Ok { tools_json; effective_messages; visible_tool_names }
 ;;
 
 let provider_config_with_agent_config

@@ -27,6 +27,13 @@ let prepared_turn = function
   | Error detail -> Alcotest.fail detail
 ;;
 
+let prepared_messages = function
+  | Ok messages -> messages
+  | Error detail -> Alcotest.fail detail
+;;
+
+let prepared_value = Agent.prepared_message_value
+
 (* ── prepare_turn tests ────────────────────────────────────── *)
 
 let test_prepare_turn_empty_tools () =
@@ -152,6 +159,7 @@ let test_prepare_messages_no_reducer () =
   in
   let result =
     Agent_turn.prepare_messages ~messages:msgs ~turn_params:Hooks.default_turn_params ()
+    |> prepared_messages
   in
   Alcotest.(check int) "same count" 1 (List.length result)
 ;;
@@ -169,9 +177,11 @@ let test_prepare_messages_extra_context () =
   let turn_params =
     { Hooks.default_turn_params with extra_system_context = Some "You are in test mode." }
   in
-  let result = Agent_turn.prepare_messages ~messages:msgs ~turn_params () in
+  let result =
+    Agent_turn.prepare_messages ~messages:msgs ~turn_params () |> prepared_messages
+  in
   Alcotest.(check int) "prepended system msg" 2 (List.length result);
-  let first = List.hd result in
+  let first = List.hd result |> prepared_value in
   Alcotest.(check bool) "is User role" true (first.role = Types.User);
   match first.content with
   | [ Types.Text _ ] -> ()
@@ -195,7 +205,9 @@ let test_prepare_messages_system_prompt_override_noop () =
       system_prompt_override = Some "Custom system prompt"
     }
   in
-  let result = Agent_turn.prepare_messages ~messages:msgs ~turn_params () in
+  let result =
+    Agent_turn.prepare_messages ~messages:msgs ~turn_params () |> prepared_messages
+  in
   (* system_prompt_override is handled in pipeline stage_parse, not
      in prepare_messages. Message count should remain unchanged. *)
   Alcotest.(check int) "no extra message from override" 1 (List.length result)
@@ -217,16 +229,75 @@ let test_prepare_messages_both_override_and_extra_context () =
     ; system_prompt_override = Some "You are a reviewer."
     }
   in
-  let result = Agent_turn.prepare_messages ~messages:msgs ~turn_params () in
+  let result =
+    Agent_turn.prepare_messages ~messages:msgs ~turn_params () |> prepared_messages
+  in
   (* extra_system_context injects a User message; system_prompt_override
      is applied separately in pipeline. So only extra_system_context
      adds a message here. *)
   Alcotest.(check int) "extra context adds 1 message" 2 (List.length result);
-  let first = List.hd result in
+  let first = List.hd result |> prepared_value in
   Alcotest.(check bool) "injected msg is User" true (first.role = Types.User);
   match first.content with
   | [ Types.Text _ ] -> ()
   | _ -> Alcotest.fail "expected single Text block"
+;;
+
+let test_prepare_messages_retains_typed_origins () =
+  let history =
+    { Types.role = Types.Assistant
+    ; content = [ Types.Text "prior" ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  let current =
+    Agent_types.mark_current_user_message
+      { Types.role = Types.User
+      ; content = [ Types.Text "now" ]
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
+  in
+  let turn_params =
+    { Hooks.default_turn_params with extra_system_context = Some "runtime" }
+  in
+  let prepared =
+    Agent_turn.prepare_messages ~messages:[ history; current ] ~turn_params ()
+    |> prepared_messages
+  in
+  let origins = List.map Agent.prepared_message_origin prepared in
+  Alcotest.(check int) "three prepared messages" 3 (List.length origins);
+  (match origins with
+   | [ Agent.Canonical_history; Agent.Current_user; Agent.Extra_system_context ] -> ()
+   | _ -> Alcotest.fail "prepared message origins changed");
+  let current_wire = List.nth prepared 1 |> prepared_value in
+  Alcotest.(check int)
+    "current-user marker stripped before projection"
+    0
+    (List.length current_wire.metadata)
+;;
+
+let test_projection_addition_requires_source () =
+  let message =
+    { Types.role = Types.User
+    ; content = [ Types.Text "projection" ]
+    ; name = None
+    ; tool_call_id = None
+    ; metadata = []
+    }
+  in
+  (match Agent.caller_projected_message ~source:"" message with
+   | Error _ -> ()
+   | Ok _ -> Alcotest.fail "empty caller projection source was accepted");
+  match Agent.caller_projected_message ~source:"keeper_gate_replay" message with
+  | Error detail -> Alcotest.fail detail
+  | Ok prepared ->
+    (match Agent.prepared_message_origin prepared with
+     | Agent.Caller_projection { source = "keeper_gate_replay" } -> ()
+     | _ -> Alcotest.fail "caller projection source was not retained")
 ;;
 
 let starts_with ~prefix s =
@@ -774,6 +845,14 @@ let () =
             "both override and extra_context"
             `Quick
             test_prepare_messages_both_override_and_extra_context
+        ; Alcotest.test_case
+            "typed origins"
+            `Quick
+            test_prepare_messages_retains_typed_origins
+        ; Alcotest.test_case
+            "projection source required"
+            `Quick
+            test_projection_addition_requires_source
         ] )
     ; ( "accumulate_usage"
       , [ Alcotest.test_case "with response" `Quick test_accumulate_usage_with_response

@@ -62,42 +62,42 @@ let validate_user_input_blocks blocks =
 
 let append_user_input agent user_blocks =
   let user_msg =
-    { role = User
-    ; content = sanitize_user_input_blocks user_blocks
-    ; name = None
-    ; tool_call_id = None
-    ; metadata = []
-    }
+    mark_current_user_message
+      { role = User
+      ; content = sanitize_user_input_blocks user_blocks
+      ; name = None
+      ; tool_call_id = None
+      ; metadata = []
+      }
   in
+  let historical_messages = List.map clear_current_user_marker (base_messages agent) in
   update_state agent (fun state ->
-    { state with messages = Util.snoc (base_messages agent) user_msg });
+    { state with messages = Util.snoc historical_messages user_msg });
   user_msg.content
 ;;
 
 let resume_user_input agent user_blocks =
   let exact_input = sanitize_user_input_blocks user_blocks in
-  (* Match the resume prompt against the run's ORIGINAL prompt, not the latest
-     User message. [append_user_input] snocs the original prompt immediately
-     after the seed messages ([config.initial_messages]), so it lives at index
-     [List.length config.initial_messages] in [state.messages]. Context
-     injection (Agent_turn.apply_context_injection) appends further User-role
-     messages during a turn, so a reverse scan for the last User message can
-     pick an injected message instead of the original prompt and falsely reject
-     a valid resume.
-
-     The positional anchor is [config.initial_messages], NOT [base_messages
-     agent]: [base_messages] returns the whole [state.messages] once it is
-     non-empty, which at resume is the full restored conversation — its length
-     is not the prompt's index. [config.initial_messages] is the seed/history
-     prefix the prompt was appended after, so its length is the prompt's index.
-
-     No recorded prompt identity exists to match against (neither
-     Checkpoint_types.t nor the durable execution journal stores the original
-     input), so positional matching is the bounded, deterministic option. *)
-  let base_len = List.length agent.state.config.initial_messages in
-  match List.nth_opt agent.state.messages base_len with
-  | Some { role = User; content; _ } when content = exact_input -> Ok exact_input
-  | Some { role = User; _ } ->
+  let rec find_current found = function
+    | [] -> Ok found
+    | message :: rest ->
+      (match prepared_message_of_canonical message with
+       | Error detail -> Error detail
+       | Ok prepared ->
+         (match prepared_message_origin prepared with
+          | Current_user ->
+            (match found with
+             | None -> find_current (Some message) rest
+             | Some _ -> Error "checkpoint contains multiple current-user origins")
+          | Canonical_history | Extra_system_context | Caller_projection _ ->
+            find_current found rest))
+  in
+  match find_current None agent.state.messages with
+  | Error detail ->
+    Error
+      (Error.Config (Error.InvalidConfig { field = "execution_store.resume"; detail }))
+  | Ok (Some { role = User; content; _ }) when content = exact_input -> Ok exact_input
+  | Ok (Some { role = User; _ }) ->
     Error
       (Error.Config
          (Error.InvalidConfig
@@ -106,7 +106,7 @@ let resume_user_input agent user_blocks =
                 "resume input differs from the original User prompt in the restored \
                  Agent checkpoint"
             }))
-  | Some _ | None ->
+  | Ok (Some _) | Ok None ->
     Error
       (Error.Config
          (Error.InvalidConfig
