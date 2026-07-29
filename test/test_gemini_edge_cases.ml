@@ -76,12 +76,12 @@ let test_vertex_ai_url () =
       ~api_key:""
       ()
   in
-  let url = Complete.gemini_url ~config ~stream:false in
+  let url = Complete_sampling.gemini_url ~config ~stream:false in
   check "no ?key= in URL" (not (string_has url "key="));
   check "has :generateContent" (string_has url ":generateContent");
   check "has model in path" (string_has url "gemini-2.5-flash");
   Printf.printf "  URL: %s\n" url;
-  let stream_url = Complete.gemini_url ~config ~stream:true in
+  let stream_url = Complete_sampling.gemini_url ~config ~stream:true in
   check
     "stream has :streamGenerateContent"
     (string_has stream_url ":streamGenerateContent");

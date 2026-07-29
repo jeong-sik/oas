@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Changed
+
+`Llm_provider.Complete` no longer includes its sampling, common, sync, and
+stream implementation modules. It exposes only the completion Feature and its
+required transport contract; the test-only `gemini_url` facade is removed and
+tests call its sampling owner directly.
+
 ### Bug Fixes
 
 Gemini streaming and non-streaming responses now share one finish-reason

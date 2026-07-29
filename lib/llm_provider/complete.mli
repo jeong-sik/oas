@@ -124,12 +124,6 @@ val inspect_serialized_request
   -> unit
   -> (Request_wire_observer.observation, Http_client.http_error) result
 
-(** {1 Gemini URL Construction} *)
-
-(** Construct Gemini API URL with model_id in path and optional key param.
-    Exposed for testing. *)
-val gemini_url : config:Provider_config.t -> stream:bool -> string
-
 (** {1 Transport} *)
 
 (** Opaque handle for a monotonic latency measurement.
