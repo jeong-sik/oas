@@ -88,7 +88,7 @@ capability(MTP, tool_choice, reasoning dialect, structured output)를 결정하�
 |---|------|------|----------|
 | B3 | `provider_registry.ml:533-534` `provider_name_of_config` (`OpenAI_compat + is_local → "nous"`) | 임의 로컬 OpenAI-compat 엔드포인트(bare llama.cpp/vLLM)가 loopback host만으로 특정 벤더 "nous"(Nous Research)로 라벨링. (a) `complete.ml`의 `~provider:` 텔레메트리가 모든 로컬 요청을 nous로 **무조건 오귀속**(+ free-pricing); (b) `registry_capabilities_for_provider_config` fallback이 `nous → openai_compat_chat_extended_capabilities`를 주어 uncatalogued 로컬 모델에 `supports_reasoning`/`extended_thinking`/`reasoning_budget` **권한 인플레이션**. 자기 `.mli` 계약(§69-78 "stable kind-derived label")과 `capabilities.ml:388-409` declaration-over-probing 철학에 모순. | medium |
 
-**조치**: `is_local → "nous"` 특례 삭제. 로컬은 중립 `"openai_compat"`(또는 locality-무관 `"local"`)로. 확장 caps는 catalog/manifest row나 명시 override에서만. `is_local`은 auth-less/zero-pricing 같은 전송·비용 관심사에만 — 그건 `provider.ml:670`(`is_local → Provider.Local`, 동일 wire dialect, capability 누수 0)에서 이미 올바르게 분리돼 있다(legit 대조군).
+**조치**: `is_local → "nous"` 특례 삭제. 현재 typed 계약에는 locality로 선택되는 legacy carrier가 없다. 호출자가 `Provider_config.make`의 `kind`, `provider_id`, `base_url`, `request_path`, credential을 명시하고, `Provider_config.is_local`은 loopback 여부만 투영해야 한다. provider identity·capability·pricing·auth는 locality에서 추론하지 않는다.
 
 ### P3 — Borderline (경화 / 일관성, 낮은 우선순위)
 
@@ -104,7 +104,7 @@ capability(MTP, tool_choice, reasoning dialect, structured output)를 결정하�
 - `ollama.com → ollama_cloud`(`provider_config.ml:211`) — vendor-canonical host==provider (case a).
 - `zai_catalog.ml` `is_zai/is_coding_base_url` — 정확 `Uri.host` 등가 + path prefix + env override, look-alike 거부 테스트 핀 (a+c).
 - `http_client.ml:242` `cdn_per_header_limit_bytes = 8192` — RunPod/Cloudflare edge per-header-line 한계를 host-gate 없는 generic 전송 상수로, 진단에만 (b). **B1/B2가 어떻게 달랐어야 하는지의 정답.**
-- `provider.ml:670` `is_local → Provider.Local` — 동일 wire dialect·path, auth 없음·zero-pricing만 차이, capability 누수 0 (b). **B3의 `is_local`이 어디까지만 써야 했는지.**
+- `Provider_config.make` + `Provider_config.is_local` — caller가 typed provider identity·wire·credential을 명시하고 locality는 loopback 투영으로만 유지한다. capability·pricing·auth 정책은 locality에서 파생하지 않는다 (b).
 - `request_path_targets_responses_api`(832) + `validate_request_path`(842) — path가 실제 API envelope 결정, 정확 문자열 등가 + exhaustive match fail-closed (c).
 
 ## 4. Migration

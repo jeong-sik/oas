@@ -1,14 +1,13 @@
 (** Observable agent: see every pipeline step in the terminal.
 
     Demonstrates:
-    - Provider discovery (auto-detect running llama-server)
+    - Explicit provider configuration
     - Event_bus with real-time event printing
     - Hooks for pipeline step visibility
-    - Automatic fallback to mock server if no LLM is available
+    - Explicit mock mode
 
-    Default: discovers LLM via LLM_ENDPOINTS (or localhost:8085).
-    Fallback: built-in mock HTTP server if no LLM is reachable.
-    Force mock: OAS_MOCK=1
+    Live mode: set LLM_BASE_URL and LLM_MODEL.
+    Mock mode: set OAS_MOCK=1 and OAS_MOCK_PORT. OAS_MOCK=0 selects live mode.
 
     Usage:
       dune exec examples/observable_agent.exe *)
@@ -137,7 +136,7 @@ let get_time_tool =
          })
 ;;
 
-(* ── Mock HTTP server (fallback) ─────────────────────── *)
+(* ── Mock HTTP server ────────────────────────────────── *)
 
 let text_body text =
   Printf.sprintf
@@ -166,8 +165,7 @@ let mock_handler call_count _conn _req body =
   Cohttp_eio.Server.respond_string ~status:`OK ~body:response_body ()
 ;;
 
-let start_mock_server ~env ~sw =
-  let port = 18301 in
+let start_mock_server ~env ~sw ~port =
   let call_count = ref 0 in
   let socket =
     Eio.Net.listen
@@ -179,11 +177,58 @@ let start_mock_server ~env ~sw =
   in
   let server = Cohttp_eio.Server.make ~callback:(mock_handler call_count) () in
   Eio.Fiber.fork ~sw (fun () ->
-    Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
+    Cohttp_eio.Server.run socket server ~on_error:(fun exn -> Eio.Switch.fail sw exn));
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-(* ── Provider resolution ─────────────────────────────── *)
+(* ── Explicit provider selection ─────────────────────── *)
+
+type provider_request =
+  | Live_config of
+      { url : string
+      ; model : string
+      }
+  | Mock_requested of { port : int }
+
+type provider_config_error =
+  | Missing_env of string
+  | Invalid_mock_mode of string
+  | Invalid_mock_port of string
+
+let provider_config_error_to_string = function
+  | Missing_env name -> Printf.sprintf "%s must be set for the selected mode" name
+  | Invalid_mock_mode value ->
+    Printf.sprintf "OAS_MOCK must be exactly 0 or 1, got %S" value
+  | Invalid_mock_port value ->
+    Printf.sprintf
+      "OAS_MOCK_PORT must be a canonical decimal integer from 1 to 65535, got %S"
+      value
+;;
+
+let live_provider_request () =
+  match
+    ( Llm_provider.Cli_common_env.get "LLM_BASE_URL"
+    , Llm_provider.Cli_common_env.get "LLM_MODEL" )
+  with
+  | Some url, Some model -> Ok (Live_config { url; model })
+  | None, _ -> Error (Missing_env "LLM_BASE_URL")
+  | Some _, None -> Error (Missing_env "LLM_MODEL")
+;;
+
+let provider_request_from_env () =
+  match Llm_provider.Cli_common_env.get "OAS_MOCK" with
+  | None | Some "0" -> live_provider_request ()
+  | Some "1" ->
+    (match Llm_provider.Cli_common_env.get "OAS_MOCK_PORT" with
+     | None -> Error (Missing_env "OAS_MOCK_PORT")
+     | Some raw ->
+       (match int_of_string_opt raw with
+        | Some port
+          when port >= 1 && port <= 65535 && String.equal raw (string_of_int port) ->
+          Ok (Mock_requested { port })
+        | None | Some _ -> Error (Invalid_mock_port raw)))
+  | Some value -> Error (Invalid_mock_mode value)
+;;
 
 type provider_source =
   | Live of
@@ -192,48 +237,26 @@ type provider_source =
       }
   | Mock of { url : string }
 
-let resolve_provider ~sw ~net =
-  let force_mock = Sys.getenv_opt "OAS_MOCK" <> None in
-  if force_mock
-  then None
-  else (
-    let endpoints =
-      Llm_provider.Discovery.parse_llm_endpoints_env ()
-      |> List.map
-           (Llm_provider.Discovery.endpoint
-              ~protocol:Llm_provider.Discovery.Openai_compatible
-              ~capabilities:Llm_provider.Capabilities.default_capabilities)
-    in
-    let statuses = Llm_provider.Discovery.discover ~sw ~net ~endpoints in
-    List.find_map
-      (fun (s : Llm_provider.Discovery.endpoint_status) ->
-         if s.healthy
-         then (
-           let model =
-             match s.models with
-             | m :: _ -> m.id
-             | [] -> "unknown"
-           in
-           Some (s.url, model))
-         else None)
-      statuses)
-;;
-
 (* ── Main ────────────────────────────────────────────── *)
 
 let () =
-  (* Do not inject mock credentials. Set ANTHROPIC_API_KEY explicitly or use
-     OAS_MOCK=1 for the built-in mock fallback. *)
+  let provider_request =
+    match provider_request_from_env () with
+    | Ok request -> request
+    | Error error ->
+      Printf.eprintf "Configuration error: %s\n" (provider_config_error_to_string error);
+      exit 2
+  in
   Eio_main.run
   @@ fun env ->
   try
     Eio.Switch.run
     @@ fun sw ->
-    (* 1. Discover provider *)
+    (* 1. Materialize the explicitly selected provider. *)
     let source =
-      match resolve_provider ~sw ~net:env#net with
-      | Some (url, model) -> Live { url; model }
-      | None -> Mock { url = start_mock_server ~env ~sw }
+      match provider_request with
+      | Live_config { url; model } -> Live { url; model }
+      | Mock_requested { port } -> Mock { url = start_mock_server ~env ~sw ~port }
     in
     let base_url, model_label =
       match source with

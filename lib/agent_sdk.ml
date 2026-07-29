@@ -2,7 +2,8 @@
 
     A type-safe, Eio-based single-provider agent runtime.
 
-    Example usage:
+    Example usage (the same provider wiring is compiled by
+    [examples/basic_agent.ml]):
     {[
       open Agent_sdk
 
@@ -23,7 +24,7 @@
         Eio.Switch.run @@ fun sw ->
         let provider_config =
           Llm_provider.Provider_config.make
-            ~kind:OpenAI_compat
+            ~kind:Llm_provider.Provider_config.OpenAI_compat
             ~model_id:"qwen3.5"
             ~base_url:"http://127.0.0.1:8085"
             ()
@@ -41,7 +42,7 @@
         | Ok response ->
             List.iter (function
               | Types.Text t -> print_endline t | _ -> ()) response.content
-        | Error e -> prerr_endline ("Error: " ^ e)
+        | Error e -> prerr_endline ("Error: " ^ Error.to_string e)
     ]}
 *)
 

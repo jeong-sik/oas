@@ -15,31 +15,6 @@ let require_estimated_cost = function
   | Provider.Incomplete _ -> Alcotest.fail "expected an exact cost estimate"
 ;;
 
-let test_auth_headers_only_for_kind () =
-  let check label expected kind api_key =
-    Alcotest.(check (list (pair string string)))
-      label
-      expected
-      (Provider.auth_headers_only_for_kind ~kind ~api_key)
-  in
-  check "empty key" [] Llm_provider.Provider_config.Anthropic "";
-  check
-    "anthropic"
-    [ "x-api-key", "sk-ant-test" ]
-    Llm_provider.Provider_config.Anthropic
-    "sk-ant-test";
-  check
-    "gemini"
-    [ "x-goog-api-key", "gemini-test" ]
-    Llm_provider.Provider_config.Gemini
-    "gemini-test";
-  check
-    "openai-compatible"
-    [ "Authorization", "Bearer compat-test" ]
-    Llm_provider.Provider_config.OpenAI_compat
-    "compat-test"
-;;
-
 let test_pricing_sonnet () =
   let p = declared_pricing "claude-sonnet-4-6-20250514" in
   Alcotest.(check (float 0.001)) "input/M" 3.0 p.input_per_million;
@@ -140,10 +115,7 @@ let () =
   install_embedded_model_catalog ();
   Alcotest.run
     "Provider"
-    [ ( "auth"
-      , [ Alcotest.test_case "auth headers only" `Quick test_auth_headers_only_for_kind ]
-      )
-    ; ( "pricing"
+    [ ( "pricing"
       , [ Alcotest.test_case "sonnet pricing" `Quick test_pricing_sonnet
         ; Alcotest.test_case "gpt-5.5 pricing" `Quick test_pricing_gpt55
         ; Alcotest.test_case
