@@ -438,7 +438,7 @@ let test_legacy_only_json_is_rejected () =
       ; "supported_providers", `List []
       ]
   in
-  Agent_card.of_json legacy_json |> expect_invalid_config ~field:"supportedInterfaces"
+  Agent_card.of_json legacy_json |> expect_invalid_config ~field:"agent_card.url"
 ;;
 
 let test_interface_requires_protocol_version () =
@@ -482,8 +482,7 @@ let test_interface_rejects_type_alias () =
       ; "supported_providers", `List []
       ]
   in
-  Agent_card.of_json json
-  |> expect_invalid_config ~field:"supportedInterfaces[0].protocolBinding"
+  Agent_card.of_json json |> expect_invalid_config ~field:"supportedInterfaces[0].type"
 ;;
 
 let test_supported_interfaces_rejects_empty () =
