@@ -118,12 +118,9 @@ val compute_delta
   -> unit
   -> change_direction * float option
 
-(** Compare two runs, classifying each metric as regression/improvement/unchanged. *)
-val compare : baseline:run_metrics -> candidate:run_metrics -> comparison
-
-(** Compare two runs using per-metric goals instead of the legacy
-    "lower is better" default. Metrics without a matching spec fall back
-    to the legacy behavior. *)
+(** Compare the metrics selected by [specs]. A metric is compared only when it
+    exists in both runs and has a matching spec; [goal] and [tolerance_pct] are
+    therefore the single comparison policy for every returned delta. *)
 val compare_with_specs
   :  specs:metric_spec list
   -> baseline:run_metrics

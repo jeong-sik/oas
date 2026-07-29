@@ -279,7 +279,12 @@ let test_compare_missing_candidate_metric () =
     mk_run [ mk_metric "a" (Float_val 1.0); mk_metric "b" (Float_val 2.0) ]
   in
   let candidate = mk_run ~run_id:"r2" [ mk_metric "a" (Float_val 1.0) ] in
-  let cmp = Eval.compare ~baseline ~candidate in
+  let specs =
+    [ { Eval.name = "a"; goal = Lower; tolerance_pct = None }
+    ; { Eval.name = "b"; goal = Lower; tolerance_pct = None }
+    ]
+  in
+  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate in
   (* "b" is in baseline but not candidate -- it is simply absent from deltas
      because compare only iterates baseline metrics and filters by candidate *)
   Alcotest.(check int) "unchanged" 1 (List.length cmp.unchanged)
@@ -290,7 +295,8 @@ let test_compare_missing_candidate_metric () =
 let test_compare_string_metric () =
   let baseline = mk_run [ mk_metric "name" (String_val "test") ] in
   let candidate = mk_run ~run_id:"r2" [ mk_metric "name" (String_val "test") ] in
-  let cmp = Eval.compare ~baseline ~candidate in
+  let specs = [ { Eval.name = "name"; goal = Exact; tolerance_pct = None } ] in
+  let cmp = Eval.compare_with_specs ~specs ~baseline ~candidate in
   Alcotest.(check int) "unchanged" 1 (List.length cmp.unchanged)
 ;;
 
