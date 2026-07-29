@@ -10,6 +10,11 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Breaking Changes
 
+`Tool.t` now has one execution-environment handler shape. `Typed_tool`
+constructors return canonical `Tool.t` values directly, and the secondary
+typed runtime representation, erasure bridge, and unused agent-tool raw input
+field have been removed.
+
 * **checkpoint persistence:** accept only the exact current v8 checkpoint
   schema. Released v5/v6 artifacts must be reset rather than migrated at
   runtime.

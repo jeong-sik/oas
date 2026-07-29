@@ -6,11 +6,6 @@ open Types
 
 type agent_runner = string -> (api_response, Error.sdk_error) result
 
-type child_invocation =
-  { prompt : string
-  ; raw_input : Yojson.Safe.t
-  }
-
 type child_output =
   { text : string
   ; response : api_response
@@ -170,14 +165,8 @@ let make_handler config : Tool.tool_handler =
        Error { message = Error.to_string e; recoverable = false; error_class = None })
 ;;
 
-let parse_child_invocation input =
-  match prompt_of_input input with
-  | Ok prompt -> Ok { prompt; raw_input = input }
-  | Error message -> Error message
-;;
-
-let make_typed_handler config (input : child_invocation) =
-  match config.runner input.prompt with
+let make_typed_handler config prompt =
+  match config.runner prompt with
   | Ok response ->
     let text = text_of_response response in
     let text =
@@ -204,7 +193,7 @@ let create_typed config =
     ~name:config.name
     ~description:config.description
     ~params:parameters
-    ~parse:parse_child_invocation
+    ~parse:prompt_of_input
     ~handler:(make_typed_handler config)
     ~encode:child_output_to_json
     ()

@@ -18,13 +18,6 @@
     Captured in a closure at tool creation time. *)
 type agent_runner = string -> (Types.api_response, Error.sdk_error) result
 
-type child_invocation =
-  { prompt : string
-  ; raw_input : Yojson.Safe.t
-    (** Original tool input JSON. Use this for correlation fields that are not
-        part of the prompt contract. *)
-  }
-
 type child_output =
   { text : string
   ; response : Types.api_response
@@ -45,12 +38,10 @@ type config =
     calls the runner, and returns the text output as a tool result. *)
 val create : config -> Tool.t
 
-(** Create a typed tool wrapper for agent-as-tool child invocation.
-
-    The typed wrapper parses tool input into {!child_invocation} and encodes
-    the child result as structured JSON via {!child_output_to_json}. Use
-    {!Typed_tool.to_untyped} to register it in {!Tool.t}-based dispatch. *)
-val create_typed : config -> (child_invocation, child_output) Typed_tool.t
+(** Create a canonical tool for agent-as-tool child invocation. The typed
+    constructor connects prompt parsing and {!child_output} encoding at compile
+    time; the returned value registers directly in {!Tool_set}. *)
+val create_typed : config -> Tool.t
 
 (** Convenience: create from a runner function with minimal config. *)
 val create_simple : name:string -> description:string -> agent_runner -> Tool.t
