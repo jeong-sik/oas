@@ -76,6 +76,13 @@ The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical
 `Llm_provider.Provider_config.t` values.
 
+## [0.231.3](https://github.com/jeong-sik/oas/compare/v0.231.2...v0.231.3) (2026-07-29)
+
+
+### Bug Fixes
+
+* **glm:** consume the resolved stream dialect ([#2883](https://github.com/jeong-sik/oas/issues/2883)) ([e6b45f1](https://github.com/jeong-sik/oas/commit/e6b45f1255bff9683d6fe5a0d87b0b356dccd749))
+
 ## [0.231.2](https://github.com/jeong-sik/oas/compare/v0.231.1...v0.231.2) (2026-07-29)
 
 
