@@ -415,7 +415,7 @@ let%test "openai_messages_of_message user text" =
   List.length result = 1
 ;;
 
-let%test "openai_messages_of_message user with tool_result" =
+let%test "openai_messages_of_message rejects user with tool_result" =
   let msg =
     { role = User
     ; content =
@@ -433,8 +433,13 @@ let%test "openai_messages_of_message user with tool_result" =
     ; metadata = []
     }
   in
-  let result = openai_messages_of_message msg in
-  List.length result = 2
+  match openai_messages_of_message msg with
+  | _ -> false
+  | exception Invalid_argument message ->
+    String.equal
+      message
+      "Backend_openai_serialize.openai_messages_of_message: ToolResult must use role \
+       Tool, got role user"
 ;;
 
 let%test "build_request preserves orphaned tool results without synthetic repair" =

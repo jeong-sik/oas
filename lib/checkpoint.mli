@@ -100,17 +100,14 @@ type delta =
 (** Serialize checkpoint to JSON. *)
 val to_json : t -> Yojson.Safe.t
 
-(** Deserialize the exact current v8 checkpoint schema. Exact documents emitted
-    by the released v5 and v6 serializers are first normalized through the
-    finite one-way v5/v6-to-v8 persistence migration; versions 1-4, 7, and
-    unknown versions are rejected. The migration does not reintroduce legacy
-    variants into {!t}, and every successful result is a v8 checkpoint. *)
+(** Deserialize only the exact current v8 checkpoint schema. Every other
+    version is rejected. *)
 val of_json : Yojson.Safe.t -> (t, Error.sdk_error) result
 
 (** Serialize checkpoint to a JSON string. *)
 val to_string : t -> string
 
-(** Deserialize checkpoint from a JSON string under the same finite migration
+(** Deserialize checkpoint from a JSON string under the same current-only
     contract as {!of_json}. *)
 val of_string : string -> (t, Error.sdk_error) result
 

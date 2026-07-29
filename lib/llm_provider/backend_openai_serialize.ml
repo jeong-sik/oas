@@ -365,6 +365,23 @@ let messages_of_message_with
   =
   match msg.role with
   | User ->
+    if
+      List.exists
+        (function
+          | ToolResult _ -> true
+          | Text _
+          | Thinking _
+          | ReasoningDetails _
+          | RedactedThinking _
+          | ToolUse _
+          | Image _
+          | Document _
+          | Audio _ -> false)
+        msg.content
+    then
+      invalid_arg
+        "Backend_openai_serialize.openai_messages_of_message: ToolResult must use role \
+         Tool, got role user";
     (* Apply modality reordering policy before flattening into JSON parts.
        For [Preserve_input_order] (default) this is a no-op; for
        [Visual_first] image/audio/document blocks move ahead of text.
@@ -393,12 +410,7 @@ let messages_of_message_with
         let text_content = Api_common.text_blocks_to_string msg.content in
         [ `Assoc [ "role", `String "user"; "content", `String text_content ] ])
     in
-    let tool_msgs = tool_messages_fn msg.content in
-    (* Legacy compatibility: older histories may pack ToolResult blocks and
-       user text into one role:User message. Normal pipeline output records
-       ToolResult blocks on role:Tool; this split keeps persisted mixed
-       messages wire-compatible without making the mixed shape the invariant. *)
-    tool_msgs @ user_msgs
+    user_msgs
   | Assistant ->
     let text_content = assistant_text_content_of_blocks msg.content in
     let reasoning_content =

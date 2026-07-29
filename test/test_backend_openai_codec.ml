@@ -650,7 +650,7 @@ let test_non_base64_media_source_fails_closed () =
     |> ignore)
 ;;
 
-let test_openai_user_messages_text_tool_and_empty () =
+let test_openai_user_messages_reject_tool_result_and_drop_empty () =
   let user =
     msg
       User
@@ -665,18 +665,12 @@ let test_openai_user_messages_text_tool_and_empty () =
           }
       ]
   in
-  let messages = Serialize.openai_messages_of_message user in
-  check_int "user + tool messages" 2 (List.length messages);
-  (* Legacy mixed User messages are split by channel: ToolResult lowers to
-     role:tool and text remains role:user. Normal pipeline output uses a
-     separate role:Tool message instead of this packed shape. *)
-  let tool_json = List.nth messages 0 in
-  check_string "tool role" "tool" (member "role" tool_json |> to_string);
-  check_string "tool id" "call-1" (member "tool_call_id" tool_json |> to_string);
-  check_string "tool content" "42" (member "content" tool_json |> to_string);
-  let user_json = List.nth messages 1 in
-  check_string "user role" "user" (member "role" user_json |> to_string);
-  check_string "user content" "first\nsecond" (member "content" user_json |> to_string);
+  Alcotest.check_raises
+    "ToolResult requires role Tool"
+    (Invalid_argument
+       "Backend_openai_serialize.openai_messages_of_message: ToolResult must use role \
+        Tool, got role user")
+    (fun () -> ignore (Serialize.openai_messages_of_message user));
   let empty_user =
     Serialize.openai_messages_of_message
       (msg User [ Thinking { signature = None; content = "x" } ])
@@ -2156,7 +2150,7 @@ let () =
         ; Alcotest.test_case
             "openai user text/tool/empty"
             `Quick
-            test_openai_user_messages_text_tool_and_empty
+            test_openai_user_messages_reject_tool_result_and_drop_empty
         ; Alcotest.test_case
             "non-base64 media source fail-closed"
             `Quick

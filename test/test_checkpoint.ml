@@ -200,16 +200,38 @@ let () =
               | other -> other
             in
             check bool "is error" true (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "versions before released v5 remain rejected" `Quick (fun () ->
+        ; test_case "old version 4 is rejected" `Quick (fun () ->
             match Checkpoint.of_json (`Assoc [ "version", `Int 4 ]) with
             | Error (Error.Serialization (Error.VersionMismatch { got = 4; _ })) -> ()
             | Error error -> fail ("unexpected error: " ^ Error.to_string error)
-            | Ok _ -> fail "checkpoint v4 must remain rejected")
-        ; test_case "unreleased v7 remains rejected" `Quick (fun () ->
+            | Ok _ -> fail "checkpoint v4 must be rejected")
+        ; test_case "released v5 is rejected" `Quick (fun () ->
+            let json =
+              match Checkpoint.to_json (make_checkpoint ()) with
+              | `Assoc fields ->
+                `Assoc (("version", `Int 5) :: List.remove_assoc "version" fields)
+              | _ -> fail "current checkpoint serializer must return an object"
+            in
+            match Checkpoint.of_json json with
+            | Error (Error.Serialization (Error.VersionMismatch { got = 5; _ })) -> ()
+            | Error error -> fail ("unexpected error: " ^ Error.to_string error)
+            | Ok _ -> fail "checkpoint v5 must be rejected")
+        ; test_case "released v6 is rejected" `Quick (fun () ->
+            let json =
+              match Checkpoint.to_json (make_checkpoint ()) with
+              | `Assoc fields ->
+                `Assoc (("version", `Int 6) :: List.remove_assoc "version" fields)
+              | _ -> fail "current checkpoint serializer must return an object"
+            in
+            match Checkpoint.of_json json with
+            | Error (Error.Serialization (Error.VersionMismatch { got = 6; _ })) -> ()
+            | Error error -> fail ("unexpected error: " ^ Error.to_string error)
+            | Ok _ -> fail "checkpoint v6 must be rejected")
+        ; test_case "version 7 is rejected" `Quick (fun () ->
             match Checkpoint.of_json (`Assoc [ "version", `Int 7 ]) with
             | Error (Error.Serialization (Error.VersionMismatch { got = 7; _ })) -> ()
             | Error error -> fail ("unexpected error: " ^ Error.to_string error)
-            | Ok _ -> fail "checkpoint v7 must remain rejected")
+            | Ok _ -> fail "checkpoint v7 must be rejected")
         ; test_case "missing version is rejected explicitly" `Quick (fun () ->
             match Checkpoint.of_json (`Assoc []) with
             | Error (Error.Serialization (Error.JsonParseError { detail })) ->
@@ -222,7 +244,7 @@ let () =
               check string "type detail" "Checkpoint version must be an integer" detail
             | Error error -> fail ("unexpected error: " ^ Error.to_string error)
             | Ok _ -> fail "string checkpoint version must be rejected")
-        ; test_case "ambiguous v6 version is rejected explicitly" `Quick (fun () ->
+        ; test_case "duplicate version is rejected explicitly" `Quick (fun () ->
             let ambiguous = `Assoc [ "version", `Int 6; "version", `Int 6 ] in
             match Checkpoint.of_json ambiguous with
             | Error (Error.Serialization (Error.JsonParseError { detail })) ->
@@ -557,7 +579,7 @@ let () =
             let cp = make_checkpoint ~messages:[] () in
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
             check int "no messages" 0 (List.length cp2.messages))
-        ; test_case "mixed content blocks" `Quick (fun () ->
+        ; test_case "canonical tool turn content blocks" `Quick (fun () ->
             let msgs =
               [ { Types.role = Types.Assistant
                 ; content =
@@ -572,7 +594,7 @@ let () =
                 ; tool_call_id = None
                 ; metadata = []
                 }
-              ; { Types.role = Types.User
+              ; { Types.role = Types.Tool
                 ; content =
                     [ Types.ToolResult
                         { tool_use_id = "t1"
@@ -593,6 +615,26 @@ let () =
             check int "2 messages" 2 (List.length cp2.messages);
             let first = List.hd cp2.messages in
             check int "2 blocks in first" 2 (List.length first.content))
+        ; test_case "user ToolResult is rejected" `Quick (fun () ->
+            let messages =
+              [ { Types.role = Types.User
+                ; content =
+                    [ Types.ToolResult
+                        { tool_use_id = "t1"
+                        ; content = "historical mixed role"
+                        ; outcome = Tool_succeeded
+                        ; json = None
+                        ; content_blocks = None
+                        }
+                    ]
+                ; name = None
+                ; tool_call_id = None
+                ; metadata = []
+                }
+              ]
+            in
+            let json = Checkpoint.to_json (make_checkpoint ~messages ()) in
+            check bool "rejected" true (Result.is_error (Checkpoint.of_json json)))
         ; test_case "message metadata roundtrip" `Quick (fun () ->
             let replay_metadata =
               [ ( "replay.namespace"

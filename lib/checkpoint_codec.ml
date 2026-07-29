@@ -751,7 +751,7 @@ let to_json = checkpoint_to_json
 let decode_current_json json =
   try
     let open Yojson.Safe.Util in
-    let* () = Checkpoint_v5_v6_migration.validate_v8_json json in
+    let* () = Checkpoint_v8_contract.validate_v8_json json in
     let version = json |> member "version" |> to_int in
     if version <> checkpoint_version
     then
@@ -877,10 +877,6 @@ let of_json json =
   let* version = checkpoint_json_version json in
   if version = checkpoint_version
   then decode_current_json json
-  else if Checkpoint_v5_v6_migration.source_version_supported version
-  then
-    let* migrated = Checkpoint_v5_v6_migration.to_v8_json json in
-    decode_current_json migrated
   else
     Error
       (Error.Serialization
