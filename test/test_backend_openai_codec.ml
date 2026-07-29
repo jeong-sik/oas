@@ -961,32 +961,18 @@ let test_tool_choice_and_tool_schema_conversion () =
      |> member "parameters"
      |> member "type"
      |> to_string);
-  let legacy =
-    Serialize.build_openai_tool_json
-      (`Assoc
-          [ "name", `String "legacy"
-          ; ( "parameters"
-            , `List
-                [ `Assoc
-                    [ "name", `String "city"
-                    ; "description", `String "City name"
-                    ; "param_type", `String "string"
-                    ; "required", `Bool true
-                    ]
-                ; `Assoc [ "description", `String "missing name" ]
-                ] )
-          ])
-  in
-  let params = member "function" legacy |> member "parameters" in
-  check_string "legacy type" "object" (member "type" params |> to_string);
-  check_string
-    "legacy property type"
-    "string"
-    (member "properties" params |> member "city" |> member "type" |> to_string);
-  check_string
-    "legacy required"
-    "city"
-    (member "required" params |> as_list "required" |> only "required" |> to_string);
+  Alcotest.check_raises
+    "legacy parameter list rejected"
+    (Invalid_argument
+       "Backend_openai_serialize.build_openai_tool_json: legacy parameter lists are not \
+        supported; use input_schema")
+    (fun () ->
+       ignore
+         (Serialize.build_openai_tool_json
+            (`Assoc
+                [ "name", `String "legacy"
+                ; "parameters", `List [ `Assoc [ "name", `String "city" ] ]
+                ])));
   let passthrough = `String "raw" in
   Alcotest.(check bool)
     "non-object passthrough"
@@ -1095,7 +1081,7 @@ let test_parallel_tool_calls_fields () =
   | _ -> Alcotest.fail "expected parallel_tool_calls:false singleton"
 ;;
 
-let test_tool_schema_defaults_and_legacy_edge_params () =
+let test_tool_schema_defaults () =
   let defaulted =
     Serialize.build_openai_tool_json
       (`Assoc [ "name", `Int 1; "description", `Bool true ])
@@ -1107,37 +1093,7 @@ let test_tool_schema_defaults_and_legacy_edge_params () =
   check_string
     "default description"
     ""
-    (member "function" defaulted |> member "description" |> to_string);
-  let legacy =
-    Serialize.build_openai_tool_json
-      (`Assoc
-          [ "name", `String "legacy-edge"
-          ; ( "parameters"
-            , `List
-                [ `Assoc [ "name", `Int 1; "description", `String "bad name" ]
-                ; `Assoc
-                    [ "name", `String "flag"
-                    ; "description", `Bool true
-                    ; "type", `Bool true
-                    ; "required", `String "yes"
-                    ]
-                ; `String "ignored"
-                ] )
-          ])
-  in
-  let params = member "function" legacy |> member "parameters" in
-  check_string
-    "default legacy param type"
-    "string"
-    (member "properties" params |> member "flag" |> member "type" |> to_string);
-  check_string
-    "default legacy param description"
-    ""
-    (member "properties" params |> member "flag" |> member "description" |> to_string);
-  check_int
-    "non-bool required omitted"
-    0
-    (member "required" params |> as_list "required" |> List.length)
+    (member "function" defaulted |> member "description" |> to_string)
 ;;
 
 let test_usage_openai_fallbacks () =
@@ -2237,10 +2193,7 @@ let () =
             "ignored block variants"
             `Quick
             test_serializer_ignored_block_variants
-        ; Alcotest.test_case
-            "tool schema defaults and legacy edge params"
-            `Quick
-            test_tool_schema_defaults_and_legacy_edge_params
+        ; Alcotest.test_case "tool schema defaults" `Quick test_tool_schema_defaults
         ; Alcotest.test_case
             "parallel_tool_calls fields SSOT"
             `Quick

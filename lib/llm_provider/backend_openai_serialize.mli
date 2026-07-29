@@ -82,4 +82,8 @@ val parallel_tool_calls_fields
   -> tools_present:bool
   -> (string * Yojson.Safe.t) list
 
+(** Lower a current tool object to the OpenAI-compatible function shape.
+    Tool schemas use [input_schema]; a JSON Schema object under [parameters] is
+    also accepted for already-provider-shaped callers. Historical parameter
+    lists are rejected. *)
 val build_openai_tool_json : Yojson.Safe.t -> Yojson.Safe.t

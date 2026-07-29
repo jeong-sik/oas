@@ -9,7 +9,11 @@ val tool_calls_to_openai_json : Types.content_block list -> Yojson.Safe.t list
 val openai_content_parts_of_blocks : Types.content_block list -> Yojson.Safe.t list
 val openai_messages_of_message : Types.message -> Yojson.Safe.t list
 val tool_choice_to_openai_json : Types.tool_choice -> Yojson.Safe.t
+
+(** Lower a current tool object to the OpenAI-compatible function shape.
+    Historical parameter lists are rejected. *)
 val build_openai_tool_json : Yojson.Safe.t -> Yojson.Safe.t
+
 val response_format_to_openai_json : Types.response_format -> Yojson.Safe.t option
 
 (** Parse an OpenAI-compatible JSON response. See

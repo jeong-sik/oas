@@ -832,71 +832,6 @@ let parallel_tool_calls_fields ~disable_parallel ~tools_present
   if disable_parallel && tools_present then [ "parallel_tool_calls", `Bool false ] else []
 ;;
 
-let legacy_parameters_to_json_schema params =
-  let properties, required =
-    List.fold_left
-      (fun (props_acc, req_acc) param ->
-         match param with
-         | `Assoc fields ->
-           let name =
-             match List.assoc_opt "name" fields with
-             | Some (`String s) -> s
-             | Some (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-             | None -> ""
-           in
-           if name = ""
-           then props_acc, req_acc
-           else (
-             let description =
-               match List.assoc_opt "description" fields with
-               | Some (`String s) -> s
-               | Some
-                   (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-               | None -> ""
-             in
-             let type_name =
-               match List.assoc_opt "param_type" fields with
-               | Some (`String s) -> s
-               | Some
-                   (`Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null)
-               | None ->
-                 (match List.assoc_opt "type" fields with
-                  | Some (`String s) -> s
-                  | Some
-                      ( `Assoc _
-                      | `List _
-                      | `Int _
-                      | `Intlit _
-                      | `Float _
-                      | `Bool _
-                      | `Null )
-                  | None -> "string")
-             in
-             let prop =
-               `Assoc [ "type", `String type_name; "description", `String description ]
-             in
-             let req_acc =
-               match List.assoc_opt "required" fields with
-               | Some (`Bool true) -> `String name :: req_acc
-               | Some
-                   ( `Assoc _ | `List _ | `String _ | `Int _ | `Intlit _ | `Float _
-                   | `Bool false
-                   | `Null )
-               | None -> req_acc
-             in
-             (name, prop) :: props_acc, req_acc)
-         | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null ->
-           props_acc, req_acc)
-      ([], [])
-      params
-  in
-  `Assoc
-    [ "type", `String "object"
-    ; "properties", `Assoc (List.rev properties)
-    ; "required", `List (List.rev required)
-    ]
-;;
-
 let build_openai_tool_json = function
   | `Assoc fields ->
     let name =
@@ -916,7 +851,10 @@ let build_openai_tool_json = function
       | Some schema -> schema
       | None ->
         (match List.assoc_opt "parameters" fields with
-         | Some (`List params) -> legacy_parameters_to_json_schema params
+         | Some (`List _) ->
+           invalid_arg
+             "Backend_openai_serialize.build_openai_tool_json: legacy parameter lists \
+              are not supported; use input_schema"
          | Some schema -> schema
          | None -> `Assoc [])
     in
