@@ -495,12 +495,12 @@ let checkpoint_to_json cp =
 ;;
 
 let validate_checkpoint cp =
-  Checkpoint_v8_contract.validate_v8_json (checkpoint_to_json cp)
+  Checkpoint_v9_contract.validate_v9_json (checkpoint_to_json cp)
 ;;
 
 let validated_checkpoint_json_exn ~scope cp =
   let json = checkpoint_to_json cp in
-  match Checkpoint_v8_contract.validate_v8_json json with
+  match Checkpoint_v9_contract.validate_v9_json json with
   | Ok () -> json
   | Error error -> invalid_arg (scope ^ ": " ^ Error.to_string error)
 ;;
@@ -765,7 +765,7 @@ let to_json cp = validated_checkpoint_json_exn ~scope:"Checkpoint.to_json" cp
 let decode_current_json json =
   try
     let open Yojson.Safe.Util in
-    let* () = Checkpoint_v8_contract.validate_v8_json json in
+    let* () = Checkpoint_v9_contract.validate_v9_json json in
     let* tool_choice =
       match json |> member "tool_choice" with
       | `Null -> Ok None

@@ -1,9 +1,9 @@
-(** Exact validator for the current checkpoint-v8 persistence schema. *)
+(** Exact validator for the current checkpoint-v9 persistence schema. *)
 
 open Result_syntax
 
-let target_version = 8
-let checkpoint_scope = "Checkpoint v8"
+let target_version = Checkpoint_types.checkpoint_version
+let checkpoint_scope = "Checkpoint v9"
 
 let json_errorf format =
   Printf.ksprintf
@@ -310,7 +310,7 @@ let validate_pricing_gap ~scope = function
 ;;
 
 let validate_current_usage json =
-  let scope = "Checkpoint v8 usage" in
+  let scope = "Checkpoint v9 usage" in
   let* fields =
     validate_object_shape ~scope ~required:current_usage_fields ~optional:[] json
   in
@@ -676,7 +676,7 @@ let validate_common_checkpoint_fields ~scope fields =
   validate_unique_object ~scope:(scope ^ ".context") context
 ;;
 
-let validate_v8_json json =
+let validate_v9_json json =
   let scope = checkpoint_scope in
   let* fields =
     validate_object_shape ~scope ~required:current_checkpoint_fields ~optional:[] json
