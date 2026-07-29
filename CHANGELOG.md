@@ -8,6 +8,14 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Bug Fixes
+
+Gemini streaming and non-streaming responses now share one finish-reason
+mapping. A function-call block truncated by `MAX_TOKENS` remains terminal and
+is not promoted to executable tool use. Documented policy filters map to
+refusal, while a missing or unknown terminal reason remains non-executable
+instead of being inferred as `STOP` from tool-block presence.
+
 ### Breaking Changes
 
 `Tool.t` now has one execution-environment handler shape. `Typed_tool`

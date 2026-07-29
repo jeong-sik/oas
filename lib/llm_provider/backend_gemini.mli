@@ -40,6 +40,14 @@ val build_request
 (** Parse a Gemini [generateContent] response JSON into {!Types.api_response}. *)
 val parse_response : Yojson.Safe.t -> Types.api_response
 
+(** Map the Gemini [finishReason] vocabulary to the canonical stop reason.
+    Only a normal [STOP] with a complete function-call block becomes
+    {!Types.StopToolUse}; token truncation and documented policy filters keep
+    their terminal meaning even when a function-call block is present. Unknown
+    or malformed terminal reasons remain [Unknown] and are never promoted to
+    executable tool authority. Shared by sync and streaming response paths. *)
+val stop_reason_of_finish_reason : has_tool_use:bool -> string -> Types.stop_reason
+
 (** Opaque carrier payload for Gemini [thoughtSignature] values attached to
     function-call parts. Provider request builders can preserve this through
     {!Types.RedactedThinking} without widening the public [ToolUse] type. *)

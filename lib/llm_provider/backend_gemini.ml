@@ -797,6 +797,23 @@ let build_request ?stream ~config ~messages ?tools () =
 
 (* ── Parse response ─────────────────────────────────── *)
 
+let stop_reason_of_finish_reason ~has_tool_use finish_reason =
+  match String.uppercase_ascii finish_reason with
+  | "STOP" -> if has_tool_use then StopToolUse else EndTurn
+  | "MAX_TOKENS" -> MaxTokens
+  | "SAFETY"
+  | "RECITATION"
+  | "LANGUAGE"
+  | "BLOCKLIST"
+  | "PROHIBITED_CONTENT"
+  | "SPII"
+  | "IMAGE_SAFETY"
+  | "IMAGE_PROHIBITED_CONTENT"
+  | "IMAGE_RECITATION"
+  | "ESCALATION" -> Refusal
+  | other -> Unknown other
+;;
+
 let parse_response json =
   let open Yojson.Safe.Util in
   match json |> member "error" with
@@ -862,7 +879,7 @@ let parse_response json =
       candidate
       |> member "finishReason"
       |> to_string_option
-      |> Option.value ~default:"STOP"
+      |> Option.value ~default:"FINISH_REASON_UNSPECIFIED"
     in
     let has_tool_use =
       (* The typed content-block match makes Gemini stop-reason inference
@@ -881,17 +898,7 @@ let parse_response json =
            | Audio _ -> false)
         content
     in
-    let stop_reason =
-      if has_tool_use
-      then StopToolUse
-      else (
-        match String.uppercase_ascii finish_reason with
-        | "STOP" -> EndTurn
-        | "MAX_TOKENS" -> MaxTokens
-        | "SAFETY" -> Refusal
-        | "RECITATION" -> Refusal
-        | other -> Unknown other)
-    in
+    let stop_reason = stop_reason_of_finish_reason ~has_tool_use finish_reason in
     let usage =
       let um = json |> member "usageMetadata" in
       if um = `Null
