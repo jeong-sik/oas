@@ -80,7 +80,9 @@ type turn_params_resolution_error =
       ; detail : string
       }
 
-(** Extract the most recent canonical tool-result batch. *)
+(** Extract the most recent non-empty canonical [Tool]-role result batch.
+    ToolResult blocks carried by any other role, or mixed with other blocks,
+    are not consumed. *)
 val last_tool_results_from : Types.message list -> Types.tool_result list
 
 (** Resolve the single canonical [BeforeTurnParams] contract. Illegal hook

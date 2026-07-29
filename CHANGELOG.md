@@ -18,6 +18,18 @@ inconsistent state unrepresentable; callers must set `response_format`
 directly. The boolean `response_format_json` constructor/builder shims and
 boolean/null response-format decoding are also removed.
 
+`Tool.t` now has one execution-environment handler shape. `Typed_tool`
+constructors return canonical `Tool.t` values directly, and the secondary
+typed runtime representation, erasure bridge, and unused agent-tool raw input
+field have been removed.
+
+* **checkpoint persistence:** accept only the exact current v8 checkpoint
+  schema. Released v5/v6 artifacts must be reset rather than migrated at
+  runtime.
+* **provider tools:** reject historical OpenAI `parameters` lists; current
+  callers must supply `input_schema` or an already-provider-shaped JSON Schema
+  object.
+
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
 
@@ -394,8 +406,8 @@ The generated body previously listed ~292 pull requests reaching back to `#10`, 
   or an HTTP reconnect URL. Legacy MCP sessions are rejected when reconnecting
   stdio would widen their saved subprocess environment; released HTTP policy
   metadata is removed because HTTP reconnect never consumed it. Versions 1-4
-  remain unsupported and the v8 domain is not widened; see the [checkpoint
-  migration guide](docs/migrations/checkpoint-v5-v6-to-v8.md).
+  remain unsupported and the v8 domain is not widened. This runtime migration
+  was removed after the release; current OAS accepts only v8.
 * **agent resume:** make an explicitly supplied `Agent.resume ~config` the
   complete runtime configuration SSOT. Checkpoints still restore conversation,
   usage, turn count, and context, but can no longer overwrite the caller's
