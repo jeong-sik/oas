@@ -163,10 +163,14 @@ let schema_for_wire (target : Resolver.selected_target) (Domain_schema domain_sc
 ;;
 
 let response_format (target : Resolver.selected_target) requirement =
-  match
-    Caps.structured_output_support target.capabilities, requirement.minimum_guarantee
-  with
-  | Caps.Native_json_schema, (Json_syntax | Provider_schema) ->
+  match requirement.minimum_guarantee with
+  (* Json_syntax is fulfilled by the prompt plus local parser/validator.  Do
+     not turn a caller's syntax requirement into a provider-native schema
+     request based on incidental target capabilities. *)
+  | Json_syntax -> Ok (Types.Off, Json_syntax_only, None)
+  | Provider_schema ->
+    (match Caps.structured_output_support target.capabilities with
+     | Caps.Native_json_schema ->
     let* () =
       match target.config.kind, requirement.schema with
       | PC.Gemini, Domain_schema schema -> validate_gemini_schema ~path:"$" schema
@@ -178,10 +182,7 @@ let response_format (target : Resolver.selected_target) requirement =
       ( Types.JsonSchema wire_schema
       , Provider_schema_requested
       , Some (fingerprint_schema wire_schema) )
-  | Caps.Json_object_only, Json_syntax -> Ok (Types.JsonMode, Json_syntax_only, None)
-  | Caps.Json_object_only, Provider_schema -> Error Provider_schema_unavailable
-  | Caps.No_structured_output, Provider_schema -> Error Provider_schema_unavailable
-  | Caps.No_structured_output, Json_syntax -> Ok (Types.Off, Json_syntax_only, None)
+     | Caps.Json_object_only | Caps.No_structured_output -> Error Provider_schema_unavailable)
 ;;
 
 let text_json_instruction (Domain_schema schema) : Types.message =

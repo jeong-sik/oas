@@ -425,9 +425,14 @@ let test_tier_table_and_provider_schema_rejection () =
   let text_only = plan snapshot "none" EO.Json_syntax |> EO.plan_provenance in
   check
     bool
-    "native preferred for syntax minimum"
+    "syntax minimum does not request a provider schema"
     true
-    (EO.plan_provenance_actual_assurance native_json = EO.Provider_schema_requested);
+    (EO.plan_provenance_actual_assurance native_json = EO.Json_syntax_only);
+  check
+    bool
+    "syntax minimum has no effective schema"
+    true
+    (Option.is_none (EO.plan_provenance_effective_schema_fingerprint native_json));
   check
     bool
     "native satisfies provider schema"
@@ -741,9 +746,9 @@ let test_no_measure_one_post_and_wire_authority () =
       in
       with_catalog [ entry ]
       @@ fun snapshot ->
-      let ready = plan_for_schema snapshot id domain_schema EO.Json_syntax in
+      let ready = plan_for_schema snapshot id domain_schema EO.Provider_schema in
       let execution =
-        flow_for_schema snapshot id domain_schema EO.Json_syntax |> attempt
+        flow_for_schema snapshot id domain_schema EO.Provider_schema |> attempt
       in
       EO.plan_provenance ready, EO.plan_fingerprint ready, execute_once ~net execution
     in

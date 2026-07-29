@@ -9,7 +9,11 @@ type domain_schema
 
 type minimum_guarantee =
   | Json_syntax
+      (** Prompt-only JSON contract.  OAS appends the schema instruction and
+          validates the response locally; it does not send a provider-native
+          response-format request. *)
   | Provider_schema
+      (** Explicit opt-in to a provider-native schema request. *)
 
 type actual_assurance =
   | Json_syntax_only
