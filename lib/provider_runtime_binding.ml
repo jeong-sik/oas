@@ -6,7 +6,7 @@ module PConfig = Llm_provider.Provider_config
 module MC = Llm_provider.Model_catalog
 
 type provider_kind = PConfig.provider_kind
-type capabilities = Provider.capabilities
+type capabilities = Llm_provider.Capabilities.capabilities
 
 type auth =
   | No_auth
@@ -47,53 +47,6 @@ let auth_of_defaults (defaults : PR.provider_defaults) =
   | None -> No_auth
 ;;
 
-let public_capabilities (caps : Llm_provider.Capabilities.capabilities)
-  : Provider.capabilities
-  =
-  { max_context_tokens = caps.max_context_tokens
-  ; serving_constraint = caps.serving_constraint
-  ; max_output_tokens = caps.max_output_tokens
-  ; supports_tools = caps.supports_tools
-  ; supports_tool_choice = caps.supports_tool_choice
-  ; supports_required_tool_choice = caps.supports_required_tool_choice
-  ; supports_named_tool_choice = caps.supports_named_tool_choice
-  ; supports_parallel_tool_calls = caps.supports_parallel_tool_calls
-  ; assistant_tool_content_format = caps.assistant_tool_content_format
-  ; supports_reasoning = caps.supports_reasoning
-  ; supports_extended_thinking = caps.supports_extended_thinking
-  ; supports_reasoning_budget = caps.supports_reasoning_budget
-  ; accepted_reasoning_efforts = caps.accepted_reasoning_efforts
-  ; thinking_control_format = caps.thinking_control_format
-  ; preserve_thinking_control_format = caps.preserve_thinking_control_format
-  ; reasoning_output_format = caps.reasoning_output_format
-  ; reasoning_streaming_format = caps.reasoning_streaming_format
-  ; reasoning_replay_override = caps.reasoning_replay_override
-  ; supports_response_format_json = caps.supports_response_format_json
-  ; supports_structured_output = caps.supports_structured_output
-  ; supports_multimodal_inputs = caps.supports_multimodal_inputs
-  ; supports_image_input = caps.supports_image_input
-  ; supports_audio_input = caps.supports_audio_input
-  ; supports_video_input = caps.supports_video_input
-  ; supports_document_input = caps.supports_document_input
-  ; modality_priority = caps.modality_priority
-  ; task = caps.task
-  ; supports_native_streaming = caps.supports_native_streaming
-  ; supports_system_prompt = caps.supports_system_prompt
-  ; supports_caching = caps.supports_caching
-  ; supports_prompt_caching = caps.supports_prompt_caching
-  ; prompt_cache_alignment = caps.prompt_cache_alignment
-  ; supports_top_k = caps.supports_top_k
-  ; supports_min_p = caps.supports_min_p
-  ; supports_seed = caps.supports_seed
-  ; supports_seed_with_images = caps.supports_seed_with_images
-  ; ignored_sampling_parameters = caps.ignored_sampling_parameters
-  ; supports_computer_use = caps.supports_computer_use
-  ; supports_code_execution = caps.supports_code_execution
-  ; emits_usage_tokens = caps.emits_usage_tokens
-  ; supported_models = caps.supported_models
-  }
-;;
-
 let registry_lookup_available registry id =
   match PR.find registry (normalize id) with
   | Some entry -> entry.is_available ()
@@ -116,7 +69,7 @@ let binding_of_catalog_entry registry (entry : PC.entry) =
   ; auth = auth_of_catalog entry.auth
   ; default_model = entry.default_model
   ; max_context = registry_lookup_max_context registry entry.id entry.max_context
-  ; capabilities = public_capabilities entry.capabilities
+  ; capabilities = entry.capabilities
   ; available = registry_lookup_available registry entry.id
   ; credential_scope = entry.credential_scope
   }
@@ -132,7 +85,7 @@ let binding_of_registry_entry (entry : PR.entry) =
   ; auth = auth_of_defaults entry.defaults
   ; default_model = None
   ; max_context = entry.max_context
-  ; capabilities = public_capabilities entry.capabilities
+  ; capabilities = entry.capabilities
   ; available = entry.is_available ()
   ; credential_scope = None
   }
@@ -148,8 +101,8 @@ let binding_of_embedded_entry registry (entry : MC.provider_entry) =
   let registry_entry = PR.find registry entry.id in
   let capabilities =
     match registry_entry with
-    | Some registered -> public_capabilities registered.capabilities
-    | None -> public_capabilities Llm_provider.Capabilities.default_capabilities
+    | Some registered -> registered.capabilities
+    | None -> Llm_provider.Capabilities.default_capabilities
   in
   { id = normalize entry.id
   ; aliases = List.map normalize entry.aliases
@@ -353,7 +306,8 @@ let to_provider_config ?model binding =
        in
        let supports_structured_output_override =
          Option.map
-           (fun (caps : Provider.capabilities) -> caps.supports_structured_output)
+           (fun (caps : Llm_provider.Capabilities.capabilities) ->
+              caps.supports_structured_output)
            provider_capabilities_override
        in
        PConfig.make

@@ -199,7 +199,7 @@ let test_pricing_non_negative =
     ~name:"pricing is always non-negative"
     (QCheck.make QCheck.Gen.string_printable ~print:(fun s -> s))
     (fun model_id ->
-       match Provider.pricing_for_model_opt model_id with
+       match Llm_provider.Pricing.pricing_for_model_opt model_id with
        | None -> true
        | Some p -> p.input_per_million >= 0.0 && p.output_per_million >= 0.0)
 ;;
@@ -215,15 +215,17 @@ let test_cost_estimation_non_negative =
          Printf.sprintf "(rate=%.2f, in=%d, out=%d)" rate inp out))
     (fun (rate, input_tokens, output_tokens) ->
        let pricing =
-         { Provider.input_per_million = rate
+         { Llm_provider.Pricing.input_per_million = rate
          ; output_per_million = rate
          ; cache_write_multiplier = Some 1.25
          ; cache_read_multiplier = Some 0.1
          }
        in
-       match Provider.estimate_cost ~pricing ~input_tokens ~output_tokens () with
-       | Provider.Estimated cost -> cost >= 0.0
-       | Provider.Incomplete _ -> false)
+       match
+         Llm_provider.Pricing.estimate_cost ~pricing ~input_tokens ~output_tokens ()
+       with
+       | Llm_provider.Pricing.Estimated cost -> cost >= 0.0
+       | Llm_provider.Pricing.Incomplete _ -> false)
 ;;
 
 let test_cost_scales_with_tokens =
@@ -235,19 +237,27 @@ let test_cost_scales_with_tokens =
        ~print:(fun (a, b) -> Printf.sprintf "(%d, %d)" a b))
     (fun (a, b) ->
        let pricing =
-         { Provider.input_per_million = 3.0
+         { Llm_provider.Pricing.input_per_million = 3.0
          ; output_per_million = 15.0
          ; cache_write_multiplier = Some 1.25
          ; cache_read_multiplier = Some 0.1
          }
        in
-       let cost_a = Provider.estimate_cost ~pricing ~input_tokens:a ~output_tokens:0 () in
+       let cost_a =
+         Llm_provider.Pricing.estimate_cost ~pricing ~input_tokens:a ~output_tokens:0 ()
+       in
        let cost_b =
-         Provider.estimate_cost ~pricing ~input_tokens:(a + b) ~output_tokens:0 ()
+         Llm_provider.Pricing.estimate_cost
+           ~pricing
+           ~input_tokens:(a + b)
+           ~output_tokens:0
+           ()
        in
        match cost_a, cost_b with
-       | Provider.Estimated cost_a, Provider.Estimated cost_b -> cost_b >= cost_a
-       | Provider.Incomplete _, _ | _, Provider.Incomplete _ -> false)
+       | Llm_provider.Pricing.Estimated cost_a, Llm_provider.Pricing.Estimated cost_b ->
+         cost_b >= cost_a
+       | Llm_provider.Pricing.Incomplete _, _ | _, Llm_provider.Pricing.Incomplete _ ->
+         false)
 ;;
 
 (* ── Lifecycle Properties ────────────────────────────────────── *)

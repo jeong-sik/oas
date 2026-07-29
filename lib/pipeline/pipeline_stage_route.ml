@@ -175,17 +175,21 @@ let admit_provider_attempt callback binding =
   | Some callback -> callback binding
 ;;
 
-let provider_config_for_turn ~turn_config agent =
+let provider_config_for_turn ?on_provider_failure ~turn_config agent =
   match agent.options.provider_config with
   | Some provider_config ->
-    Ok (Provider.provider_config_with_agent_config ~config:turn_config provider_config)
+    Ok (Agent_turn.provider_config_with_agent_config ~config:turn_config provider_config)
   | None ->
-    Error
-      (Error.Config
-         (Error.InvalidConfig
-            { field = "provider_config"
-            ; detail = "an exact provider configuration is required"
-            }))
+    let error =
+      Error.Config
+        (Error.InvalidConfig
+           { field = "provider_config"
+           ; detail = "an exact provider configuration is required"
+           })
+    in
+    let detailed = Provider_failure_attribution.of_provider_configuration_error error in
+    notify_attribution on_provider_failure detailed.provider_failure;
+    Error detailed.error
 ;;
 
 let dispatch_sync
@@ -194,107 +198,101 @@ let dispatch_sync
       ?(trace_context = [])
       ?on_provider_failure
       ?before_provider_attempt
-      ~turn_config
+      ~provider_config
       agent
       (prep : Agent_turn.turn_preparation)
   =
   let ( let* ) = Result.bind in
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
-  match provider_config_for_turn ~turn_config agent with
-  | Error error ->
-    let detailed = Provider_failure_attribution.of_provider_configuration_error error in
-    notify_attribution on_provider_failure detailed.provider_failure;
-    Error detailed.error
-  | Ok pc ->
-    let* binding =
-      binding_identity_for_call agent pc
-      |> Result.map_error (binding_identity_error ?on_provider_failure)
-    in
-    let* () = admit_provider_attempt before_provider_attempt binding in
-    let compatibility_call () =
-      Llm_provider.Complete.complete
-        ~sw
-        ~net:agent.net
-        ?clock
-        ?transport:agent.options.transport
-        ~config:pc
+  let* binding =
+    binding_identity_for_call agent provider_config
+    |> Result.map_error (binding_identity_error ?on_provider_failure)
+  in
+  let* () = admit_provider_attempt before_provider_attempt binding in
+  let compatibility_call () =
+    Llm_provider.Complete.complete
+      ~sw
+      ~net:agent.net
+      ?clock
+      ?transport:agent.options.transport
+      ~config:provider_config
+      ~messages:prep.Agent_turn.effective_messages
+      ~tools
+      ~trace_context
+      ?body_timeout_s:agent.options.body_timeout_s
+      ?request_wire_observer:agent.pre_dispatch_serialization_observer
+      ()
+    |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
+  in
+  let admitted_call () =
+    let now_unix_s = int_of_float (Unix.gettimeofday ()) in
+    let prepared =
+      Llm_provider.Complete.prepare_request
+        ~config:provider_config
         ~messages:prep.Agent_turn.effective_messages
         ~tools
         ~trace_context
-        ?body_timeout_s:agent.options.body_timeout_s
-        ?request_wire_observer:agent.pre_dispatch_serialization_observer
         ()
-      |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
     in
-    let admitted_call () =
-      let now_unix_s = int_of_float (Unix.gettimeofday ()) in
-      let prepared =
-        Llm_provider.Complete.prepare_request
-          ~config:pc
-          ~messages:prep.Agent_turn.effective_messages
-          ~tools
-          ~trace_context
-          ()
-      in
-      (* Reject an oversized exact completion body, stale/future-dated
+    (* Reject an oversized exact completion body, stale/future-dated
          evidence, and an unknown context limit before token measurement.
          All three checks are network-free. *)
-      match
-        Llm_provider.Complete.admit_request_body ~stream:false prepared
-        |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
-      with
-      | Error error -> Error error
-      | Ok serialized ->
-        (match preflight_serving_constraint ~binding ~now_unix_s prepared with
-         | Error error -> Error error
-         | Ok () ->
-           (match Llm_provider.Complete.resolve_context_limit prepared with
-            | Error error -> Error (fit_error ~binding error)
-            | Ok max_context_tokens ->
-              (match
-                 Llm_provider.Complete.measure_request
-                   ~sw
-                   ~net:agent.net
-                   ?clock
-                   ?timeout_s:agent.options.body_timeout_s
-                   serialized
-               with
-               | Error error ->
-                 Error
-                   (measurement_error
-                      ~binding
-                      ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
-                      error)
-               | Ok measured ->
-                 (match
-                    Llm_provider.Complete.admit_request
-                      ~now_unix_s
-                      ~max_context_tokens
-                      measured
-                  with
-                  | Error error -> Error (fit_error ~binding error)
-                  | Ok admitted ->
-                    Llm_provider.Complete.complete_admitted
-                      ~sw
-                      ~net:agent.net
-                      ?clock
-                      ?transport:agent.options.transport
-                      admitted
-                      ?body_timeout_s:agent.options.body_timeout_s
-                      ?request_wire_observer:agent.pre_dispatch_serialization_observer
-                      ()
-                    |> Result.map_error
-                         (Provider_failure_attribution.of_http_error ~binding)))))
-    in
-    if enforce_context_fit agent pc
-    then finish_call ?on_provider_failure (admitted_call ())
-    else finish_call ?on_provider_failure (compatibility_call ())
+    match
+      Llm_provider.Complete.admit_request_body ~stream:false prepared
+      |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
+    with
+    | Error error -> Error error
+    | Ok serialized ->
+      (match preflight_serving_constraint ~binding ~now_unix_s prepared with
+       | Error error -> Error error
+       | Ok () ->
+         (match Llm_provider.Complete.resolve_context_limit prepared with
+          | Error error -> Error (fit_error ~binding error)
+          | Ok max_context_tokens ->
+            (match
+               Llm_provider.Complete.measure_request
+                 ~sw
+                 ~net:agent.net
+                 ?clock
+                 ?timeout_s:agent.options.body_timeout_s
+                 serialized
+             with
+             | Error error ->
+               Error
+                 (measurement_error
+                    ~binding
+                    ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
+                    error)
+             | Ok measured ->
+               (match
+                  Llm_provider.Complete.admit_request
+                    ~now_unix_s
+                    ~max_context_tokens
+                    measured
+                with
+                | Error error -> Error (fit_error ~binding error)
+                | Ok admitted ->
+                  Llm_provider.Complete.complete_admitted
+                    ~sw
+                    ~net:agent.net
+                    ?clock
+                    ?transport:agent.options.transport
+                    admitted
+                    ?body_timeout_s:agent.options.body_timeout_s
+                    ?request_wire_observer:agent.pre_dispatch_serialization_observer
+                    ()
+                  |> Result.map_error
+                       (Provider_failure_attribution.of_http_error ~binding)))))
+  in
+  if enforce_context_fit agent provider_config
+  then finish_call ?on_provider_failure (admitted_call ())
+  else finish_call ?on_provider_failure (compatibility_call ())
 ;;
 
 let dispatch_stream
       ~sw
       ?clock
-      ~turn_config
+      ~provider_config
       agent
       (prep : Agent_turn.turn_preparation)
       ~on_event
@@ -307,102 +305,96 @@ let dispatch_stream
   =
   let ( let* ) = Result.bind in
   let tools = Option.value prep.Agent_turn.tools_json ~default:[] in
-  match provider_config_for_turn ~turn_config agent with
-  | Error error ->
-    let detailed = Provider_failure_attribution.of_provider_configuration_error error in
-    notify_attribution on_provider_failure detailed.provider_failure;
-    Error detailed.error
-  | Ok pc ->
-    let* binding =
-      binding_identity_for_call agent pc
-      |> Result.map_error (binding_identity_error ?on_provider_failure)
-    in
-    let* () = admit_provider_attempt before_provider_attempt binding in
-    let compatibility_call () =
-      Llm_provider.Complete.complete_stream
-        ~sw
-        ~net:agent.net
-        ?clock
-        ?transport:agent.options.transport
-        ?capture_id
-        ~config:pc
+  let* binding =
+    binding_identity_for_call agent provider_config
+    |> Result.map_error (binding_identity_error ?on_provider_failure)
+  in
+  let* () = admit_provider_attempt before_provider_attempt binding in
+  let compatibility_call () =
+    Llm_provider.Complete.complete_stream
+      ~sw
+      ~net:agent.net
+      ?clock
+      ?transport:agent.options.transport
+      ?capture_id
+      ~config:provider_config
+      ~messages:prep.Agent_turn.effective_messages
+      ~tools
+      ~trace_context
+      ~on_event
+      ?on_telemetry
+      ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
+      ?first_event_timeout_s:agent.options.first_event_timeout_s
+      ?body_timeout_s:agent.options.body_timeout_s
+      ?request_wire_observer:agent.pre_dispatch_serialization_observer
+      ()
+    |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
+  in
+  let admitted_call () =
+    let now_unix_s = int_of_float (Unix.gettimeofday ()) in
+    let prepared =
+      Llm_provider.Complete.prepare_request
+        ~config:provider_config
         ~messages:prep.Agent_turn.effective_messages
         ~tools
         ~trace_context
-        ~on_event
-        ?on_telemetry
+        ?capture_id
         ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
         ?first_event_timeout_s:agent.options.first_event_timeout_s
         ?body_timeout_s:agent.options.body_timeout_s
-        ?request_wire_observer:agent.pre_dispatch_serialization_observer
         ()
-      |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
     in
-    let admitted_call () =
-      let now_unix_s = int_of_float (Unix.gettimeofday ()) in
-      let prepared =
-        Llm_provider.Complete.prepare_request
-          ~config:pc
-          ~messages:prep.Agent_turn.effective_messages
-          ~tools
-          ~trace_context
-          ?capture_id
-          ?stream_idle_timeout_s:agent.options.stream_idle_timeout_s
-          ?first_event_timeout_s:agent.options.first_event_timeout_s
-          ?body_timeout_s:agent.options.body_timeout_s
-          ()
-      in
-      (* Keep the streaming final-body admission ahead of every measurement
+    (* Keep the streaming final-body admission ahead of every measurement
          round-trip just like the synchronous path. *)
-      match
-        Llm_provider.Complete.admit_request_body ~stream:true prepared
-        |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
-      with
-      | Error error -> Error error
-      | Ok serialized ->
-        (match preflight_serving_constraint ~binding ~now_unix_s prepared with
-         | Error error -> Error error
-         | Ok () ->
-           (match Llm_provider.Complete.resolve_context_limit prepared with
-            | Error error -> Error (fit_error ~binding error)
-            | Ok max_context_tokens ->
-              (match
-                 Llm_provider.Complete.measure_request
-                   ~sw
-                   ~net:agent.net
-                   ?clock
-                   ?timeout_s:agent.options.body_timeout_s
-                   serialized
-               with
-               | Error error ->
-                 Error
-                   (measurement_error
-                      ~binding
-                      ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
-                      error)
-               | Ok measured ->
-                 (match
-                    Llm_provider.Complete.admit_request
-                      ~now_unix_s
-                      ~max_context_tokens
-                      measured
-                  with
-                  | Error error -> Error (fit_error ~binding error)
-                  | Ok admitted ->
-                    Llm_provider.Complete.complete_stream_admitted
-                      ~sw
-                      ~net:agent.net
-                      ?clock
-                      ?transport:agent.options.transport
-                      admitted
-                      ~on_event
-                      ?on_telemetry
-                      ?request_wire_observer:agent.pre_dispatch_serialization_observer
-                      ()
-                    |> Result.map_error
-                         (Provider_failure_attribution.of_http_error ~binding)))))
-    in
-    if enforce_context_fit agent pc
-    then finish_call ?on_provider_failure (admitted_call ())
-    else finish_call ?on_provider_failure (compatibility_call ())
+    match
+      Llm_provider.Complete.admit_request_body ~stream:true prepared
+      |> Result.map_error (Provider_failure_attribution.of_http_error ~binding)
+    with
+    | Error error -> Error error
+    | Ok serialized ->
+      (match preflight_serving_constraint ~binding ~now_unix_s prepared with
+       | Error error -> Error error
+       | Ok () ->
+         (match Llm_provider.Complete.resolve_context_limit prepared with
+          | Error error -> Error (fit_error ~binding error)
+          | Ok max_context_tokens ->
+            (match
+               Llm_provider.Complete.measure_request
+                 ~sw
+                 ~net:agent.net
+                 ?clock
+                 ?timeout_s:agent.options.body_timeout_s
+                 serialized
+             with
+             | Error error ->
+               Error
+                 (measurement_error
+                    ~binding
+                    ~constraint_:(Llm_provider.Complete.serving_constraint prepared)
+                    error)
+             | Ok measured ->
+               (match
+                  Llm_provider.Complete.admit_request
+                    ~now_unix_s
+                    ~max_context_tokens
+                    measured
+                with
+                | Error error -> Error (fit_error ~binding error)
+                | Ok admitted ->
+                  Llm_provider.Complete.complete_stream_admitted
+                    ~sw
+                    ~net:agent.net
+                    ?clock
+                    ?transport:agent.options.transport
+                    admitted
+                    ~on_event
+                    ?on_telemetry
+                    ?request_wire_observer:agent.pre_dispatch_serialization_observer
+                    ()
+                  |> Result.map_error
+                       (Provider_failure_attribution.of_http_error ~binding)))))
+  in
+  if enforce_context_fit agent provider_config
+  then finish_call ?on_provider_failure (admitted_call ())
+  else finish_call ?on_provider_failure (compatibility_call ())
 ;;

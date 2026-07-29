@@ -8,7 +8,7 @@
     @since 0.194.0 *)
 
 type provider_kind = Llm_provider.Provider_config.provider_kind
-type capabilities = Provider.capabilities
+type capabilities = Llm_provider.Capabilities.capabilities
 
 type auth =
   | No_auth

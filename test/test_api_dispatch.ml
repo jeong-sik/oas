@@ -6,14 +6,14 @@ open Agent_sdk
 (* ── Helpers ─────────────────────────────────────────────────── *)
 
 let declared_pricing model_id =
-  match Provider.pricing_for_model_opt model_id with
+  match Llm_provider.Pricing.pricing_for_model_opt model_id with
   | Some pricing -> pricing
   | None -> failf "expected catalog pricing for %S" model_id
 ;;
 
 let require_estimated_cost = function
-  | Provider.Estimated cost -> cost
-  | Provider.Incomplete _ -> fail "expected an exact cost estimate"
+  | Llm_provider.Pricing.Estimated cost -> cost
+  | Llm_provider.Pricing.Incomplete _ -> fail "expected an exact cost estimate"
 ;;
 
 (* ── Anthropic parse_response ────────────────────────────────── *)
@@ -91,7 +91,7 @@ let test_pricing_known_models () =
     bool
     "catalog zero remains declared despite absent cache multipliers"
     true
-    (match Provider.pricing_for_model_opt "dashscope-3.5-35b" with
+    (match Llm_provider.Pricing.pricing_for_model_opt "dashscope-3.5-35b" with
      | Some
          { input_per_million = 0.0
          ; output_per_million = 0.0
@@ -103,19 +103,23 @@ let test_pricing_known_models () =
     bool
     "undeclared local model remains unpriced"
     true
-    (Option.is_none (Provider.pricing_for_model_opt "llama-3.1-70b"))
+    (Option.is_none (Llm_provider.Pricing.pricing_for_model_opt "llama-3.1-70b"))
 ;;
 
 let test_pricing_cost_estimation () =
   let pricing =
-    { Provider.input_per_million = 3.0
+    { Llm_provider.Pricing.input_per_million = 3.0
     ; output_per_million = 15.0
     ; cache_write_multiplier = Some 1.25
     ; cache_read_multiplier = Some 0.1
     }
   in
   let cost =
-    Provider.estimate_cost ~pricing ~input_tokens:1_000_000 ~output_tokens:100_000 ()
+    Llm_provider.Pricing.estimate_cost
+      ~pricing
+      ~input_tokens:1_000_000
+      ~output_tokens:100_000
+      ()
     |> require_estimated_cost
   in
   check (float 0.01) "cost" 4.5 cost
@@ -189,7 +193,7 @@ let test_cache_cost_calculation () =
   let pricing = declared_pricing "claude-sonnet-4-6" in
   (* Sonnet: 3.0/M input, 15.0/M output, cache_write=1.25x, cache_read=0.1x *)
   let cost =
-    Provider.estimate_cost
+    Llm_provider.Pricing.estimate_cost
       ~pricing
       ~input_tokens:1_000_000
       ~output_tokens:0
@@ -208,11 +212,15 @@ let test_cache_cost_calculation () =
 let test_cache_cost_no_cache_tokens () =
   let pricing = declared_pricing "claude-sonnet-4-6" in
   let cost_with =
-    Provider.estimate_cost ~pricing ~input_tokens:1_000_000 ~output_tokens:100_000 ()
+    Llm_provider.Pricing.estimate_cost
+      ~pricing
+      ~input_tokens:1_000_000
+      ~output_tokens:100_000
+      ()
     |> require_estimated_cost
   in
   let cost_explicit =
-    Provider.estimate_cost
+    Llm_provider.Pricing.estimate_cost
       ~pricing
       ~input_tokens:1_000_000
       ~output_tokens:100_000

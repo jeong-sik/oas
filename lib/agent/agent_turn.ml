@@ -64,6 +64,55 @@ let prepare_turn ~tools ~messages ~turn_params ?model_input_projection () =
     effective_messages
 ;;
 
+let provider_config_with_agent_config
+      ~(config : Types.agent_config)
+      (provider_config : Llm_provider.Provider_config.t)
+  =
+  let model_id = Types.model_to_string config.model in
+  let max_context, model_capabilities_override, supports_structured_output_override =
+    if model_id = provider_config.model_id
+    then
+      ( provider_config.max_context
+      , provider_config.model_capabilities_override
+      , provider_config.supports_structured_output_override )
+    else (
+      let target_model =
+        { provider_config with
+          model_id
+        ; max_context = None
+        ; model_capabilities_override = None
+        ; supports_structured_output_override = None
+        }
+      in
+      let max_context =
+        Option.bind
+          (Llm_provider.Provider_config.capabilities_for_config_model target_model)
+          (fun capabilities -> capabilities.max_context_tokens)
+      in
+      max_context, None, None)
+  in
+  { provider_config with
+    model_id
+  ; max_context
+  ; model_capabilities_override
+  ; supports_structured_output_override
+  ; max_tokens = config.max_tokens
+  ; temperature = config.temperature
+  ; top_p = config.top_p
+  ; top_k = config.top_k
+  ; min_p = config.min_p
+  ; system_prompt = config.system_prompt
+  ; enable_thinking = config.enable_thinking
+  ; preserve_thinking = config.preserve_thinking
+  ; thinking_budget = config.thinking_budget
+  ; reasoning_effort = config.reasoning_effort
+  ; tool_choice = config.tool_choice
+  ; disable_parallel_tool_use = config.disable_parallel_tool_use
+  ; response_format = config.response_format
+  ; cache_system_prompt = config.cache_system_prompt
+  }
+;;
+
 (* ── Usage accumulation ───────────────────────────────────────── *)
 
 let pricing_identity ~provider_config ~response_model =
@@ -102,11 +151,11 @@ let accumulate_usage ~current_usage ~provider_config ~response_model ~response_u
        (match model_id with
         | None -> with_pricing_gap base None
         | Some model_id ->
-          (match Provider.pricing_for_model_opt ?provider_id model_id with
+          (match Llm_provider.Pricing.pricing_for_model_opt ?provider_id model_id with
            | None -> with_pricing_gap base (Some model_id)
            | Some pricing ->
              (match
-                Provider.estimate_cost
+                Llm_provider.Pricing.estimate_cost
                   ~pricing
                   ~input_tokens:u.input_tokens
                   ~output_tokens:u.output_tokens
@@ -114,9 +163,9 @@ let accumulate_usage ~current_usage ~provider_config ~response_model ~response_u
                   ~cache_read_input_tokens:u.cache_read_input_tokens
                   ()
               with
-              | Provider.Estimated turn_cost ->
+              | Llm_provider.Pricing.Estimated turn_cost ->
                 { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
-              | Provider.Incomplete _ -> with_pricing_gap base (Some model_id)))))
+              | Llm_provider.Pricing.Incomplete _ -> with_pricing_gap base (Some model_id)))))
   | None -> { current_usage with api_calls = current_usage.api_calls + 1 }
 ;;
 
