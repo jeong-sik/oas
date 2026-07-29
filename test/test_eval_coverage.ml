@@ -1,19 +1,18 @@
 (** Extended coverage tests for the Eval module.
 
     Existing tests cover:
-    - metric_value yojson roundtrip, to_float
+    - metric_value yojson roundtrip
     - metric yojson roundtrip
     - collector basic, verdict
     - comparison regression/improvement/unchanged
     - threshold pass/fail max/min
-    - find_metric
     - run_metrics yojson
 
     This file targets uncovered paths in:
-    - Eval.ml: metric_value_of_yojson error path, compute_delta edge cases
+    - Eval.ml: metric_value_of_yojson error path, comparison edge cases
       (baseline zero, non-numeric, custom threshold), pp_* formatters,
       show_run_metrics, metric_of_yojson error path, run_metrics_of_yojson
-      error path, find_metric_value *)
+      error path *)
 
 open Agent_sdk
 
@@ -21,6 +20,18 @@ open Agent_sdk
 
 let mk_metric ?(unit_ = None) ?(tags = []) name value : Eval.metric =
   { name; value; unit_; tags }
+;;
+
+let metric_identity ?unit_ ?(tags = []) name : Eval.metric_identity =
+  { name; unit_; tags }
+;;
+
+let metric_spec ?unit_ ?tags name policy : Eval.metric_spec =
+  { identity = metric_identity ?unit_ ?tags name; policy }
+;;
+
+let threshold ?unit_ ?tags ?max_value ?min_value name : Eval.threshold =
+  { identity = metric_identity ?unit_ ?tags name; max_value; min_value }
 ;;
 
 let mk_run ?(run_id = "r1") ?(agent_name = "test") ?(verdicts = []) metrics
@@ -208,85 +219,33 @@ let test_run_metrics_to_yojson_score_none () =
   Alcotest.(check bool) "score null" true (v0 |> member "score" = `Null)
 ;;
 
-(* ── find_metric_value ────────────────────────────────── *)
-
-let test_find_metric_value_found () =
-  let rm = mk_run [ mk_metric "score" (Float_val 0.95) ] in
-  match Eval.find_metric_value rm "score" with
-  | Some (Float_val f) -> Alcotest.(check (float 0.01)) "value" 0.95 f
-  | _ -> Alcotest.fail "expected Float_val"
-;;
-
-let test_find_metric_value_missing () =
-  let rm = mk_run [] in
-  Alcotest.(check bool) "None" true (Eval.find_metric_value rm "nonexistent" = None)
-;;
-
-(* ── compute_delta edge cases ─────────────────────────── *)
-
-let test_compute_delta_baseline_zero () =
-  let dir, pct =
-    Eval.compute_delta ~baseline_val:(Float_val 0.0) ~candidate_val:(Float_val 5.0) ()
-  in
-  Alcotest.(check bool) "regression for zero baseline" true (dir = Eval.Regression);
-  Alcotest.(check bool) "no pct" true (pct = None)
-;;
-
-let test_compute_delta_both_zero () =
-  let dir, _ =
-    Eval.compute_delta ~baseline_val:(Float_val 0.0) ~candidate_val:(Float_val 0.0) ()
-  in
-  Alcotest.(check bool) "unchanged" true (dir = Eval.Unchanged)
-;;
-
-let test_compute_delta_zero_baseline_negative () =
-  let dir, _ =
-    Eval.compute_delta ~baseline_val:(Float_val 0.0) ~candidate_val:(Float_val (-1.0)) ()
-  in
-  Alcotest.(check bool) "improvement" true (dir = Eval.Improvement)
-;;
-
-let test_compute_delta_non_numeric () =
-  let dir, pct =
-    Eval.compute_delta ~baseline_val:(String_val "a") ~candidate_val:(String_val "b") ()
-  in
-  Alcotest.(check bool) "unchanged for strings" true (dir = Eval.Unchanged);
-  Alcotest.(check bool) "no pct" true (pct = None)
-;;
-
-let test_compute_delta_custom_threshold () =
-  let dir, _ =
-    Eval.compute_delta
-      ~threshold_pct:1.0
-      ~baseline_val:(Float_val 100.0)
-      ~candidate_val:(Float_val 102.0)
-      ()
-  in
-  Alcotest.(check bool) "regression with 1% threshold" true (dir = Eval.Regression)
-;;
-
-let test_compute_delta_bool_values () =
-  let dir, _ =
-    Eval.compute_delta ~baseline_val:(Bool_val false) ~candidate_val:(Bool_val true) ()
-  in
-  Alcotest.(check bool) "regression false->true" true (dir = Eval.Regression)
-;;
-
 (* ── compare: missing metric in candidate ─────────────── *)
 
 let test_compare_missing_candidate_metric () =
   let baseline =
-    mk_run [ mk_metric "a" (Float_val 1.0); mk_metric "b" (Float_val 2.0) ]
+    mk_run
+      [ mk_metric "a" (Float_val 1.0)
+      ; mk_metric ~unit_:(Some "ms") ~tags:[ "env", "prod" ] "b" (Float_val 2.0)
+      ]
   in
   let candidate = mk_run ~run_id:"r2" [ mk_metric "a" (Float_val 1.0) ] in
   let specs =
-    [ { Eval.name = "a"; goal = Lower; tolerance_pct = Eval.default_delta_threshold_pct }
-    ; { Eval.name = "b"; goal = Lower; tolerance_pct = Eval.default_delta_threshold_pct }
+    [ metric_spec "a" (Lower_is_better (Relative_pct 5.0))
+    ; metric_spec
+        ~unit_:"ms"
+        ~tags:[ "env", "prod" ]
+        "b"
+        (Lower_is_better (Relative_pct 5.0))
     ]
   in
   match Eval.compare_with_specs ~specs ~baseline ~candidate with
-  | Error (Eval.Missing_candidate_metric name) ->
-    Alcotest.(check string) "missing metric" "b" name
+  | Error (Eval.Missing_candidate_metric identity) ->
+    Alcotest.(check string) "missing metric" "b" identity.name;
+    Alcotest.(check (option string)) "missing unit" (Some "ms") identity.unit_;
+    Alcotest.(check (list (pair string string)))
+      "missing tags"
+      [ "env", "prod" ]
+      identity.tags
   | Ok _ | Error _ -> Alcotest.fail "expected Missing_candidate_metric"
 ;;
 
@@ -295,7 +254,7 @@ let test_compare_missing_candidate_metric () =
 let test_compare_string_metric () =
   let baseline = mk_run [ mk_metric "name" (String_val "test") ] in
   let candidate = mk_run ~run_id:"r2" [ mk_metric "name" (String_val "test") ] in
-  let specs = [ { Eval.name = "name"; goal = Exact; tolerance_pct = 0.0 } ] in
+  let specs = [ metric_spec "name" Exact_value ] in
   match Eval.compare_with_specs ~specs ~baseline ~candidate with
   | Ok cmp -> Alcotest.(check int) "unchanged" 1 (List.length cmp.unchanged)
   | Error _ -> Alcotest.fail "expected comparison"
@@ -305,49 +264,45 @@ let test_compare_string_metric () =
 
 let test_threshold_no_matching_metric () =
   let rm = mk_run [ mk_metric "x" (Int_val 1) ] in
-  let ths =
-    [ { Eval.metric_name = "missing"; max_value = Some (Int_val 10); min_value = None } ]
-  in
-  let v = Eval.check_thresholds rm ths in
-  Alcotest.(check bool) "pass when metric absent" true v.passed
+  let ths = [ threshold ~max_value:(Int_val 10) "missing" ] in
+  match Eval.check_thresholds rm ths with
+  | Error (Eval.Missing_threshold_metric identity) ->
+    Alcotest.(check string) "missing metric" "missing" identity.name
+  | Ok _ | Error _ -> Alcotest.fail "expected Missing_threshold_metric"
 ;;
 
 (* ── threshold: non-numeric values ────────────────────── *)
 
 let test_threshold_non_numeric () =
   let rm = mk_run [ mk_metric "name" (String_val "test") ] in
-  let ths =
-    [ { Eval.metric_name = "name"; max_value = Some (String_val "z"); min_value = None } ]
-  in
-  let v = Eval.check_thresholds rm ths in
-  Alcotest.(check bool) "pass for non-numeric" true v.passed
+  let ths = [ threshold ~max_value:(String_val "z") "name" ] in
+  match Eval.check_thresholds rm ths with
+  | Error (Eval.Incompatible_threshold_value { identity; _ }) ->
+    Alcotest.(check string) "metric name" "name" identity.name
+  | Ok _ | Error _ -> Alcotest.fail "expected Incompatible_threshold_value"
 ;;
 
 (* ── threshold: both max and min ──────────────────────── *)
 
 let test_threshold_both_pass () =
   let rm = mk_run [ mk_metric "x" (Float_val 50.0) ] in
-  let ths =
-    [ { Eval.metric_name = "x"
-      ; max_value = Some (Float_val 100.0)
-      ; min_value = Some (Float_val 10.0)
-      }
-    ]
+  let ths = [ threshold ~max_value:(Float_val 100.0) ~min_value:(Float_val 10.0) "x" ] in
+  let v =
+    match Eval.check_thresholds rm ths with
+    | Ok verdict -> verdict
+    | Error _ -> Alcotest.fail "expected threshold verdict"
   in
-  let v = Eval.check_thresholds rm ths in
   Alcotest.(check bool) "both pass" true v.passed
 ;;
 
 let test_threshold_both_fail_min () =
   let rm = mk_run [ mk_metric "x" (Float_val 5.0) ] in
-  let ths =
-    [ { Eval.metric_name = "x"
-      ; max_value = Some (Float_val 100.0)
-      ; min_value = Some (Float_val 10.0)
-      }
-    ]
+  let ths = [ threshold ~max_value:(Float_val 100.0) ~min_value:(Float_val 10.0) "x" ] in
+  let v =
+    match Eval.check_thresholds rm ths with
+    | Ok verdict -> verdict
+    | Error _ -> Alcotest.fail "expected threshold verdict"
   in
-  let v = Eval.check_thresholds rm ths in
   Alcotest.(check bool) "fail min" false v.passed
 ;;
 
@@ -391,21 +346,6 @@ let () =
             `Quick
             test_run_metrics_to_yojson_with_verdicts
         ; Alcotest.test_case "score None" `Quick test_run_metrics_to_yojson_score_none
-        ] )
-    ; ( "find_metric_value"
-      , [ Alcotest.test_case "found" `Quick test_find_metric_value_found
-        ; Alcotest.test_case "missing" `Quick test_find_metric_value_missing
-        ] )
-    ; ( "compute_delta"
-      , [ Alcotest.test_case "baseline zero" `Quick test_compute_delta_baseline_zero
-        ; Alcotest.test_case "both zero" `Quick test_compute_delta_both_zero
-        ; Alcotest.test_case
-            "zero negative"
-            `Quick
-            test_compute_delta_zero_baseline_negative
-        ; Alcotest.test_case "non-numeric" `Quick test_compute_delta_non_numeric
-        ; Alcotest.test_case "custom threshold" `Quick test_compute_delta_custom_threshold
-        ; Alcotest.test_case "bool values" `Quick test_compute_delta_bool_values
         ] )
     ; ( "compare_extra"
       , [ Alcotest.test_case

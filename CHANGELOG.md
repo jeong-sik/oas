@@ -52,7 +52,19 @@ field have been removed.
   object.
 `Eval.compare` and its implicit lower-is-better policy have been removed.
 `Eval.compare_with_specs` now compares only metrics selected by an explicit
-`metric_spec`.
+`metric_spec`. Its policy now distinguishes relative, absolute, numeric-exact,
+and value-exact comparison. It rejects non-finite or incompatible values,
+unit/tag identity mismatches, and undefined relative changes from zero instead
+of silently classifying them. The conflicting tuple-returning `compute_delta`
+comparison authority is removed. Absolute tolerances are kinded as integer or
+float so integer boundaries stay exact. `check_thresholds` now returns typed
+errors for missing, duplicate, incompatible, non-finite, empty, or invalid
+threshold contracts instead of reporting them as passed. Comparison and
+threshold errors retain the canonical name/unit/tags identity, and threshold
+evidence renders that full identity. Metric JSON decoding rejects duplicate
+or unknown object fields and duplicate tag names.
+The name-only `Eval.find_metric` and `Eval.find_metric_value` helpers are
+removed because metric identity is the exact name/unit/tag tuple.
 
 The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical

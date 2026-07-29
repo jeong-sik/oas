@@ -7,7 +7,8 @@
     - [metric_value] is a closed variant for type-safe comparisons.
     - [collector] is mutable during a run, finalized into immutable [run_metrics].
     - [compare] detects regressions and improvements between two runs.
-    - [check_thresholds] produces a {!Harness.verdict} for CI integration. *)
+    - [check_thresholds] produces a typed result containing a
+      {!Harness.verdict} for CI integration. *)
 
 (* ── Metric value ─────────────────────────────────────────────── *)
 
@@ -41,22 +42,60 @@ let show_metric_value = function
 
 let pp_metric_value fmt v = Format.fprintf fmt "%s" (show_metric_value v)
 
-let metric_value_to_float = function
-  | Int_val i -> Some (float_of_int i)
-  | Float_val f -> Some f
-  | Bool_val b -> Some (if b then 1.0 else 0.0)
-  | String_val _ -> None
+let duplicate_assoc_key fields =
+  let names = List.map fst fields |> List.sort String.compare in
+  let rec find = function
+    | name :: next_name :: _ when String.equal name next_name -> Some name
+    | _ :: rest -> find rest
+    | [] -> None
+  in
+  find names
+;;
+
+let unknown_metric_field fields =
+  List.find_map
+    (fun (name, _) ->
+       match name with
+       | "name" | "value" | "unit" | "tags" -> None
+       | _ -> Some name)
+    fields
+;;
+
+let canonical_metric_tags tags =
+  let sorted =
+    List.sort
+      (fun (left_name, left_value) (right_name, right_value) ->
+         let name_order = String.compare left_name right_name in
+         if name_order <> 0 then name_order else String.compare left_value right_value)
+      tags
+  in
+  let rec validate = function
+    | (name, _) :: (next_name, _) :: _ when String.equal name next_name -> Error name
+    | _ :: rest -> validate rest
+    | [] -> Ok sorted
+  in
+  validate sorted
 ;;
 
 let tags_of_json = function
-  | `Assoc kvs -> List.map (fun (k, v) -> k, Yojson.Safe.Util.to_string v) kvs
-  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> []
-;;
-
-let numeric_threshold_violated ~compare value threshold =
-  match metric_value_to_float value, metric_value_to_float threshold with
-  | Some v, Some limit -> compare v limit
-  | None, _ | _, None -> false
+  | `Assoc kvs ->
+    let ( let* ) = Result.bind in
+    let* tags =
+      List.fold_right
+        (fun (name, value) result ->
+           let* tags = result in
+           match value with
+           | `String value -> Ok ((name, value) :: tags)
+           | `Assoc _ | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null ->
+             Error "metric tags must contain string values")
+        kvs
+        (Ok [])
+    in
+    (match canonical_metric_tags tags with
+     | Ok tags -> Ok tags
+     | Error name -> Error (Printf.sprintf "duplicate metric tag %S" name))
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+    Error "metric tags must be an object"
 ;;
 
 (* ── Metric ───────────────────────────────────────────────────── *)
@@ -68,7 +107,58 @@ type metric =
   ; tags : (string * string) list
   }
 
-let metric_to_yojson m =
+type metric_identity =
+  { name : string
+  ; unit_ : string option
+  ; tags : (string * string) list
+  }
+
+let canonical_metric_identity (identity : metric_identity) =
+  match canonical_metric_tags identity.tags with
+  | Ok tags -> Ok { identity with tags }
+  | Error tag_name -> Error tag_name
+;;
+
+let metric_identity_equal (left : metric_identity) (right : metric_identity) =
+  String.equal left.name right.name && left.unit_ = right.unit_ && left.tags = right.tags
+;;
+
+let metric_identity_of_metric (metric : metric) : metric_identity =
+  { name = metric.name; unit_ = metric.unit_; tags = metric.tags }
+;;
+
+type metric_lookup_error =
+  | Duplicate_lookup_metric of metric_identity
+  | Missing_lookup_metric of metric_identity
+  | Duplicate_lookup_tag of
+      { identity : metric_identity
+      ; tag_name : string
+      }
+
+let find_metric_for_identity ~(expected : metric_identity) metrics =
+  let ( let* ) = Result.bind in
+  let same_name =
+    List.filter (fun (metric : metric) -> String.equal metric.name expected.name) metrics
+  in
+  let rec canonicalize acc = function
+    | [] -> Ok (List.rev acc)
+    | (metric : metric) :: rest ->
+      let identity = metric_identity_of_metric metric in
+      (match canonical_metric_identity identity with
+       | Error tag_name -> Error (Duplicate_lookup_tag { identity; tag_name })
+       | Ok identity -> canonicalize ((identity, metric) :: acc) rest)
+  in
+  let* candidates = canonicalize [] same_name in
+  let exact =
+    List.filter (fun (identity, _) -> metric_identity_equal expected identity) candidates
+  in
+  match exact with
+  | [ (identity, metric) ] -> Ok (identity, metric)
+  | _ :: _ :: _ -> Error (Duplicate_lookup_metric expected)
+  | [] -> Error (Missing_lookup_metric expected)
+;;
+
+let metric_to_yojson (m : metric) =
   let base = [ "name", `String m.name; "value", metric_value_to_yojson m.value ] in
   let unit_part =
     match m.unit_ with
@@ -85,44 +175,96 @@ let metric_to_yojson m =
 
 let metric_of_yojson json =
   let open Yojson.Safe.Util in
-  try
-    let name = json |> member "name" |> to_string in
-    let value_json = json |> member "value" in
-    match metric_value_of_yojson value_json with
-    | Error e -> Error e
-    | Ok value ->
-      let unit_ = json |> member "unit" |> to_string_option in
-      let tags = json |> member "tags" |> tags_of_json in
-      Ok { name; value; unit_; tags }
-  with
-  | Type_error (msg, _) -> Error msg
+  let decode () =
+    try
+      let name = json |> member "name" |> to_string in
+      let value_json = json |> member "value" in
+      match metric_value_of_yojson value_json with
+      | Error e -> Error e
+      | Ok value ->
+        let unit_ = json |> member "unit" |> to_string_option in
+        let tags_json =
+          match json with
+          | `Assoc fields -> List.assoc_opt "tags" fields
+          | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> None
+        in
+        (match
+           match tags_json with
+           | None -> Ok []
+           | Some tags -> tags_of_json tags
+         with
+         | Error e -> Error e
+         | Ok tags -> Ok { name; value; unit_; tags })
+    with
+    | Type_error (msg, _) -> Error msg
+  in
+  match json with
+  | `Assoc fields ->
+    (match duplicate_assoc_key fields with
+     | Some name -> Error (Printf.sprintf "duplicate metric field %S" name)
+     | None ->
+       (match unknown_metric_field fields with
+        | Some name -> Error (Printf.sprintf "unknown metric field %S" name)
+        | None -> decode ()))
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> decode ()
 ;;
 
-let show_metric m = Printf.sprintf "%s=%s" m.name (show_metric_value m.value)
+let show_metric (m : metric) = Printf.sprintf "%s=%s" m.name (show_metric_value m.value)
 let pp_metric fmt m = Format.fprintf fmt "%s" (show_metric m)
 
 (* ── Metric comparison policy ─────────────────────────────────── *)
 
-type metric_goal =
-  | Higher
-  | Lower
-  | Exact
+type numeric_tolerance =
+  | Relative_pct of float
+  | Absolute_int of int64
+  | Absolute_float of float
+
+type metric_policy =
+  | Higher_is_better of numeric_tolerance
+  | Lower_is_better of numeric_tolerance
+  | Exact_numeric of numeric_tolerance
+  | Exact_value
 
 type metric_spec =
-  { name : string
-  ; goal : metric_goal
-  ; tolerance_pct : float
+  { identity : metric_identity
+  ; policy : metric_policy
   }
 
+type metric_side =
+  | Expected
+  | Baseline
+  | Candidate
+
 type comparison_error =
-  | Duplicate_metric_spec of string
-  | Duplicate_baseline_metric of string
-  | Duplicate_candidate_metric of string
-  | Missing_baseline_metric of string
-  | Missing_candidate_metric of string
-  | Invalid_tolerance_pct of
-      { metric_name : string
-      ; tolerance_pct : float
+  | Duplicate_metric_spec of metric_identity
+  | Duplicate_baseline_metric of metric_identity
+  | Duplicate_candidate_metric of metric_identity
+  | Missing_baseline_metric of metric_identity
+  | Missing_candidate_metric of metric_identity
+  | Duplicate_metric_tag of
+      { identity : metric_identity
+      ; side : metric_side
+      ; tag_name : string
+      }
+  | Invalid_numeric_tolerance of
+      { identity : metric_identity
+      ; tolerance : numeric_tolerance
+      }
+  | Incompatible_metric_values of
+      { identity : metric_identity
+      ; policy : metric_policy
+      ; baseline_value : metric_value
+      ; candidate_value : metric_value
+      }
+  | Non_finite_metric_value of
+      { identity : metric_identity
+      ; side : metric_side
+      ; value : float
+      }
+  | Non_finite_numeric_result of metric_identity
+  | Relative_tolerance_zero_baseline of
+      { identity : metric_identity
+      ; candidate_value : metric_value
       }
 
 (* ── Run metrics ──────────────────────────────────────────────── *)
@@ -236,10 +378,8 @@ type change_direction =
   | Improvement
   | Unchanged
 
-let no_numeric_delta _baseline _candidate = Unchanged, None
-
 type metric_delta =
-  { metric_name : string
+  { identity : metric_identity
   ; baseline_value : metric_value
   ; candidate_value : metric_value
   ; direction : change_direction
@@ -254,124 +394,172 @@ type comparison =
   ; unchanged : metric_delta list
   }
 
-(** Threshold percentage for classifying a delta as regression/improvement.
-    Default 5.0%: changes within +/-5% are classified as Unchanged. *)
-let default_delta_threshold_pct = 5.0
-
-let compute_delta
-      ?(threshold_pct = default_delta_threshold_pct)
-      ~baseline_val
-      ~candidate_val
-      ()
-  =
-  match metric_value_to_float baseline_val, metric_value_to_float candidate_val with
-  | Some bv, Some cv when bv <> 0.0 ->
-    let pct = (cv -. bv) /. Float.abs bv *. 100.0 in
-    let direction =
-      if pct > threshold_pct
-      then Regression
-      else if pct < -.threshold_pct
-      then Improvement
-      else Unchanged
-    in
-    direction, Some pct
-  | Some bv, Some cv ->
-    let direction =
-      if cv > bv then Regression else if cv < bv then Improvement else Unchanged
-    in
-    direction, None
-  | None, _ | _, None -> no_numeric_delta baseline_val candidate_val
-;;
-
-let compute_delta_for_goal
-      ?(threshold_pct = default_delta_threshold_pct)
-      ~goal
-      ~baseline_val
-      ~candidate_val
-      ()
-  =
-  match goal with
-  | Lower -> compute_delta ~threshold_pct ~baseline_val ~candidate_val ()
-  | Higher ->
-    let direction, pct =
-      compute_delta
-        ~threshold_pct
-        ~baseline_val:candidate_val
-        ~candidate_val:baseline_val
-        ()
-    in
-    let pct = Option.map ( ~-. ) pct in
-    direction, pct
-  | Exact ->
-    (match metric_value_to_float baseline_val, metric_value_to_float candidate_val with
-     | Some bv, Some cv ->
-       let diff = Float.abs (cv -. bv) in
-       let pct =
-         if Float.abs bv < 1e-10 then None else Some (diff /. Float.abs bv *. 100.0)
-       in
-       let direction =
-         match pct with
-         | Some v when v > threshold_pct -> Regression
-         | None when diff > 0.0 -> Regression
-         | Some _ | None -> Unchanged
-       in
-       direction, pct
-     | None, _ | _, None ->
-       if baseline_val = candidate_val then Unchanged, None else Regression, None)
-;;
-
 let compare_with_specs ~specs ~(baseline : run_metrics) ~(candidate : run_metrics) =
-  let find_unique_metric ~duplicate_error ~missing_error name metrics =
-    match
-      List.filter (fun (metric : metric) -> String.equal metric.name name) metrics
-    with
-    | [] -> Error (missing_error name)
-    | [ metric ] -> Ok metric
-    | _ -> Error (duplicate_error name)
+  let lookup ~side ~duplicate_error ~missing_error expected metrics =
+    match find_metric_for_identity ~expected metrics with
+    | Ok found -> Ok found
+    | Error (Duplicate_lookup_metric identity) -> Error (duplicate_error identity)
+    | Error (Missing_lookup_metric identity) -> Error (missing_error identity)
+    | Error (Duplicate_lookup_tag { identity; tag_name }) ->
+      Error (Duplicate_metric_tag { identity; side; tag_name })
+  in
+  let validate_finite ~identity ~side = function
+    | Float_val value when not (Float.is_finite value) ->
+      Error (Non_finite_metric_value { identity; side; value })
+    | Int_val _ | Float_val _ | Bool_val _ | String_val _ -> Ok ()
+  in
+  let validate_tolerance identity tolerance =
+    match tolerance with
+    | Relative_pct value | Absolute_float value ->
+      if value < 0.0 || not (Float.is_finite value)
+      then Error (Invalid_numeric_tolerance { identity; tolerance })
+      else Ok ()
+    | Absolute_int value ->
+      if Int64.compare value 0L < 0
+      then Error (Invalid_numeric_tolerance { identity; tolerance })
+      else Ok ()
+  in
+  let numeric_delta ~identity ~policy ~tolerance ~baseline_value ~candidate_value =
+    let ( let* ) = Result.bind in
+    let* () = validate_tolerance identity tolerance in
+    let* () = validate_finite ~identity ~side:Baseline baseline_value in
+    let* () = validate_finite ~identity ~side:Candidate candidate_value in
+    let finite_result value =
+      if Float.is_finite value
+      then Ok value
+      else Error (Non_finite_numeric_result identity)
+    in
+    let classify difference_sign exceeds_tolerance =
+      if not exceeds_tolerance
+      then Ok Unchanged
+      else (
+        match policy with
+        | Lower_is_better _ ->
+          Ok (if difference_sign > 0 then Regression else Improvement)
+        | Higher_is_better _ ->
+          Ok (if difference_sign > 0 then Improvement else Regression)
+        | Exact_numeric _ -> Ok Regression
+        | Exact_value ->
+          Error
+            (Incompatible_metric_values
+               { identity; policy; baseline_value; candidate_value }))
+    in
+    match baseline_value, candidate_value, tolerance with
+    | Int_val baseline, Int_val candidate, Absolute_int limit ->
+      let difference = Int64.sub (Int64.of_int candidate) (Int64.of_int baseline) in
+      let* direction =
+        classify
+          (Int64.compare difference 0L)
+          (Int64.compare (Int64.abs difference) limit > 0)
+      in
+      Ok (direction, None)
+    | Float_val baseline, Float_val candidate, Absolute_float limit ->
+      let* difference = candidate -. baseline |> finite_result in
+      let* direction =
+        classify (Float.compare difference 0.0) (Float.abs difference > limit)
+      in
+      Ok (direction, None)
+    | Int_val baseline, Int_val candidate, Relative_pct limit ->
+      if Int.equal baseline 0
+      then
+        if Int.equal candidate 0
+        then Ok (Unchanged, Some 0.0)
+        else Error (Relative_tolerance_zero_baseline { identity; candidate_value })
+      else (
+        let difference = Int64.sub (Int64.of_int candidate) (Int64.of_int baseline) in
+        let* delta_pct =
+          Int64.to_float difference /. Float.abs (float_of_int baseline) *. 100.0
+          |> finite_result
+        in
+        let* direction =
+          classify (Int64.compare difference 0L) (Float.abs delta_pct > limit)
+        in
+        Ok (direction, Some delta_pct))
+    | Float_val baseline, Float_val candidate, Relative_pct limit ->
+      if Float.equal baseline 0.0
+      then
+        if Float.equal candidate 0.0
+        then Ok (Unchanged, Some 0.0)
+        else Error (Relative_tolerance_zero_baseline { identity; candidate_value })
+      else
+        let* difference = candidate -. baseline |> finite_result in
+        let* delta_pct = difference /. Float.abs baseline *. 100.0 |> finite_result in
+        let* direction =
+          classify (Float.compare difference 0.0) (Float.abs delta_pct > limit)
+        in
+        Ok (direction, Some delta_pct)
+    | (Int_val _ | Float_val _ | Bool_val _ | String_val _), _, _ ->
+      Error
+        (Incompatible_metric_values { identity; policy; baseline_value; candidate_value })
+  in
+  let compute_policy_delta ~identity ~policy ~baseline_value ~candidate_value =
+    match policy with
+    | Higher_is_better tolerance | Lower_is_better tolerance | Exact_numeric tolerance ->
+      numeric_delta ~identity ~policy ~tolerance ~baseline_value ~candidate_value
+    | Exact_value ->
+      let ( let* ) = Result.bind in
+      let* () = validate_finite ~identity ~side:Baseline baseline_value in
+      let* () = validate_finite ~identity ~side:Candidate candidate_value in
+      (match baseline_value, candidate_value with
+       | Int_val baseline, Int_val candidate ->
+         Ok ((if Int.equal baseline candidate then Unchanged else Regression), None)
+       | Float_val baseline, Float_val candidate ->
+         Ok ((if Float.equal baseline candidate then Unchanged else Regression), None)
+       | Bool_val baseline, Bool_val candidate ->
+         Ok ((if Bool.equal baseline candidate then Unchanged else Regression), None)
+       | String_val baseline, String_val candidate ->
+         Ok ((if String.equal baseline candidate then Unchanged else Regression), None)
+       | (Int_val _ | Float_val _ | Bool_val _ | String_val _), _ ->
+         Error
+           (Incompatible_metric_values
+              { identity; policy; baseline_value; candidate_value }))
   in
   let rec collect seen deltas = function
     | [] -> Ok (List.rev deltas)
     | (spec : metric_spec) :: rest ->
-      if List.exists (String.equal spec.name) seen
-      then Error (Duplicate_metric_spec spec.name)
-      else if spec.tolerance_pct < 0.0 || not (Float.is_finite spec.tolerance_pct)
-      then
-        Error
-          (Invalid_tolerance_pct
-             { metric_name = spec.name; tolerance_pct = spec.tolerance_pct })
-      else (
-        let ( let* ) = Result.bind in
-        let* baseline_metric =
-          find_unique_metric
-            ~duplicate_error:(fun name -> Duplicate_baseline_metric name)
-            ~missing_error:(fun name -> Missing_baseline_metric name)
-            spec.name
+      let ( let* ) = Result.bind in
+      let* expected_identity =
+        match canonical_metric_identity spec.identity with
+        | Ok identity -> Ok identity
+        | Error tag_name ->
+          Error
+            (Duplicate_metric_tag { identity = spec.identity; side = Expected; tag_name })
+      in
+      if List.exists (metric_identity_equal expected_identity) seen
+      then Error (Duplicate_metric_spec expected_identity)
+      else
+        let* _, baseline_metric =
+          lookup
+            ~side:Baseline
+            ~duplicate_error:(fun identity -> Duplicate_baseline_metric identity)
+            ~missing_error:(fun identity -> Missing_baseline_metric identity)
+            expected_identity
             baseline.metrics
         in
-        let* candidate_metric =
-          find_unique_metric
-            ~duplicate_error:(fun name -> Duplicate_candidate_metric name)
-            ~missing_error:(fun name -> Missing_candidate_metric name)
-            spec.name
+        let* _, candidate_metric =
+          lookup
+            ~side:Candidate
+            ~duplicate_error:(fun identity -> Duplicate_candidate_metric identity)
+            ~missing_error:(fun identity -> Missing_candidate_metric identity)
+            expected_identity
             candidate.metrics
         in
-        let direction, delta_pct =
-          compute_delta_for_goal
-            ~threshold_pct:spec.tolerance_pct
-            ~goal:spec.goal
-            ~baseline_val:baseline_metric.value
-            ~candidate_val:candidate_metric.value
-            ()
+        let* direction, delta_pct =
+          compute_policy_delta
+            ~identity:expected_identity
+            ~policy:spec.policy
+            ~baseline_value:baseline_metric.value
+            ~candidate_value:candidate_metric.value
         in
         let delta =
-          { metric_name = spec.name
+          { identity = expected_identity
           ; baseline_value = baseline_metric.value
           ; candidate_value = candidate_metric.value
           ; direction
           ; delta_pct
           }
         in
-        collect (spec.name :: seen) (delta :: deltas) rest)
+        collect (expected_identity :: seen) (delta :: deltas) rest
   in
   let ( let* ) = Result.bind in
   let* deltas = collect [] [] specs in
@@ -384,68 +572,143 @@ let compare_with_specs ~specs ~(baseline : run_metrics) ~(candidate : run_metric
 (* ── Threshold checking ───────────────────────────────────────── *)
 
 type threshold =
-  { metric_name : string
+  { identity : metric_identity
   ; max_value : metric_value option
   ; min_value : metric_value option
   }
 
-let check_thresholds (rm : run_metrics) (thresholds : threshold list) : Harness.verdict =
-  let violations =
-    List.filter_map
-      (fun th ->
-         match List.find_opt (fun (m : metric) -> m.name = th.metric_name) rm.metrics with
-         | None -> None
-         | Some m ->
-           (* Build each violation message where the threshold value is in
-              scope (parse, don't validate): the [Some v when violated]
-              guard carries [v] directly, eliminating the [Option.get] that
-              previously re-extracted it from [th.max_value]/[th.min_value]
-              under the invariant that the bool guard implied [Some]. Max
-              takes priority over min, as before. *)
-           let max_violation =
-             match th.max_value with
-             | Some max_v when numeric_threshold_violated ~compare:( > ) m.value max_v ->
-               Some
-                 (Printf.sprintf
-                    "%s=%s exceeds max %s"
-                    th.metric_name
-                    (show_metric_value m.value)
-                    (show_metric_value max_v))
-             | _ -> None
-           in
-           let min_violation =
-             match th.min_value with
-             | Some min_v when numeric_threshold_violated ~compare:( < ) m.value min_v ->
-               Some
-                 (Printf.sprintf
-                    "%s=%s below min %s"
-                    th.metric_name
-                    (show_metric_value m.value)
-                    (show_metric_value min_v))
-             | _ -> None
-           in
-           (match max_violation with
-            | Some _ -> max_violation
-            | None -> min_violation))
-      thresholds
+type threshold_error =
+  | Duplicate_threshold of metric_identity
+  | Duplicate_threshold_metric of metric_identity
+  | Missing_threshold_metric of metric_identity
+  | Empty_threshold of metric_identity
+  | Incompatible_threshold_value of
+      { identity : metric_identity
+      ; metric_value : metric_value
+      ; threshold_value : metric_value
+      }
+  | Non_finite_threshold_value of
+      { identity : metric_identity
+      ; value : float
+      }
+  | Invalid_threshold_range of metric_identity
+  | Duplicate_threshold_identity_tag of
+      { identity : metric_identity
+      ; tag_name : string
+      }
+
+let show_canonical_metric_identity (identity : metric_identity) =
+  let unit_json =
+    match identity.unit_ with
+    | Some unit_ -> `String unit_
+    | None -> `Null
   in
+  `Assoc
+    [ "name", `String identity.name
+    ; "unit", unit_json
+    ; "tags", Util.json_of_string_pairs identity.tags
+    ]
+  |> Yojson.Safe.to_string
+;;
+
+let check_thresholds (rm : run_metrics) (thresholds : threshold list) =
+  let compare_values identity metric_value threshold_value =
+    match metric_value, threshold_value with
+    | Int_val metric, Int_val threshold -> Ok (Int.compare metric threshold)
+    | Float_val metric, Float_val threshold ->
+      if not (Float.is_finite metric)
+      then Error (Non_finite_threshold_value { identity; value = metric })
+      else if not (Float.is_finite threshold)
+      then Error (Non_finite_threshold_value { identity; value = threshold })
+      else Ok (Float.compare metric threshold)
+    | (Int_val _ | Float_val _ | Bool_val _ | String_val _), _ ->
+      Error (Incompatible_threshold_value { identity; metric_value; threshold_value })
+  in
+  let lookup expected =
+    match find_metric_for_identity ~expected rm.metrics with
+    | Ok found -> Ok found
+    | Error (Duplicate_lookup_metric identity) ->
+      Error (Duplicate_threshold_metric identity)
+    | Error (Missing_lookup_metric identity) -> Error (Missing_threshold_metric identity)
+    | Error (Duplicate_lookup_tag { identity; tag_name }) ->
+      Error (Duplicate_threshold_identity_tag { identity; tag_name })
+  in
+  let validate_range identity (threshold : threshold) =
+    match threshold.min_value, threshold.max_value with
+    | None, None -> Error (Empty_threshold identity)
+    | Some min_value, Some max_value ->
+      let ( let* ) = Result.bind in
+      let* order = compare_values identity min_value max_value in
+      if order > 0 then Error (Invalid_threshold_range identity) else Ok ()
+    | Some _, None | None, Some _ -> Ok ()
+  in
+  let rec collect seen violations = function
+    | [] -> Ok (List.rev violations)
+    | (threshold : threshold) :: rest ->
+      let ( let* ) = Result.bind in
+      let* expected_identity =
+        match canonical_metric_identity threshold.identity with
+        | Ok identity -> Ok identity
+        | Error tag_name ->
+          Error
+            (Duplicate_threshold_identity_tag { identity = threshold.identity; tag_name })
+      in
+      if List.exists (metric_identity_equal expected_identity) seen
+      then Error (Duplicate_threshold expected_identity)
+      else
+        let* () = validate_range expected_identity threshold in
+        let* _, metric = lookup expected_identity in
+        let* max_violation =
+          match threshold.max_value with
+          | None -> Ok None
+          | Some max_value ->
+            let* order = compare_values expected_identity metric.value max_value in
+            if order > 0
+            then
+              Ok
+                (Some
+                   (Printf.sprintf
+                      "%s=%s exceeds max %s"
+                      (show_canonical_metric_identity expected_identity)
+                      (show_metric_value metric.value)
+                      (show_metric_value max_value)))
+            else Ok None
+        in
+        let* min_violation =
+          match threshold.min_value with
+          | None -> Ok None
+          | Some min_value ->
+            let* order = compare_values expected_identity metric.value min_value in
+            if order < 0
+            then
+              Ok
+                (Some
+                   (Printf.sprintf
+                      "%s=%s below min %s"
+                      (show_canonical_metric_identity expected_identity)
+                      (show_metric_value metric.value)
+                      (show_metric_value min_value)))
+            else Ok None
+        in
+        let violations =
+          match max_violation, min_violation with
+          | None, None -> violations
+          | Some violation, None | None, Some violation -> violation :: violations
+          | Some max_violation, Some min_violation ->
+            min_violation :: max_violation :: violations
+        in
+        collect (expected_identity :: seen) violations rest
+  in
+  let ( let* ) = Result.bind in
+  let* violations = collect [] [] thresholds in
   let passed = violations = [] in
-  { passed
-  ; score = Some (if passed then 1.0 else 0.0)
-  ; evidence = violations
-  ; detail =
-      (if passed
-       then Some "all thresholds met"
-       else Some (Printf.sprintf "%d threshold violation(s)" (List.length violations)))
-  }
-;;
-
-(* ── Metric lookup ────────────────────────────────────────────── *)
-
-let find_metric (rm : run_metrics) name =
-  List.find_opt (fun (m : metric) -> m.name = name) rm.metrics
-;;
-
-let find_metric_value rm name =
-  Option.map (fun (m : metric) -> m.value) (find_metric rm name)
+  Ok
+    { Harness.passed
+    ; score = Some (if passed then 1.0 else 0.0)
+    ; evidence = violations
+    ; detail =
+        (if passed
+         then Some "all thresholds met"
+         else Some (Printf.sprintf "%d threshold violation(s)" (List.length violations)))
+    }
 ;;
