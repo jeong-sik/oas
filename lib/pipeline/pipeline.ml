@@ -301,11 +301,9 @@ let stage_collect ?raw_trace_run ?clock ~turn agent response =
 
 (** Handle tool execution and context injection. *)
 let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent tools =
-  (* The caller (stage_output) proves the tool-call set is non-empty: a
-     StopToolUse turn that carried no tool block is rejected before this stage
-     (Stop_reason_wire.reconcile downgrades it to Unknown at parse time).
-     Threading [Nonempty.t] makes the empty case a compile error instead of a
-     silent [ToolsExecuted] that re-issues the same Thinking turn forever. *)
+  (* [stage_output] rejects empty StopToolUse from provider and injected
+     transports. [Nonempty.t] then prevents a silent empty [ToolsExecuted]
+     loop at compile time. *)
   let tool_uses = Nonempty.to_list tools in
   Tracing.with_span
     agent.options.tracer
@@ -427,12 +425,9 @@ let stage_output ?raw_trace_run ?before_tool_execution ~turn agent response =
          in
          (match Nonempty.of_list tool_uses with
           | None ->
-            (* Defends the StopToolUse => has-tool-block invariant at the driver.
-               F1 (Stop_reason_wire.reconcile) guarantees the parsers never emit
-               StopToolUse without a tool block, so this is unreachable in
-               practice; if a future parser regresses it fails closed with a
-               typed error instead of silently returning [ToolsExecuted] and
-               re-issuing the identical Thinking turn forever. *)
+            (* Provider parsers reconcile this shape, but public injected
+               transports return [api_response] directly. This driver Gate
+               prevents their empty [ToolsExecuted] loop. *)
             Error
               (Error.Agent
                  (UnrecognizedStopReason
@@ -506,8 +501,8 @@ let tag_error stage result =
       _log
       "pipeline stage failed"
       [ Log.S ("stage", stage); Log.S ("error", Error_domain.ctx_to_string ctx) ];
-    (* Stage context is logged for diagnostics;
-       we still propagate sdk_error for backward compat *)
+    (* Stage context is observation-only. Return canonical [Error.sdk_error]
+       unchanged, including typed fields and provider attribution. *)
     Error e
 ;;
 
