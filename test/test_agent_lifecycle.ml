@@ -72,7 +72,7 @@ let test_build_snapshot_with_provider_config () =
     Llm_provider.Provider_config.make
       ~kind:Llm_provider.Provider_config.Anthropic
       ~provider_id:"anthropic"
-      ~model_id:"claude-sonnet-4-6"
+      ~model_id:"carrier-parent-model"
       ~base_url:"https://api.anthropic.com"
       ~api_key:"test"
       ~headers:[ "Content-Type", "application/json" ]

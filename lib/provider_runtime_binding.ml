@@ -276,26 +276,6 @@ let provider_id_of_provider_config cfg =
   | None -> PConfig.string_of_provider_kind cfg.kind
 ;;
 
-let provider_id_of_config (cfg : Provider.config) =
-  match cfg.provider with
-  | Provider.Local _ -> "local"
-  | Provider.Anthropic -> PConfig.string_of_provider_kind PConfig.Anthropic
-  | Provider.Custom_registered { name } ->
-    (match find name with
-     | Some binding -> binding.id
-     | None -> normalize name)
-  | Provider.OpenAICompat { base_url; path; _ } ->
-    let provider_config =
-      PConfig.make
-        ~kind:PConfig.OpenAI_compat
-        ~model_id:cfg.model_id
-        ~base_url
-        ~request_path:path
-        ()
-    in
-    provider_id_of_provider_config provider_config
-;;
-
 let base_capabilities_of_kind = function
   | PConfig.Ollama -> Llm_provider.Capabilities.ollama_capabilities
   | PConfig.Anthropic -> Llm_provider.Capabilities.anthropic_capabilities
@@ -354,21 +334,6 @@ let resolve_model binding ~requested_model =
                       default_model"
                      binding.id
                })))
-;;
-
-let resolve ?model selector =
-  match find selector with
-  | None -> None
-  | Some binding ->
-    Some
-      (Result.map
-         (fun model_id ->
-            ( binding
-            , { Provider.provider = Provider.Custom_registered { name = binding.id }
-              ; model_id
-              ; api_key_env = binding.api_key_env
-              } ))
-         (resolve_model binding ~requested_model:model))
 ;;
 
 let to_provider_config ?model binding =

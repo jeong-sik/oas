@@ -58,11 +58,6 @@ val binding_for_provider_config : Llm_provider.Provider_config.t -> t option
     kind. Endpoint URLs, request paths, and model ids are never interpreted. *)
 val provider_id_of_provider_config : Llm_provider.Provider_config.t -> string
 
-(** Best-effort runtime provider id for an Agent SDK {!Provider.config}.
-    Custom providers are reported by their registered name, without a
-    ["custom:"] display prefix. *)
-val provider_id_of_config : Provider.config -> string
-
 (** Resolve OAS-owned provider capabilities for a concrete provider config.
     Explicit provider identity selects provider facts; otherwise only the typed
     wire kind is used. Exact provider/model or provider-independent model rows
@@ -75,15 +70,6 @@ val capabilities_for_provider_config
     Missing model identity is an explicit configuration error; OAS never
     invents a provider-specific model or expands aliases. *)
 val resolve_model : t -> requested_model:string option -> (string, Error.sdk_error) result
-
-(** Resolve an exact provider id or catalog-declared alias together with the
-    public Agent SDK provider configuration. Unknown selectors return [None];
-    this function does not invent a fallback provider or reinterpret model
-    aliases as provider selectors. *)
-val resolve
-  :  ?model:string
-  -> string
-  -> (t * Provider.config, Error.sdk_error) result option
 
 (** Convert a binding into the low-level provider config used by OAS
     transports. *)

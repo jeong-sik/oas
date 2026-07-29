@@ -123,11 +123,7 @@ let build_snapshot
   ; requested_provider
   ; requested_model = Some (Types.model_to_string model)
   ; resolved_provider = requested_provider
-  ; resolved_model =
-      Some
-        (match provider_config with
-         | Some cfg -> cfg.model_id
-         | None -> Types.model_to_string model)
+  ; resolved_model = Some (Types.model_to_string model)
   ; last_error = pick (Option.bind previous (fun s -> s.last_error)) last_error
   ; accepted_at = pick (Option.bind previous (fun s -> s.accepted_at)) accepted_at
   ; ready_at = pick (Option.bind previous (fun s -> s.ready_at)) ready_at

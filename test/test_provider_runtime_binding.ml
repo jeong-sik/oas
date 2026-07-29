@@ -904,23 +904,7 @@ let test_unregistered_openai_compat_identity_remains_typed () =
   Alcotest.(check string)
     "unmatched openai compat"
     "openai_compat"
-    (Provider_runtime_binding.provider_id_of_provider_config cfg);
-  let config : Provider.config =
-    { provider =
-        Provider.OpenAICompat
-          { base_url = "https://unlisted.example/v1"
-          ; auth_header = None
-          ; path = "/chat/completions"
-          ; static_token = None
-          }
-    ; model_id = "unlisted-model"
-    ; api_key_env = "UNLISTED_API_KEY"
-    }
-  in
-  Alcotest.(check string)
-    "config unmatched openai compat"
-    "openai_compat"
-    (Provider_runtime_binding.provider_id_of_config config)
+    (Provider_runtime_binding.provider_id_of_provider_config cfg)
 ;;
 
 let () =
