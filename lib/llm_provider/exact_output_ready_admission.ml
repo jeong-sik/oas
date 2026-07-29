@@ -171,18 +171,24 @@ let response_format (target : Resolver.selected_target) requirement =
   | Provider_schema ->
     (match Caps.structured_output_support target.capabilities with
      | Caps.Native_json_schema ->
-    let* () =
-      match target.config.kind, requirement.schema with
-      | PC.Gemini, Domain_schema schema -> validate_gemini_schema ~path:"$" schema
-      | ( (PC.Anthropic | PC.Kimi | PC.OpenAI_compat | PC.Ollama | PC.Glm | PC.DashScope)
-        , Domain_schema _ ) -> Ok ()
-    in
-    let wire_schema = schema_for_wire target requirement.schema in
-    Ok
-      ( Types.JsonSchema wire_schema
-      , Provider_schema_requested
-      , Some (fingerprint_schema wire_schema) )
-     | Caps.Json_object_only | Caps.No_structured_output -> Error Provider_schema_unavailable)
+       let* () =
+         match target.config.kind, requirement.schema with
+         | PC.Gemini, Domain_schema schema -> validate_gemini_schema ~path:"$" schema
+         | ( ( PC.Anthropic
+             | PC.Kimi
+             | PC.OpenAI_compat
+             | PC.Ollama
+             | PC.Glm
+             | PC.DashScope )
+           , Domain_schema _ ) -> Ok ()
+       in
+       let wire_schema = schema_for_wire target requirement.schema in
+       Ok
+         ( Types.JsonSchema wire_schema
+         , Provider_schema_requested
+         , Some (fingerprint_schema wire_schema) )
+     | Caps.Json_object_only | Caps.No_structured_output ->
+       Error Provider_schema_unavailable)
 ;;
 
 let text_json_instruction (Domain_schema schema) : Types.message =

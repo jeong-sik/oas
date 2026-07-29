@@ -280,14 +280,8 @@ let test_compare_missing_candidate_metric () =
   in
   let candidate = mk_run ~run_id:"r2" [ mk_metric "a" (Float_val 1.0) ] in
   let specs =
-    [ { Eval.name = "a"
-      ; goal = Lower
-      ; tolerance_pct = Eval.default_delta_threshold_pct
-      }
-    ; { Eval.name = "b"
-      ; goal = Lower
-      ; tolerance_pct = Eval.default_delta_threshold_pct
-      }
+    [ { Eval.name = "a"; goal = Lower; tolerance_pct = Eval.default_delta_threshold_pct }
+    ; { Eval.name = "b"; goal = Lower; tolerance_pct = Eval.default_delta_threshold_pct }
     ]
   in
   match Eval.compare_with_specs ~specs ~baseline ~candidate with
