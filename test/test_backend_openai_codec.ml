@@ -995,7 +995,7 @@ let test_tool_choice_and_tool_schema_conversion () =
   check_bool
     "provider-shaped strict passes through"
     true
-    (member "function" provider_shaped |> member "strict" |> to_bool);
+    (member "function" provider_shaped |> member "strict" |> Yojson.Safe.Util.to_bool);
   Alcotest.check_raises
     "legacy parameter list rejected"
     (Invalid_argument
