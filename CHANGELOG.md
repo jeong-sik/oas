@@ -59,6 +59,9 @@ field have been removed.
   provider is configured. Public examples now pass an exact
   `Provider_config.t` or fail-closed catalog binding instead of relying on an
   implicit local/default provider or the historical implementation registry.
+  Pricing and raw-key authentication helpers are consumed directly from
+  `Llm_provider.Pricing` and `Llm_provider.Provider_config`; the duplicate
+  `Provider` re-exports are removed.
 
 `Eval.compare` and its implicit lower-is-better policy have been removed.
 `Eval.compare_with_specs` now compares only metrics selected by an explicit

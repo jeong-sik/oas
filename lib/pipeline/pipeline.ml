@@ -86,61 +86,67 @@ let stage_route
       agent
       prep
   =
-  match api_strategy with
-  | Sync ->
-    Tracing.with_span
-      agent.options.tracer
-      { kind = Api_call
-      ; name = "create_message"
-      ; agent_name = agent.state.config.name
-      ; turn
-      ; extra = []
-      ; links = []
-      }
-      (fun tracer ->
-         let trace_context = Tracing.trace_context_headers tracer in
-         dispatch_sync
-           ~sw
-           ?clock
-           ~trace_context
-           ?on_provider_failure
-           ?before_provider_attempt
-           ~turn_config
-           agent
-           prep)
-  | Stream { on_event; on_telemetry } ->
-    let capture_id = Option.map Raw_trace.active_run_id raw_trace_run in
-    Tracing.with_span
-      agent.options.tracer
-      { kind = Api_call
-      ; name = "create_message_stream"
-      ; agent_name = agent.state.config.name
-      ; turn
-      ; extra = []
-      ; links = []
-      }
-      (fun tracer ->
-         let trace_context = Tracing.trace_context_headers tracer in
-         dispatch_stream
-           ~sw
-           ?clock
-           ~turn_config
-           ~trace_context
-           agent
-           prep
-           ~on_event
-           ?capture_id
-           ?on_telemetry
-           ?on_provider_failure
-           ?before_provider_attempt
-           ())
+  let* provider_config =
+    Pipeline_stage_route.provider_config_for_turn ?on_provider_failure ~turn_config agent
+  in
+  let result =
+    match api_strategy with
+    | Sync ->
+      Tracing.with_span
+        agent.options.tracer
+        { kind = Api_call
+        ; name = "create_message"
+        ; agent_name = agent.state.config.name
+        ; turn
+        ; extra = []
+        ; links = []
+        }
+        (fun tracer ->
+           let trace_context = Tracing.trace_context_headers tracer in
+           dispatch_sync
+             ~sw
+             ?clock
+             ~trace_context
+             ?on_provider_failure
+             ?before_provider_attempt
+             ~provider_config
+             agent
+             prep)
+    | Stream { on_event; on_telemetry } ->
+      let capture_id = Option.map Raw_trace.active_run_id raw_trace_run in
+      Tracing.with_span
+        agent.options.tracer
+        { kind = Api_call
+        ; name = "create_message_stream"
+        ; agent_name = agent.state.config.name
+        ; turn
+        ; extra = []
+        ; links = []
+        }
+        (fun tracer ->
+           let trace_context = Tracing.trace_context_headers tracer in
+           dispatch_stream
+             ~sw
+             ?clock
+             ~provider_config
+             ~trace_context
+             agent
+             prep
+             ~on_event
+             ?capture_id
+             ?on_telemetry
+             ?on_provider_failure
+             ?before_provider_attempt
+             ())
+  in
+  Result.map (fun response -> provider_config, response) result
 ;;
 
 (* ── Stage 4: Collect ────────────────────────────────────── *)
 
 (** Accumulate usage, invoke AfterTurn hook, emit events, append
     assistant message, and increment turn_count. *)
-let stage_collect ?raw_trace_run ?clock ~turn ~turn_config agent response =
+let stage_collect ?raw_trace_run ?clock ~turn ~provider_config agent response =
   Tracing.with_span
     agent.options.tracer
     { kind = Hook_invoke
@@ -161,15 +167,10 @@ let stage_collect ?raw_trace_run ?clock ~turn ~turn_config agent response =
           set_lifecycle agent ~last_progress_at:ts Running
         | _ -> set_lifecycle agent ~first_progress_at:ts ~last_progress_at:ts Running);
        let* () = trace_assistant_blocks raw_trace_run response.content in
-       let provider_config =
-         Option.map
-           (Provider.provider_config_with_agent_config ~config:turn_config)
-           agent.options.provider_config
-       in
        let usage =
          Agent_turn.accumulate_usage
            ~current_usage:agent.state.usage
-           ~provider_config
+           ~provider_config:(Some provider_config)
            ~response_model:(Some response.model)
            ~response_usage:response.usage
        in
@@ -605,7 +606,7 @@ let run_new_turn
     in
     let duration_ms = (Pipeline_common.timestamp_now ?clock () -. t0) *. 1000.0 in
     (match agent.options.journal, api_result with
-     | Some j, Ok response ->
+     | Some j, Ok (_, response) ->
        let input_tokens, output_tokens =
          match response.usage with
          | Some u -> Some u.input_tokens, Some u.output_tokens
@@ -635,7 +636,7 @@ let run_new_turn
     let outcome =
       match api_result with
       | Error e -> Error e
-      | Ok response ->
+      | Ok (provider_config, response) ->
         (* RFC-OAS-025 Option A: forced-tool-use enforcement removed.
           [tool_choice] is enforced server-side by the provider, so the SDK no
           longer validates the response against a completion contract nor retries
@@ -652,7 +653,7 @@ let run_new_turn
              |> tag_error "response"
            in
            let* () =
-             stage_collect ?raw_trace_run ?clock ~turn ~turn_config agent response
+             stage_collect ?raw_trace_run ?clock ~turn ~provider_config agent response
              |> tag_error "collect"
            in
            (match Pipeline_execution_scope.provider execution with

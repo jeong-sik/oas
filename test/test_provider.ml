@@ -5,14 +5,14 @@ let install_embedded_model_catalog () =
 ;;
 
 let declared_pricing model_id =
-  match Provider.pricing_for_model_opt model_id with
+  match Llm_provider.Pricing.pricing_for_model_opt model_id with
   | Some pricing -> pricing
   | None -> Alcotest.failf "expected catalog pricing for %S" model_id
 ;;
 
 let require_estimated_cost = function
-  | Provider.Estimated cost -> cost
-  | Provider.Incomplete _ -> Alcotest.fail "expected an exact cost estimate"
+  | Llm_provider.Pricing.Estimated cost -> cost
+  | Llm_provider.Pricing.Incomplete _ -> Alcotest.fail "expected an exact cost estimate"
 ;;
 
 let test_pricing_sonnet () =
@@ -41,7 +41,7 @@ let test_incomplete_cache_pricing_remains_declared () =
   Alcotest.(check bool)
     "base price remains observable without inventing cache multipliers"
     true
-    (match Provider.pricing_for_model_opt "dashscope-3.5-35b-a3b" with
+    (match Llm_provider.Pricing.pricing_for_model_opt "dashscope-3.5-35b-a3b" with
      | Some
          { input_per_million = 0.0
          ; output_per_million = 0.0
@@ -55,13 +55,13 @@ let test_pricing_unknown () =
   Alcotest.(check bool)
     "unpriced"
     true
-    (Option.is_none (Provider.pricing_for_model_opt "future-model-xyz"))
+    (Option.is_none (Llm_provider.Pricing.pricing_for_model_opt "future-model-xyz"))
 ;;
 
 let test_estimate_cost () =
   let p = declared_pricing "claude-sonnet-4-6" in
   let cost =
-    Provider.estimate_cost
+    Llm_provider.Pricing.estimate_cost
       ~pricing:p
       ~input_tokens:1_000_000
       ~output_tokens:500_000

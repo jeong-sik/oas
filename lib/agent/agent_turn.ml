@@ -102,11 +102,11 @@ let accumulate_usage ~current_usage ~provider_config ~response_model ~response_u
        (match model_id with
         | None -> with_pricing_gap base None
         | Some model_id ->
-          (match Provider.pricing_for_model_opt ?provider_id model_id with
+          (match Llm_provider.Pricing.pricing_for_model_opt ?provider_id model_id with
            | None -> with_pricing_gap base (Some model_id)
            | Some pricing ->
              (match
-                Provider.estimate_cost
+                Llm_provider.Pricing.estimate_cost
                   ~pricing
                   ~input_tokens:u.input_tokens
                   ~output_tokens:u.output_tokens
@@ -114,9 +114,9 @@ let accumulate_usage ~current_usage ~provider_config ~response_model ~response_u
                   ~cache_read_input_tokens:u.cache_read_input_tokens
                   ()
               with
-              | Provider.Estimated turn_cost ->
+              | Llm_provider.Pricing.Estimated turn_cost ->
                 { base with estimated_cost_usd = base.estimated_cost_usd +. turn_cost }
-              | Provider.Incomplete _ -> with_pricing_gap base (Some model_id)))))
+              | Llm_provider.Pricing.Incomplete _ -> with_pricing_gap base (Some model_id)))))
   | None -> { current_usage with api_calls = current_usage.api_calls + 1 }
 ;;
 

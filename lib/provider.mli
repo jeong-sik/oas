@@ -1,4 +1,4 @@
-(** Shared capability, pricing, authentication, and agent-turn projections.
+(** Shared capabilities and the agent-turn provider projection.
 
     @stability Stable
     @since 0.93.1 *)
@@ -136,42 +136,6 @@ type capabilities = Llm_provider.Capabilities.capabilities =
   }
 
 val default_capabilities : capabilities
-
-(** {2 Pricing: per-model cost estimation} *)
-
-(* Re-exported from [Llm_provider.Pricing] so [Provider.pricing] is the same type
-   (pricing is catalog-sourced via that module; see provider.ml). *)
-type pricing = Llm_provider.Pricing.pricing =
-  { input_per_million : float
-  ; output_per_million : float
-  ; cache_write_multiplier : float option
-  ; cache_read_multiplier : float option
-  }
-
-type cache_price_component = Llm_provider.Pricing.cache_price_component =
-  | Cache_creation
-  | Cache_read
-
-type cost_estimate = Llm_provider.Pricing.cost_estimate =
-  | Estimated of float
-  | Incomplete of cache_price_component list
-
-(** Return catalog pricing for a model. When [provider_id] is supplied, the
-    exact provider/model row wins; a provider-independent row is used only when
-    that exact row is absent. Provider identity is never inferred from endpoint
-    or model syntax. *)
-val pricing_for_model_opt : ?provider_id:string -> string -> pricing option
-
-(** Compute an exact cost or report the cache price components required by the
-    observed usage but absent from the selected catalog row. *)
-val estimate_cost
-  :  pricing:pricing
-  -> input_tokens:int
-  -> output_tokens:int
-  -> ?cache_creation_input_tokens:int
-  -> ?cache_read_input_tokens:int
-  -> unit
-  -> cost_estimate
 
 (** Project the caller-owned agent turn controls onto an exact provider
     configuration. Provider identity, wire kind, endpoint, credential, headers,
