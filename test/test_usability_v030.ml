@@ -4,6 +4,16 @@
 
 open Agent_sdk
 
+let card_interfaces =
+  Agent_card.create_supported_interface
+    ~url:"https://test-agent.example/a2a"
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:"1.0"
+    ()
+  |> Result.get_ok
+  |> fun interface -> Agent_card.supported_interfaces interface []
+;;
+
 let build_exn b =
   match Builder.build_safe b with
   | Ok agent -> agent
@@ -53,7 +63,7 @@ let test_builder_with_skill_registry () =
     |> Builder.with_skill_registry reg
     |> build_exn
   in
-  let card = Agent.card agent in
+  let card = Agent.card ~supported_interfaces:card_interfaces agent in
   Alcotest.(check string) "card name" "polyglot" (card_name card);
   Alcotest.(check (option string))
     "card desc"
@@ -90,7 +100,7 @@ let test_card_json_export () =
     |> Builder.with_thinking_budget 2000
     |> build_exn
   in
-  let card = Agent.card agent in
+  let card = Agent.card ~supported_interfaces:card_interfaces agent in
   let json = Agent_card.to_json card in
   let open Yojson.Safe.Util in
   let name = json |> member "name" |> to_string in
@@ -128,7 +138,7 @@ let test_builder_with_elicitation () =
     |> Builder.with_elicitation cb
     |> build_exn
   in
-  let card = Agent.card agent in
+  let card = Agent.card ~supported_interfaces:card_interfaces agent in
   Alcotest.(check bool)
     "elicitation cap"
     true

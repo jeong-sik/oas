@@ -10,6 +10,16 @@
 
 open Agent_sdk
 
+let card_interfaces =
+  Agent_card.create_supported_interface
+    ~url:"https://test-agent.example/a2a"
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:"1.0"
+    ()
+  |> Result.get_ok
+  |> fun interface -> Agent_card.supported_interfaces interface []
+;;
+
 (* ── Builder chain methods ────────────────────────────────── *)
 
 let test_builder_chain () =
@@ -242,7 +252,7 @@ let test_agent_card () =
   in
   match Builder.build_safe b with
   | Ok agent ->
-    let card = Agent.card agent in
+    let card = Agent.card ~supported_interfaces:card_interfaces agent in
     Alcotest.(check string) "card name" "card-test" card.name
   | Error e -> Alcotest.fail (Error.to_string e)
 ;;

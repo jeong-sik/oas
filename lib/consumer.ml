@@ -9,7 +9,7 @@ type run_result =
   ; elapsed : float
   }
 
-let agent_name agent = (Agent.card agent).Agent_card.name
+let agent_name agent = (Agent.state agent).config.name
 
 let run_agent ~sw ?clock ?harness agent prompt =
   let t0 = Unix.gettimeofday () in

@@ -137,7 +137,13 @@ val clone : ?copy_context:bool -> t -> t
 
 (** {1 Agent Card} *)
 
-val card : t -> Agent_card.agent_card
+(** Build a discovery card with the exact caller-owned interface authority.
+    The authority is mandatory and non-empty; OAS never invents an endpoint,
+    protocol binding, or protocol version. *)
+val card
+  :  supported_interfaces:Agent_card.supported_interfaces
+  -> t
+  -> Agent_card.agent_card
 
 (** {1 Execution} *)
 

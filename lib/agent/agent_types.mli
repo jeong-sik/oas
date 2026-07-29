@@ -216,7 +216,10 @@ val clone : ?copy_context:bool -> t -> t
 
 (** {1 Agent card} *)
 
-val card : t -> Agent_card.agent_card
+val card
+  :  supported_interfaces:Agent_card.supported_interfaces
+  -> t
+  -> Agent_card.agent_card
 
 (** {1 Lifecycle management} *)
 

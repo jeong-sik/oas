@@ -7,6 +7,16 @@
 
 open Agent_sdk
 
+let card_interfaces =
+  Agent_card.create_supported_interface
+    ~url:"https://test-agent.example/a2a"
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:"1.0"
+    ()
+  |> Result.get_ok
+  |> fun interface -> Agent_card.supported_interfaces interface []
+;;
+
 let with_net f = Eio_main.run @@ fun env -> f (Eio.Stdenv.net env)
 
 let contains ~needle haystack =
@@ -62,7 +72,7 @@ let test_registry_does_not_inject_prompt () =
     false
     (contains ~needle:"[Skill: discovery-only]" prompt);
   (* But the skill is in the agent card *)
-  let card = Agent.card agent in
+  let card = Agent.card ~supported_interfaces:card_interfaces agent in
   Alcotest.(check bool)
     "card has discovery-only skill"
     true
@@ -166,7 +176,7 @@ let test_both_paths_coexist () =
     false
     (contains ~needle:"[Skill: catalog]" prompt);
   (* Agent card has the registry skill *)
-  let card = Agent.card agent in
+  let card = Agent.card ~supported_interfaces:card_interfaces agent in
   Alcotest.(check bool) "card has catalog" true (Agent_card.has_skill card "catalog")
 ;;
 

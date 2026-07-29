@@ -8,6 +8,16 @@
 open Agent_sdk
 open Alcotest
 
+let card_interfaces =
+  Agent_card.create_supported_interface
+    ~url:"https://test-agent.example/a2a"
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:"1.0"
+    ()
+  |> Result.get_ok
+  |> fun interface -> Agent_card.supported_interfaces interface []
+;;
+
 (* ── Mock server helpers ──────────────────────────────────────── *)
 
 let escape_json_string s =
@@ -614,7 +624,7 @@ let test_agent_card () =
   @@ fun _sw ->
   let url = "http://127.0.0.1:21019" in
   let agent = make_agent ~net:env#net url in
-  let card = Agent.card agent in
+  let card = Agent.card ~supported_interfaces:card_interfaces agent in
   check string "card name" "cov-agent" card.name
 ;;
 

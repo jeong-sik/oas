@@ -52,10 +52,7 @@ let invoke_cancel_fn future =
 
 (* ── Agent name extraction ────────────────────────────────────── *)
 
-let agent_name agent =
-  let card = Agent.card agent in
-  card.Agent_card.name
-;;
+let agent_name agent = (Agent.state agent).config.name
 
 let run_agent_result ~sw ?clock agent prompt =
   try Agent.run ~sw ?clock agent prompt with

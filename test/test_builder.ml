@@ -2,6 +2,16 @@
 
 open Agent_sdk
 
+let card_interfaces =
+  Agent_card.create_supported_interface
+    ~url:"https://test-agent.example/a2a"
+    ~protocol_binding:"JSONRPC"
+    ~protocol_version:"1.0"
+    ()
+  |> Result.get_ok
+  |> fun interface -> Agent_card.supported_interfaces interface []
+;;
+
 (** Run a function inside Eio with network access. *)
 let with_net f =
   Eio_main.run
@@ -348,7 +358,7 @@ let test_with_provider_config_reaches_dispatch_losslessly () =
   Alcotest.(check (list string))
     "agent card observes canonical provider identity"
     [ "ollama" ]
-    (Agent.card agent).supported_providers;
+    (Agent.card ~supported_interfaces:card_interfaces agent).supported_providers;
   let result = Eio.Switch.run (fun sw -> Agent.run ~sw agent "hello") in
   (match result with
    | Ok _ -> ()
