@@ -21,6 +21,9 @@ field have been removed.
 * **provider tools:** reject historical OpenAI `parameters` lists; current
   callers must supply `input_schema` or an already-provider-shaped JSON Schema
   object.
+`Eval.compare` and its implicit lower-is-better policy have been removed.
+`Eval.compare_with_specs` now compares only metrics selected by an explicit
+`metric_spec`.
 
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
