@@ -215,7 +215,7 @@ let test_cost_estimation_non_negative =
          Printf.sprintf "(rate=%.2f, in=%d, out=%d)" rate inp out))
     (fun (rate, input_tokens, output_tokens) ->
        let pricing =
-         { Provider.input_per_million = rate
+         { Llm_provider.Pricing.input_per_million = rate
          ; output_per_million = rate
          ; cache_write_multiplier = Some 1.25
          ; cache_read_multiplier = Some 0.1
@@ -237,7 +237,7 @@ let test_cost_scales_with_tokens =
        ~print:(fun (a, b) -> Printf.sprintf "(%d, %d)" a b))
     (fun (a, b) ->
        let pricing =
-         { Provider.input_per_million = 3.0
+         { Llm_provider.Pricing.input_per_million = 3.0
          ; output_per_million = 15.0
          ; cache_write_multiplier = Some 1.25
          ; cache_read_multiplier = Some 0.1

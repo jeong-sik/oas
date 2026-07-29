@@ -108,7 +108,7 @@ let test_pricing_known_models () =
 
 let test_pricing_cost_estimation () =
   let pricing =
-    { Provider.input_per_million = 3.0
+    { Llm_provider.Pricing.input_per_million = 3.0
     ; output_per_million = 15.0
     ; cache_write_multiplier = Some 1.25
     ; cache_read_multiplier = Some 0.1
