@@ -8,6 +8,13 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ## Unreleased
 
+### Breaking Changes
+
+`Tool.t` now has one execution-environment handler shape. `Typed_tool`
+constructors return canonical `Tool.t` values directly, and the secondary
+typed runtime representation, erasure bridge, and unused agent-tool raw input
+field have been removed.
+
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
 

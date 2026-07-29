@@ -39,49 +39,42 @@ let descriptor_completion = function
     Tool_contract.Terminal_after_success failure_effect
 ;;
 
-(** Handler kind: preserves backward compatibility via Simple variant *)
-type handler_kind =
-  | Simple of tool_handler
-  | WithContext of context_tool_handler
-  | WithExecutionEnv of execution_env_tool_handler
-
 type t =
   { schema : tool_schema
   ; descriptor : descriptor option
-  ; handler : handler_kind
+  ; handler : execution_env_tool_handler
   }
 
 (** Create a tool with a simple handler *)
 let create ?descriptor ~name ~description ~parameters handler =
   let schema = { name; description; parameters; strict = None } in
-  { schema; descriptor; handler = Simple handler }
+  { schema; descriptor; handler = (fun _execution_env input -> handler input) }
 ;;
 
 (** Create a tool with a context-aware handler *)
 let create_with_context ?descriptor ~name ~description ~parameters handler =
   let schema = { name; description; parameters; strict = None } in
-  { schema; descriptor; handler = WithContext handler }
+  let handler execution_env input =
+    match Execution_env.context execution_env with
+    | Some context -> handler context input
+    | None ->
+      Error
+        { message = "context-aware tool requires explicit context"
+        ; recoverable = false
+        ; error_class = Some Deterministic
+        }
+  in
+  { schema; descriptor; handler }
 ;;
 
 let create_with_execution_env ?descriptor ~name ~description ~parameters handler =
   let schema = { name; description; parameters; strict = None } in
-  { schema; descriptor; handler = WithExecutionEnv handler }
+  { schema; descriptor; handler }
 ;;
 
-(** Execute a tool with the explicit resources required by its handler kind. *)
+(** Execute a tool with its explicit execution resources. *)
 let execute ?context ?invocation tool input =
-  match tool.handler with
-  | Simple f -> f input
-  | WithContext f ->
-    (match context with
-     | Some ctx -> f ctx input
-     | None ->
-       Error
-         { message = "context-aware tool requires explicit context"
-         ; recoverable = false
-         ; error_class = Some Deterministic
-         })
-  | WithExecutionEnv f -> f (Execution_env.create ?context ?invocation ()) input
+  tool.handler (Execution_env.create ?context ?invocation ()) input
 ;;
 
 let descriptor tool = tool.descriptor
@@ -132,13 +125,6 @@ let with_defaults (defaults : (string * Yojson.Safe.t) list) (tool : t) : t =
       `Assoc merged
     | other -> other
   in
-  let handler =
-    match tool.handler with
-    | Simple f -> Simple (fun input -> f (inject_defaults input))
-    | WithContext f -> WithContext (fun ctx input -> f ctx (inject_defaults input))
-    | WithExecutionEnv f ->
-      WithExecutionEnv
-        (fun execution_env input -> f execution_env (inject_defaults input))
-  in
+  let handler execution_env input = tool.handler execution_env (inject_defaults input) in
   { tool with handler }
 ;;
