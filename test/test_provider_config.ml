@@ -219,13 +219,13 @@ let test_make_with_all_options () =
     (cfg.supports_structured_output_override = Some true)
 ;;
 
-let test_make_response_format_json_mode () =
+let test_make_json_mode () =
   let cfg =
     Provider_config.make
       ~kind:OpenAI_compat
       ~model_id:"gpt"
       ~base_url:"https://api.openai.com/v1"
-      ~response_format_json:true
+      ~response_format:Types.JsonMode
       ()
   in
   check_bool "json mode" true (cfg.response_format = Types.JsonMode)
@@ -238,7 +238,6 @@ let test_validate_output_schema_openai_explicit_capability () =
       ~model_id:"gpt-4o"
       ~base_url:"https://api.openai.com/v1"
       ~model_capabilities_override:Capabilities.openai_compat_chat_capabilities
-      ~response_format_json:true
       ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
       ()
   in
@@ -254,7 +253,6 @@ let test_validate_output_schema_openai_bare_model_rejected () =
       ~kind:OpenAI_compat
       ~model_id:"gpt-4o"
       ~base_url:"https://api.openai.com/v1"
-      ~response_format_json:true
       ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
       ()
   in
@@ -286,7 +284,6 @@ let test_validate_output_schema_unknown_openai_compat_rejected () =
       ~kind:OpenAI_compat
       ~model_id:"generic"
       ~base_url:"https://openai-compatible.example.com/v1"
-      ~response_format_json:true
       ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
       ()
   in
@@ -302,7 +299,6 @@ let test_validate_output_schema_ollama_cloud_minimax_rejected () =
       ~kind:OpenAI_compat
       ~model_id:"minimax-m3"
       ~base_url:"https://ollama.com/v1"
-      ~response_format_json:true
       ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
       ()
   in
@@ -321,7 +317,6 @@ let test_validate_output_schema_ollama_cloud_mistral_rejected () =
       ~kind:OpenAI_compat
       ~model_id:"mistral-large-3:675b"
       ~base_url:"https://ollama.com/v1"
-      ~response_format_json:true
       ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
       ()
   in
@@ -340,7 +335,6 @@ let test_validate_output_schema_native_ollama_ministral_rejected () =
       ~kind:Ollama
       ~model_id:"ministral-3:8b"
       ~base_url:"http://localhost:11434"
-      ~response_format_json:true
       ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
       ()
   in
@@ -596,7 +590,6 @@ let test_validate_output_schema_is_capability_not_identity () =
       ~kind:OpenAI_compat
       ~model_id:"compat-json-object-probe"
       ~base_url:"https://api.example.test/v1"
-      ~response_format_json:true
       ~response_format:(Types.JsonSchema schema)
       ~model_capabilities_override:
         { Capabilities.default_capabilities with
@@ -626,7 +619,6 @@ let test_validate_output_schema_projection_matrix () =
         ~kind:OpenAI_compat
         ~model_id:"matrix-probe"
         ~base_url:"https://api.example.test/v1"
-        ~response_format_json:json
         ~response_format:(Types.JsonSchema schema)
         ~model_capabilities_override:
           { Capabilities.default_capabilities with
@@ -922,7 +914,7 @@ let test_validate_responses_request_path_allows_json_mode () =
       ~model_id:"gpt-5.5"
       ~base_url:"https://api.openai.com/v1"
       ~request_path:"/v1/responses"
-      ~response_format_json:true
+      ~response_format:Types.JsonMode
       ()
   in
   check_bool
@@ -1375,7 +1367,6 @@ let test_validate_output_schema_openai_unscoped_catalog_not_inferred () =
         ~kind:OpenAI_compat
         ~model_id:"gpt-4o"
         ~base_url:"https://api.openai.com/v1"
-        ~response_format_json:true
         ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
         ()
     in
@@ -1392,7 +1383,6 @@ let test_validate_output_schema_ollama_cloud_catalog_minimax_rejected () =
         ~kind:OpenAI_compat
         ~model_id:"minimax-m3"
         ~base_url:"https://ollama.com/v1"
-        ~response_format_json:true
         ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
         ()
     in
@@ -1455,7 +1445,6 @@ let test_validate_output_schema_ollama_cloud_catalog_rejects_model_without_so ()
         ~kind:OpenAI_compat
         ~model_id:"mistral-large-3:675b"
         ~base_url:"https://ollama.com/v1"
-        ~response_format_json:true
         ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
         ()
     in
@@ -1475,7 +1464,6 @@ let test_validate_output_schema_native_ollama_catalog_rejects_model_without_so (
         ~kind:Ollama
         ~model_id:"ministral-3:8b"
         ~base_url:"http://localhost:11434"
-        ~response_format_json:true
         ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
         ()
     in
@@ -1495,7 +1483,6 @@ let test_validate_output_schema_unknown_openai_compat_host_rejected () =
       ~kind:OpenAI_compat
       ~model_id:"generic"
       ~base_url:"https://openai-compatible.example.com/v1"
-      ~response_format_json:true
       ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
       ()
   in
@@ -1512,7 +1499,6 @@ let test_validate_output_schema_mimo_json_schema_rejected () =
         ~kind:OpenAI_compat
         ~model_id:"mimo-v2.5-pro"
         ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
-        ~response_format_json:true
         ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
         ()
     in
@@ -1532,7 +1518,6 @@ let test_validate_output_schema_endpoint_identity_does_not_establish_capability 
         ~kind:OpenAI_compat
         ~model_id:"gpt-4o"
         ~base_url:"https://api.ollama.com/v1"
-        ~response_format_json:true
         ~response_format:(Types.JsonSchema (`Assoc [ "type", `String "object" ]))
         ()
     in
@@ -2225,10 +2210,7 @@ let () =
             "connect timeout default and override"
             `Quick
             test_connect_timeout_s_default_and_override
-        ; Alcotest.test_case
-            "response_format_json mode"
-            `Quick
-            test_make_response_format_json_mode
+        ; Alcotest.test_case "json mode" `Quick test_make_json_mode
         ; Alcotest.test_case
             "connect timeout none by default"
             `Quick

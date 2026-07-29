@@ -90,8 +90,7 @@ let make
       ?(tool_stream = false)
       ?tool_choice
       ?(disable_parallel_tool_use = false)
-      ?response_format
-      ?(response_format_json = false)
+      ?(response_format = Types.Off)
       ?(cache_system_prompt = false)
       ?supports_tool_choice_override
       ?supports_structured_output_override
@@ -105,11 +104,6 @@ let make
       ?max_concurrent_requests
       ()
   =
-  let response_format =
-    Option.value
-      response_format
-      ~default:(Types.response_format_of_json_mode response_format_json)
-  in
   let request_path =
     match request_path with
     | Some p -> p

@@ -15,7 +15,8 @@ original tag dates. `0.100.4` was never tagged or released.
 field, constructor argument, derivation helper, and the Exact Output
 contradictory-state errors are removed. This makes the previously gated
 inconsistent state unrepresentable; callers must set `response_format`
-directly.
+directly. The boolean `response_format_json` constructor/builder shims and
+boolean/null response-format decoding are also removed.
 
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 

@@ -9,15 +9,11 @@ let gemini_config
       ?thinking_budget
       ?reasoning_effort
       ?(tools = [])
-      ?(json_mode = false)
-      ?response_format
+      ?(response_format = Types.Off)
       ?(system = "")
       ()
   =
   ignore tools;
-  let response_format =
-    Option.value response_format ~default:(Types.response_format_of_json_mode json_mode)
-  in
   Provider_config.make
     ~kind:Gemini
     ~model_id
@@ -420,7 +416,7 @@ let test_dangling_tool_use_is_not_synthetically_closed () =
 ;;
 
 let test_json_mode () =
-  let config = gemini_config ~json_mode:true () in
+  let config = gemini_config ~response_format:Types.JsonMode () in
   let messages = [ Types.user_msg "Return JSON." ] in
   let body = Backend_gemini.build_request ~config ~messages () in
   let json = parse_body body in

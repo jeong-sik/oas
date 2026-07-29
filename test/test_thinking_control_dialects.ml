@@ -117,15 +117,9 @@ let declared_catalog_openai_compat_config
       ?temperature
       ?top_p
       ?tool_choice
-      ?(response_format_json = false)
-      ?response_format
+      ?(response_format = Off)
       model_id
   =
-  let response_format =
-    Option.value
-      response_format
-      ~default:(response_format_of_json_mode response_format_json)
-  in
   PC.make
     ~kind:OpenAI_compat
     ?provider_id
@@ -381,7 +375,7 @@ let test_mimo_v25_uses_thinking_object_and_json_mode () =
       ~base_url:"https://token-plan-sgp.xiaomimimo.com/v1"
       ~provider_id:"mimo"
       ~enable_thinking:false
-      ~response_format_json:true
+      ~response_format:JsonMode
       "mimo-v2.5-pro"
   in
   let json = BOR.build_request ~config ~messages:[ user_msg "hi" ] () |> json_of_body in

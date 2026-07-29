@@ -226,7 +226,6 @@ val make
   -> ?tool_choice:Types.tool_choice
   -> ?disable_parallel_tool_use:bool
   -> ?response_format:Types.response_format
-  -> ?response_format_json:bool
   -> ?cache_system_prompt:bool
   -> ?supports_tool_choice_override:bool
   -> ?supports_structured_output_override:bool

@@ -1281,7 +1281,6 @@ let%test "explicit json_schema response_format overrides json mode compatibility
       ~kind:OpenAI_compat
       ~model_id:"gpt"
       ~base_url:"https://api.openai.com/v1"
-      ~response_format_json:true
       ~response_format:(JsonSchema schema)
       ()
   in

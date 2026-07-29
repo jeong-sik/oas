@@ -2043,7 +2043,7 @@ let test_responses_build_request_uses_text_format_json_object () =
       ~model_id:"gpt-5.5"
       ~base_url:"https://api.openai.com"
       ~request_path:"/v1/responses"
-      ~response_format_json:true
+      ~response_format:Types.JsonMode
       ~max_tokens:128
       ()
   in
