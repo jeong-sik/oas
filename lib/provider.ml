@@ -25,22 +25,6 @@ type cost_estimate = Llm_provider.Pricing.cost_estimate =
 let pricing_for_model_opt = Llm_provider.Pricing.pricing_for_model_opt
 let estimate_cost = Llm_provider.Pricing.estimate_cost
 
-(** Return only the auth-specific headers for a given provider kind.
-    This keeps [Provider_config.t.headers] free of sensitive tokens until
-    request time. *)
-let auth_headers_only_for_kind
-      ~(kind : Llm_provider.Provider_config.provider_kind)
-      ~api_key
-  =
-  match String.trim api_key with
-  | "" -> []
-  | key ->
-    (match kind with
-     | Anthropic | Kimi -> [ "x-api-key", key ]
-     | Gemini -> [ "x-goog-api-key", key ]
-     | OpenAI_compat | Ollama | Glm | DashScope -> [ "Authorization", "Bearer " ^ key ])
-;;
-
 let provider_config_with_agent_config
       ~(config : Types.agent_config)
       (provider_config : Llm_provider.Provider_config.t)

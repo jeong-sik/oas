@@ -137,14 +137,6 @@ type capabilities = Llm_provider.Capabilities.capabilities =
 
 val default_capabilities : capabilities
 
-(** Return only the auth-specific headers for a given provider kind.
-    This keeps [Provider_config.t.headers] free of sensitive tokens until
-    request time. *)
-val auth_headers_only_for_kind
-  :  kind:Llm_provider.Provider_config.provider_kind
-  -> api_key:string
-  -> (string * string) list
-
 (** {2 Pricing: per-model cost estimation} *)
 
 (* Re-exported from [Llm_provider.Pricing] so [Provider.pricing] is the same type
