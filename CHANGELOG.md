@@ -51,6 +51,26 @@ The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical
 `Llm_provider.Provider_config.t` values.
 
+## [0.231.0](https://github.com/jeong-sik/oas/compare/v0.230.0...v0.231.0) (2026-07-29)
+
+
+### ⚠ BREAKING CHANGES
+
+* **checkpoint:** hard-cut current schema to v9 ([#2867](https://github.com/jeong-sik/oas/issues/2867))
+* **persistence:** agent_sdk accepts only v8 checkpoints and canonical Tool-role result batches. Older checkpoint formats, non-Tool ToolResult histories, and Agent_tool.create_typed_untyped are unsupported; reset persisted state and use Typed_tool.to_untyped at the direct dispatch boundary.
+
+### Bug Fixes
+
+* **checkpoint:** derive v9 diagnostic scope ([#2868](https://github.com/jeong-sik/oas/issues/2868)) ([dee562a](https://github.com/jeong-sik/oas/commit/dee562adf979852a0c01f30fd0af4bfe33d18404))
+* **checkpoint:** hard-cut current schema to v9 ([#2867](https://github.com/jeong-sik/oas/issues/2867)) ([494f7d0](https://github.com/jeong-sik/oas/commit/494f7d019186afdb52f5bf84832947b6c1d8497d))
+* **eval:** reject incomplete metric comparisons ([#2866](https://github.com/jeong-sik/oas/issues/2866)) ([50e1bf1](https://github.com/jeong-sik/oas/commit/50e1bf1af1af598729c2482e190f8476ecebc3f1))
+* **gemini:** centralize finish reason mapping ([#2857](https://github.com/jeong-sik/oas/issues/2857)) ([e18fbb9](https://github.com/jeong-sik/oas/commit/e18fbb931a10ddb6e79cb1d54a6faa8619e0f097))
+
+
+### Code Refactoring
+
+* **persistence:** hard-cut legacy tool and checkpoint shapes ([#2851](https://github.com/jeong-sik/oas/issues/2851)) ([6660d26](https://github.com/jeong-sik/oas/commit/6660d26629ac1d7215ece5e9379b6cfecdbcf11b))
+
 ## [0.230.0](https://github.com/jeong-sik/oas/compare/v0.229.1...v0.230.0) (2026-07-28)
 
 
