@@ -267,14 +267,18 @@ let test_accumulate_usage_with_response () =
     ; cost_usd = None
     }
   in
-  let provider_cfg : Provider.config =
-    { provider = Anthropic; model_id = "claude-sonnet-4-6"; api_key_env = "TEST" }
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:Anthropic
+      ~provider_id:"anthropic"
+      ~model_id:"claude-sonnet-4-6"
+      ~base_url:"https://api.anthropic.com"
+      ()
   in
   let result =
     Agent_turn.accumulate_usage
       ~current_usage:current
-      ~provider_config:None
-      ~provider:(Some provider_cfg)
+      ~provider_config:(Some provider_config)
       ~response_model:(Some "claude-sonnet-4-6")
       ~response_usage:(Some response_usage)
   in
@@ -289,7 +293,6 @@ let test_accumulate_usage_none_response () =
     Agent_turn.accumulate_usage
       ~current_usage:current
       ~provider_config:None
-      ~provider:None
       ~response_model:None
       ~response_usage:None
   in
@@ -306,17 +309,18 @@ let test_accumulate_usage_local_pricing () =
     ; cost_usd = None
     }
   in
-  let provider_cfg : Provider.config =
-    { provider = Local { base_url = "http://localhost:8085" }
-    ; model_id = "dashscope-3.5"
-    ; api_key_env = "DUMMY"
-    }
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:OpenAI_compat
+      ~provider_id:"local"
+      ~model_id:"dashscope-3.5"
+      ~base_url:"http://localhost:8085"
+      ()
   in
   let result =
     Agent_turn.accumulate_usage
       ~current_usage:current
-      ~provider_config:None
-      ~provider:(Some provider_cfg)
+      ~provider_config:(Some provider_config)
       ~response_model:(Some "dashscope-3.5")
       ~response_usage:(Some response_usage)
   in
@@ -333,14 +337,18 @@ let test_accumulate_usage_prefers_response_cost () =
     ; cost_usd = Some 0.4321
     }
   in
-  let provider_cfg : Provider.config =
-    { provider = Anthropic; model_id = "claude-sonnet-4-6"; api_key_env = "TEST" }
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:Anthropic
+      ~provider_id:"anthropic"
+      ~model_id:"claude-sonnet-4-6"
+      ~base_url:"https://api.anthropic.com"
+      ()
   in
   let result =
     Agent_turn.accumulate_usage
       ~current_usage:current
-      ~provider_config:None
-      ~provider:(Some provider_cfg)
+      ~provider_config:(Some provider_config)
       ~response_model:(Some "claude-sonnet-4-6")
       ~response_usage:(Some response_usage)
   in
@@ -368,7 +376,6 @@ let test_accumulate_usage_uses_typed_provider_and_response_model () =
     Agent_turn.accumulate_usage
       ~current_usage:Types.empty_usage
       ~provider_config:(Some provider_config)
-      ~provider:None
       ~response_model:(Some "deepseek-v4-pro")
       ~response_usage:(Some response_usage)
   in
@@ -399,7 +406,6 @@ let test_accumulate_usage_records_incomplete_cache_pricing () =
     Agent_turn.accumulate_usage
       ~current_usage:Types.empty_usage
       ~provider_config:(Some provider_config)
-      ~provider:None
       ~response_model:(Some "dashscope-3.5")
       ~response_usage:(Some response_usage)
   in
@@ -467,7 +473,6 @@ let test_accumulate_usage_no_provider () =
     Agent_turn.accumulate_usage
       ~current_usage:current
       ~provider_config:None
-      ~provider:None
       ~response_model:None
       ~response_usage:(Some response_usage)
   in
@@ -499,7 +504,6 @@ let test_accumulate_usage_cumulative () =
     Agent_turn.accumulate_usage
       ~current_usage:current
       ~provider_config:None
-      ~provider:None
       ~response_model:None
       ~response_usage:(Some response_usage)
   in

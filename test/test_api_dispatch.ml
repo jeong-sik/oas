@@ -1,5 +1,4 @@
-(** Tests for API dispatch: response parsing per provider, request routing,
-    and pricing. *)
+(** Tests for API dispatch: response parsing per provider and pricing. *)
 
 open Alcotest
 open Agent_sdk
@@ -77,32 +76,6 @@ let test_openai_parse_response () =
   match resp.content with
   | [ Types.Text "Openai response" ] -> ()
   | _ -> fail "expected single text block"
-;;
-
-(* ── Provider routing ────────────────────────────────────────── *)
-
-let test_request_kind_routing () =
-  let check_kind msg expected provider =
-    check
-      string
-      msg
-      expected
-      (match Provider.request_kind provider with
-       | Provider.Anthropic_messages -> "anthropic"
-       | Provider.Openai_chat_completions -> "openai"
-       | Provider.Custom name -> "custom:" ^ name)
-  in
-  check_kind "local" "openai" (Provider.Local { base_url = "http://x" });
-  check_kind "anthropic" "anthropic" Provider.Anthropic;
-  check_kind
-    "openai"
-    "openai"
-    (Provider.OpenAICompat
-       { base_url = "http://x"
-       ; auth_header = None
-       ; path = "/v1/chat/completions"
-       ; static_token = None
-       })
 ;;
 
 (* ── Pricing ─────────────────────────────────────────────────── *)
@@ -273,7 +246,6 @@ let () =
     "api_dispatch"
     [ "anthropic", [ test_case "parse response" `Quick test_anthropic_parse_response ]
     ; "openai", [ test_case "parse response" `Quick test_openai_parse_response ]
-    ; "routing", [ test_case "request_kind" `Quick test_request_kind_routing ]
     ; ( "pricing"
       , [ test_case "known models" `Quick test_pricing_known_models
         ; test_case "cost estimation" `Quick test_pricing_cost_estimation

@@ -67,13 +67,8 @@ let test_extract_text () =
 let test_agent_create () =
   Eio_main.run
   @@ fun env ->
-  let options = { Agent.default_options with base_url = "http://test" } in
   let agent =
-    Agent.create
-      ~config:(Types.default_config ~model:"test-model")
-      ~net:env#net
-      ~options
-      ()
+    Agent.create ~config:(Types.default_config ~model:"test-model") ~net:env#net ()
   in
   let st = Agent.state agent in
   Alcotest.(check int) "initial turn count" 0 st.turn_count;
@@ -83,18 +78,13 @@ let test_agent_create () =
 let test_agent_accessors () =
   Eio_main.run
   @@ fun env ->
-  let options = { Agent.default_options with base_url = "http://test" } in
   let agent =
-    Agent.create
-      ~config:(Types.default_config ~model:"test-model")
-      ~net:env#net
-      ~options
-      ()
+    Agent.create ~config:(Types.default_config ~model:"test-model") ~net:env#net ()
   in
   Alcotest.(check int) "no tools" 0 (Tool_set.size (Agent.tools agent));
   Alcotest.(check bool) "no lifecycle" true (Option.is_none (Agent.lifecycle agent));
   let opts = Agent.options agent in
-  Alcotest.(check string) "base_url" "http://test" opts.base_url
+  Alcotest.(check bool) "no provider config" true (Option.is_none opts.provider_config)
 ;;
 
 let test_version_info () =
@@ -125,104 +115,6 @@ let test_build_safe_explicit_thinking_budget () =
   Alcotest.(check bool) "explicit thinking budget" true (Result.is_ok result)
 ;;
 
-(* --- create_agent coverage --- *)
-
-let test_create_agent_defaults () =
-  Eio_main.run
-  @@ fun env ->
-  let agent = Agent_sdk.create_agent ~net:env#net ~model:"exact-test-model" () in
-  let st = Agent.state agent in
-  Alcotest.(check int) "initial turn count" 0 st.turn_count;
-  Alcotest.(check string) "exact model" "exact-test-model" st.config.model
-;;
-
-let test_create_agent_with_name_model () =
-  Eio_main.run
-  @@ fun env ->
-  let agent =
-    Agent_sdk.create_agent
-      ~net:env#net
-      ~name:"test-agent"
-      ~model:"claude-haiku-4-5"
-      ~system_prompt:"You are helpful."
-      ~max_tokens:2048
-      ()
-  in
-  let config = (Agent.state agent).config in
-  Alcotest.(check string) "name" "test-agent" config.name;
-  Alcotest.(check string) "model" "claude-haiku-4-5" config.model;
-  Alcotest.(check (option string)) "prompt" (Some "You are helpful.") config.system_prompt;
-  Alcotest.(check (option int)) "max_tokens" (Some 2048) config.max_tokens
-;;
-
-let test_create_agent_with_provider () =
-  Eio_main.run
-  @@ fun env ->
-  let provider_cfg =
-    { Provider.provider = Provider.Local { base_url = "http://localhost:11434" }
-    ; model_id = "test"
-    ; api_key_env = ""
-    }
-  in
-  let agent =
-    Agent_sdk.create_agent ~net:env#net ~model:"test" ~provider:provider_cfg ()
-  in
-  let opts = Agent.options agent in
-  Alcotest.(check bool) "provider set" true (Option.is_some opts.provider)
-;;
-
-let test_create_agent_with_raw_trace () =
-  Eio_main.run
-  @@ fun env ->
-  let path = Filename.concat (Filename.get_temp_dir_name ()) "oas-test-trace" in
-  match Raw_trace.create ~path () with
-  | Ok trace ->
-    let agent =
-      Agent_sdk.create_agent ~net:env#net ~model:"test-model" ~raw_trace:trace ()
-    in
-    let opts = Agent.options agent in
-    Alcotest.(check bool) "raw_trace set" true (Option.is_some opts.raw_trace)
-  | Error _ ->
-    (* Skip if directory creation fails *)
-    ()
-;;
-
-let test_create_agent_with_provider_and_trace () =
-  Eio_main.run
-  @@ fun env ->
-  let provider_cfg =
-    { Provider.provider = Provider.Local { base_url = "http://localhost:11434" }
-    ; model_id = "test"
-    ; api_key_env = ""
-    }
-  in
-  let path = Filename.concat (Filename.get_temp_dir_name ()) "oas-test-trace2" in
-  match Raw_trace.create ~path () with
-  | Ok trace ->
-    let agent =
-      Agent_sdk.create_agent
-        ~net:env#net
-        ~model:"test"
-        ~provider:provider_cfg
-        ~raw_trace:trace
-        ()
-    in
-    let opts = Agent.options agent in
-    Alcotest.(check bool) "provider set" true (Option.is_some opts.provider);
-    Alcotest.(check bool) "trace set" true (Option.is_some opts.raw_trace)
-  | Error _ -> ()
-;;
-
-let test_create_agent_with_cache () =
-  Eio_main.run
-  @@ fun env ->
-  let agent =
-    Agent_sdk.create_agent ~net:env#net ~model:"test-model" ~cache_system_prompt:true ()
-  in
-  let config = (Agent.state agent).config in
-  Alcotest.(check bool) "cache enabled" true config.cache_system_prompt
-;;
-
 let () =
   run
     "Agent SDK"
@@ -241,14 +133,6 @@ let () =
     ; ( "builder"
       , [ test_case "build_safe valid" `Quick test_build_safe_valid
         ; test_case "build_safe thinking" `Quick test_build_safe_explicit_thinking_budget
-        ] )
-    ; ( "create_agent"
-      , [ test_case "defaults" `Quick test_create_agent_defaults
-        ; test_case "with name/model/prompt" `Quick test_create_agent_with_name_model
-        ; test_case "with provider" `Quick test_create_agent_with_provider
-        ; test_case "with raw_trace" `Quick test_create_agent_with_raw_trace
-        ; test_case "with provider+trace" `Quick test_create_agent_with_provider_and_trace
-        ; test_case "with cache" `Quick test_create_agent_with_cache
         ] )
     ]
 ;;

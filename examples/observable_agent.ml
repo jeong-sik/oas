@@ -268,11 +268,7 @@ let () =
       done);
     (* 3. Build agent *)
     let options =
-      { Agent.default_options with
-        base_url
-      ; hooks = observable_hooks
-      ; event_bus = Some bus
-      }
+      { Agent.default_options with hooks = observable_hooks; event_bus = Some bus }
     in
     let config =
       { (default_config ~model:model_label) with
@@ -280,11 +276,21 @@ let () =
       ; system_prompt = Some "You have tools. Use them to answer."
       }
     in
+    let provider_config =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~model_id:model_label
+        ~base_url
+        ~api_key:""
+        ~headers:[ "Content-Type", "application/json" ]
+        ~request_path:"/v1/chat/completions"
+        ()
+    in
     let agent =
       Agent.create
         ~net:env#net
         ~config
-        ~options
+        ~options:{ options with provider_config = Some provider_config }
         ~tools:[ calculator_tool; get_time_tool ]
         ()
     in

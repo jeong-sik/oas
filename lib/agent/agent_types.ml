@@ -35,8 +35,7 @@ type model_input_projection = message list -> (message list, string) result
 type pre_dispatch_serialization_observer = Llm_provider.Request_wire_observer.try_observe
 
 type options =
-  { base_url : string
-  ; provider : Provider.config option
+  { provider_config : Llm_provider.Provider_config.t option
   ; stream_idle_timeout_s : float option
   ; first_event_timeout_s : float option
     (** RFC-OAS-037: separate bound for the time-to-first-event (TTFT /
@@ -116,8 +115,7 @@ type lifecycle_snapshot = Agent_lifecycle.lifecycle_snapshot =
 [@@deriving yojson]
 
 let default_options =
-  { base_url = Llm_provider.Api_common.default_base_url
-  ; provider = None
+  { provider_config = None
   ; stream_idle_timeout_s = None
   ; first_event_timeout_s = None
   ; body_timeout_s = None
@@ -149,7 +147,6 @@ type t =
   ; net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; context : Context.t
   ; options : options
-  ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : context_fit_admission
   ; model_input_projection : model_input_projection option
   ; pre_dispatch_serialization_observer : pre_dispatch_serialization_observer option
@@ -162,7 +159,7 @@ let lifecycle t = t.lifecycle
 let tools t = t.tools
 let context t = t.context
 let options t = t.options
-let provider_config t = t.provider_config
+let provider_config t = t.options.provider_config
 let net t = t.net
 
 (** Mutex-protected write to [state].  All mutations of [t.state] should
@@ -181,24 +178,15 @@ let update_state t f =
 let description t = t.options.description
 let sdk_version = Sdk_version.version
 
-let provider_name (cfg : Provider.config) =
-  match cfg.provider with
-  | Provider.Anthropic -> "anthropic"
-  | Provider.OpenAICompat _ -> "openai-compat"
-  | Provider.Local _ -> "local"
-  | Provider.Custom_registered { name } -> name
-;;
-
 let typed_provider_name (cfg : Llm_provider.Provider_config.t) =
   Provider_runtime_binding.provider_id_of_provider_config cfg
 ;;
 
 let card t =
   let supported_providers =
-    match t.provider_config, t.options.provider with
-    | Some config, _ -> [ typed_provider_name config ]
-    | None, Some provider -> [ provider_name provider ]
-    | None, None -> [ "anthropic" ]
+    match t.options.provider_config with
+    | Some config -> [ typed_provider_name config ]
+    | None -> []
   in
   let skills =
     match t.options.skill_registry with
@@ -268,9 +256,8 @@ let set_lifecycle
       <- Some
            (Agent_lifecycle.build_snapshot
               ~agent_name:agent.state.config.name
-              ~provider:agent.options.provider
               ~model:agent.state.config.model
-              ?provider_config:agent.provider_config
+              ?provider_config:agent.options.provider_config
               ?previous:agent.lifecycle
               ?current_run_id
               ?worker_id
@@ -291,18 +278,12 @@ let create
       ?(tools = [])
       ?context
       ?(options = default_options)
-      ?provider_config
       ?(context_fit_admission = Disabled)
       ?model_input_projection
       ?pre_dispatch_serialization_observer
       ?checkpoint_sink
       ()
   =
-  let options =
-    match provider_config with
-    | Some _ -> { options with provider = None }
-    | None -> options
-  in
   let mcp_tools =
     List.concat_map (fun (m : Mcp.managed) -> m.tools) options.mcp_clients
   in
@@ -322,7 +303,6 @@ let create
   ; net
   ; context = ctx
   ; options
-  ; provider_config
   ; context_fit_admission
   ; model_input_projection
   ; pre_dispatch_serialization_observer
@@ -346,7 +326,6 @@ let clone ?(copy_context = false) agent =
   ; net = agent.net
   ; context = ctx
   ; options = agent.options
-  ; provider_config = agent.provider_config
   ; context_fit_admission = agent.context_fit_admission
   ; model_input_projection = agent.model_input_projection
   ; pre_dispatch_serialization_observer = agent.pre_dispatch_serialization_observer

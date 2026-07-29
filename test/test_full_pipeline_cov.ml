@@ -143,22 +143,28 @@ let start_malformed_json ~sw ~net ~port =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-let make_agent ~net ?(tools = []) ?hooks ?provider base_url =
+let local_provider_config ~base_url ~model_id =
+  Llm_provider.Provider_config.make
+    ~kind:Llm_provider.Provider_config.OpenAI_compat
+    ~provider_id:"test"
+    ~model_id
+    ~base_url
+    ~api_key:""
+    ~headers:[ "Content-Type", "application/json" ]
+    ~request_path:"/v1/chat/completions"
+    ()
+;;
+
+let make_agent ~net ?(tools = []) ?hooks ?provider_config base_url =
   let config = { (Types.default_config ~model:"test-model") with name = "cov-agent" } in
-  let prov =
-    match provider with
+  let provider_config =
+    match provider_config with
     | Some p -> Some p
-    | None ->
-      Some
-        { Provider.provider = Provider.Local { base_url }
-        ; model_id = "mock-model"
-        ; api_key_env = ""
-        }
+    | None -> Some (local_provider_config ~base_url ~model_id:"mock-model")
   in
   let options =
     { Agent.default_options with
-      base_url
-    ; provider = prov
+      provider_config
     ; hooks =
         (match hooks with
          | Some h -> h
@@ -454,24 +460,11 @@ let test_openai_compat () =
     let url =
       start_multi ~sw ~net:env#net ~port:21014 [ openai_response "openai hello" ]
     in
-    let provider : Provider.config =
-      { provider =
-          Provider.OpenAICompat
-            { base_url = url
-            ; auth_header = None
-            ; path = "/v1/chat/completions"
-            ; static_token = None
-            }
-      ; model_id = "mock-openai"
-      ; api_key_env = ""
-      }
-    in
+    let provider_config = local_provider_config ~base_url:url ~model_id:"mock-openai" in
     let config =
       { (Types.default_config ~model:"test-model") with name = "openai-agent" }
     in
-    let options =
-      { Agent.default_options with base_url = url; provider = Some provider }
-    in
+    let options = { Agent.default_options with provider_config = Some provider_config } in
     let a = Agent.create ~net:env#net ~config ~options () in
     match Agent.run ~sw a "hello" with
     | Ok resp ->
@@ -568,21 +561,21 @@ let test_structured_extract () =
     let config =
       { (Types.default_config ~model:"test-model") with name = "struct-agent" }
     in
-    let provider : Provider.config =
-      { provider = Provider.Custom_registered { name = provider_id }
-      ; model_id = "test-model"
-      ; api_key_env = ""
-      }
+    let provider_config =
+      Llm_provider.Provider_config.make
+        ~kind:Llm_provider.Provider_config.OpenAI_compat
+        ~provider_id
+        ~model_id:"test-model"
+        ~base_url:url
+        ~api_key:""
+        ~headers:[ "Content-Type", "application/json" ]
+        ~request_path:"/v1/chat/completions"
+        ~supports_structured_output_override:true
+        ~model_capabilities_override:provider_capabilities
+        ()
     in
     match
-      Structured.extract
-        ~sw
-        ~net:env#net
-        ~base_url:url
-        ~provider
-        ~config
-        ~schema
-        "extract"
+      Structured.extract ~sw ~net:env#net ~provider_config ~config ~schema "extract"
     with
     | Ok (name, age) ->
       check string "name" "test" name;

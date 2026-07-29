@@ -87,13 +87,16 @@ let make_agent
   let config =
     { (Types.default_config ~model:"test-model") with name = "test-agent"; tool_choice }
   in
-  let provider : Provider.config =
-    { provider = Provider.Local { base_url }; model_id; api_key_env = "" }
+  let provider_config =
+    Provider_mock.local_provider_config
+      ~base_url
+      ~model_id
+      ~request_path:"/v1/chat/completions"
+      ()
   in
   let options =
     { Agent.default_options with
-      base_url
-    ; provider = Some provider
+      provider_config = Some provider_config
     ; hooks =
         (match hooks with
          | Some h -> h
@@ -555,18 +558,17 @@ let test_agent_run_context_like_http_400_is_unknown_invalid_request_without_retr
         ; `OK, openai_text_response "should not retry"
         ]
     in
-    let provider : Provider.config =
-      { provider = Provider.Local { base_url = url }
-      ; model_id = "mock-model"
-      ; api_key_env = ""
-      }
+    let provider_config =
+      Provider_mock.local_provider_config
+        ~base_url:url
+        ~model_id:"mock-model"
+        ~request_path:"/v1/chat/completions"
+        ()
     in
     let config =
       { (Types.default_config ~model:"test-model") with name = "context-overflow-owner" }
     in
-    let options =
-      { Agent.default_options with base_url = url; provider = Some provider }
-    in
+    let options = { Agent.default_options with provider_config = Some provider_config } in
     let agent = Agent.create ~net:env#net ~config ~options () in
     let history =
       [ { Types.role = User

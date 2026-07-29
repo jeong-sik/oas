@@ -57,8 +57,12 @@ let with_mock_server ~port handler f =
   | Exit -> ()
 ;;
 
-let local_provider ~base_url : Provider.config =
-  { provider = Provider.Local { base_url }; model_id = "mock-model"; api_key_env = "" }
+let local_provider ~base_url =
+  Provider_mock.local_provider_config
+    ~base_url
+    ~model_id:"mock-model"
+    ~request_path:"/v1/chat/completions"
+    ()
 ;;
 
 let require_run_success label = function
@@ -86,7 +90,7 @@ let test_tokens_accumulate_across_turns () =
         Ok { content = "ok"; _meta = None })
     in
     let options =
-      { Agent.default_options with provider = Some (local_provider ~base_url) }
+      { Agent.default_options with provider_config = Some (local_provider ~base_url) }
     in
     let config = default_config ~model:"mock-model" in
     let agent = Agent.create ~net ~config ~options ~tools:[ tool ] () in
@@ -108,7 +112,7 @@ let test_single_turn_usage () =
   in
   with_mock_server ~port:18302 handler (fun ~sw ~net ~base_url ->
     let options =
-      { Agent.default_options with provider = Some (local_provider ~base_url) }
+      { Agent.default_options with provider_config = Some (local_provider ~base_url) }
     in
     let agent =
       Agent.create ~config:(Types.default_config ~model:"mock-model") ~net ~options ()

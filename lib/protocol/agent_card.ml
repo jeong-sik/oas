@@ -339,12 +339,7 @@ let of_info (info : agent_info) : agent_card =
    | _ -> ());
   if info.mcp_clients_count > 0 then add MCP;
   if info.has_elicitation then add Elicitation;
-  let providers =
-    match info.supported_providers with
-    | [] -> [ "anthropic" ]
-    | lst -> lst
-  in
-  let all_providers = List.sort_uniq String.compare providers in
+  let all_providers = List.sort_uniq String.compare info.supported_providers in
   { name = info.agent_name
   ; description = info.agent_description
   ; protocol_version = "1.0"

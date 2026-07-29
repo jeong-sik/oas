@@ -257,7 +257,7 @@ let make_pipeline_test_agent ~net ~response =
   let options =
     { Internal_agent.default_options with
       transport = Some transport
-    ; provider = Some (Provider_mock.to_provider_config ())
+    ; provider_config = Some (Provider_mock.to_provider_config ())
     }
   in
   let agent =
@@ -300,7 +300,7 @@ let test_pipeline_sends_exact_supplied_tools () =
   let options =
     { Internal_agent.default_options with
       transport = Some transport
-    ; provider = Some (Provider_mock.to_provider_config ())
+    ; provider_config = Some (Provider_mock.to_provider_config ())
     }
   in
   let agent =
@@ -325,6 +325,81 @@ let test_pipeline_sends_exact_supplied_tools () =
     "provider receives exact caller tool schemas"
     true
     (Option.equal (List.equal Yojson.Safe.equal) (Some expected) !captured)
+;;
+
+let test_effective_provider_config_drives_lifecycle_and_pricing () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let effective_model = "claude-sonnet-4-6" in
+  let captured_model = ref None in
+  let response : Types.api_response =
+    { id = "effective-provider-config"
+    ; model = ""
+    ; stop_reason = EndTurn
+    ; content = [ Text "done" ]
+    ; usage =
+        Some
+          { input_tokens = 100
+          ; output_tokens = 50
+          ; cache_creation_input_tokens = 0
+          ; cache_read_input_tokens = 0
+          ; cost_usd = None
+          }
+    ; telemetry = None
+    }
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun request ->
+          captured_model := Some request.config.model_id;
+          { response = Ok response; latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+    }
+  in
+  let carrier =
+    Llm_provider.Provider_config.make
+      ~kind:Anthropic
+      ~provider_id:"anthropic"
+      ~model_id:"carrier-model-without-pricing"
+      ~base_url:"https://api.anthropic.com"
+      ~request_path:"/v1/messages"
+      ()
+  in
+  let options =
+    { Agent.default_options with
+      provider_config = Some carrier
+    ; transport = Some transport
+    }
+  in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~config:
+        { (Types.default_config ~model:effective_model) with
+          name = "effective-provider-config-test"
+        }
+      ~options
+      ()
+  in
+  (match Agent.run ~sw agent "hello" with
+   | Ok _ -> ()
+   | Error error -> Alcotest.fail (Error.to_string error));
+  Alcotest.(check (option string)) "wire model" (Some effective_model) !captured_model;
+  (match Agent.lifecycle agent with
+   | Some snapshot ->
+     Alcotest.(check (option string))
+       "lifecycle resolved model"
+       (Some effective_model)
+       snapshot.resolved_model
+   | None -> Alcotest.fail "completed agent has no lifecycle snapshot");
+  let usage = (Agent.state agent).usage in
+  Alcotest.(check bool)
+    "effective model pricing applied"
+    true
+    (usage.estimated_cost_usd > 0.0);
+  Alcotest.(check bool) "no pricing gap" true (Option.is_none usage.pricing_gap)
 ;;
 
 let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
@@ -420,7 +495,7 @@ let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
       ~options:
         { Agent.default_options with
           transport = Some transport
-        ; provider = Some (Provider_mock.to_provider_config ())
+        ; provider_config = Some (Provider_mock.to_provider_config ())
         ; hooks
         ; event_bus = Some event_bus
         }
@@ -497,7 +572,7 @@ let test_stream_route_carries_exact_raw_trace_run_id () =
        let options =
          { Internal_agent.default_options with
            transport = Some transport
-         ; provider = Some (Provider_mock.to_provider_config ())
+         ; provider_config = Some (Provider_mock.to_provider_config ())
          }
        in
        let agent =
@@ -557,7 +632,10 @@ let text_tool_intent_response () =
   }
 ;;
 
-let make_text_tool_intent_test_agent ~net ~(provider : Provider.config) =
+let make_text_tool_intent_test_agent
+      ~net
+      ~(provider_config : Llm_provider.Provider_config.t)
+  =
   let tool =
     Tool.create ~name:"my_tool" ~description:"test" ~parameters:[] (fun _ ->
       Ok { Types.content = "ok"; _meta = None })
@@ -567,7 +645,7 @@ let make_text_tool_intent_test_agent ~net ~(provider : Provider.config) =
   let options =
     { Internal_agent.default_options with
       transport = Some transport
-    ; provider = Some provider
+    ; provider_config = Some provider_config
     }
   in
   let agent =
@@ -667,7 +745,7 @@ let test_pipeline_text_tool_intent_remains_text () =
   @@ fun sw ->
   let net = Eio.Stdenv.net env in
   let provider = Provider_mock.to_provider_config () in
-  let agent = make_text_tool_intent_test_agent ~net ~provider in
+  let agent = make_text_tool_intent_test_agent ~net ~provider_config:provider in
   match Internal_pipeline.run_turn ~sw ~api_strategy:Internal_pipeline.Sync agent with
   | Ok (Internal_pipeline.Complete response) ->
     (match response.content with
@@ -740,7 +818,7 @@ let test_repeated_validation_error_without_judge_continues_to_provider () =
   let options =
     { Agent.default_options with
       transport = Some transport
-    ; provider = Some (Provider_mock.to_provider_config ())
+    ; provider_config = Some (Provider_mock.to_provider_config ())
     }
   in
   let agent =
@@ -861,7 +939,9 @@ let test_mock_thinking_response () =
 let test_mock_to_provider_config () =
   let cfg = Provider_mock.to_provider_config () in
   Alcotest.(check string) "model_id" "test-model" cfg.model_id;
-  Alcotest.(check string) "api_key_env" "OAS_TEST_PROVIDER_KEY" cfg.api_key_env
+  Alcotest.(check (option string)) "provider_id" (Some "test") cfg.provider_id;
+  Alcotest.(check string) "base_url" "http://test.invalid" cfg.base_url;
+  Alcotest.(check string) "request_path" "/v1/chat/completions" cfg.request_path
 ;;
 
 (* ── Agent state: more detail ──────────────────────────── *)
@@ -1071,7 +1151,6 @@ let test_accumulate_usage_with_response () =
     Agent_turn.accumulate_usage
       ~current_usage:current
       ~provider_config:None
-      ~provider:None
       ~response_model:None
       ~response_usage:resp_usage
   in
@@ -1092,7 +1171,6 @@ let test_accumulate_usage_no_response () =
     Agent_turn.accumulate_usage
       ~current_usage:current
       ~provider_config:None
-      ~provider:None
       ~response_model:None
       ~response_usage:None
   in
@@ -1124,7 +1202,6 @@ let test_accumulate_usage_cumulative () =
     Agent_turn.accumulate_usage
       ~current_usage:Types.empty_usage
       ~provider_config:None
-      ~provider:None
       ~response_model:None
       ~response_usage:u1
   in
@@ -1132,7 +1209,6 @@ let test_accumulate_usage_cumulative () =
     Agent_turn.accumulate_usage
       ~current_usage:after1
       ~provider_config:None
-      ~provider:None
       ~response_model:None
       ~response_usage:u2
   in
@@ -1364,7 +1440,7 @@ let test_terminal_disposition_retires_settled_provider_failure () =
       ~options:
         { Agent.default_options with
           transport = Some transport
-        ; provider = Some (Provider_mock.to_provider_config ())
+        ; provider_config = Some (Provider_mock.to_provider_config ())
         }
       ~checkpoint_sink:(fun _snapshot ->
         incr checkpoint_count;
@@ -1413,7 +1489,7 @@ let test_terminal_disposition_sink_failure_fails_call () =
       ~options:
         { Agent.default_options with
           transport = Some transport
-        ; provider = Some (Provider_mock.to_provider_config ())
+        ; provider_config = Some (Provider_mock.to_provider_config ())
         }
       ()
   in
@@ -1458,7 +1534,7 @@ let test_terminal_disposition_observes_cancellation () =
       ~options:
         { Agent.default_options with
           transport = Some transport
-        ; provider = Some (Provider_mock.to_provider_config ())
+        ; provider_config = Some (Provider_mock.to_provider_config ())
         }
       ()
   in
@@ -1569,7 +1645,7 @@ let test_agent_run_uses_durable_tool_authority () =
        let options =
          { Agent.default_options with
            transport = Some transport
-         ; provider = Some (Provider_mock.to_provider_config ())
+         ; provider_config = Some (Provider_mock.to_provider_config ())
          ; journal = Some journal
          ; event_bus = Some event_bus
          ; on_run_complete =
@@ -1857,7 +1933,7 @@ let test_agent_run_resumes_tool_without_duplicate_effects
        let options =
          { Agent.default_options with
            transport = Some transport
-         ; provider = Some (Provider_mock.to_provider_config ())
+         ; provider_config = Some (Provider_mock.to_provider_config ())
          ; hooks
          }
        in
@@ -2388,7 +2464,7 @@ let test_agent_run_resumes_settled_closed_turn
        let options =
          { Agent.default_options with
            transport = Some transport
-         ; provider = Some (Provider_mock.to_provider_config ())
+         ; provider_config = Some (Provider_mock.to_provider_config ())
          }
        in
        let agent =
@@ -2562,7 +2638,7 @@ let test_terminal_durability_failure_is_typed_non_retryable () =
        let options =
          { Agent.default_options with
            transport = Some transport
-         ; provider = Some (Provider_mock.to_provider_config ())
+         ; provider_config = Some (Provider_mock.to_provider_config ())
          }
        in
        match
@@ -2837,7 +2913,7 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                in
                let options =
                  { Agent.default_options with
-                   provider = Some (Provider_mock.to_provider_config ())
+                   provider_config = Some (Provider_mock.to_provider_config ())
                  }
                in
                let agent =
@@ -2902,7 +2978,7 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                in
                let options =
                  { Agent.default_options with
-                   provider = Some (Provider_mock.to_provider_config ())
+                   provider_config = Some (Provider_mock.to_provider_config ())
                  }
                in
                let agent =
@@ -3095,7 +3171,7 @@ let test_agent_run_replays_precheckpoint_terminal_settlement () =
          let options =
            { Agent.default_options with
              transport = Some transport
-           ; provider = Some (Provider_mock.to_provider_config ())
+           ; provider_config = Some (Provider_mock.to_provider_config ())
            }
          in
          let effect_count = ref 0 in
@@ -3341,7 +3417,7 @@ let test_agent_run_resumes_all_blocked_settled_turn () =
        let options =
          { Agent.default_options with
            transport = Some transport
-         ; provider = Some (Provider_mock.to_provider_config ())
+         ; provider_config = Some (Provider_mock.to_provider_config ())
          }
        in
        let agent =
@@ -3537,7 +3613,7 @@ let test_agent_run_resume_fires_on_yield () =
        let options =
          { Agent.default_options with
            transport = Some transport
-         ; provider = Some (Provider_mock.to_provider_config ())
+         ; provider_config = Some (Provider_mock.to_provider_config ())
          }
        in
        let agent =
@@ -3629,6 +3705,10 @@ let () =
             "provider receives exact supplied tools"
             `Quick
             test_pipeline_sends_exact_supplied_tools
+        ; Alcotest.test_case
+            "effective provider config drives lifecycle and pricing"
+            `Quick
+            test_effective_provider_config_drives_lifecycle_and_pricing
         ; Alcotest.test_case
             "provider turn identity spans multiturn tool loop"
             `Quick

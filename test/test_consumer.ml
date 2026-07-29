@@ -49,10 +49,14 @@ let start_mock ~sw ~net ~clock response_text =
 
 let make_agent ~net base_url name =
   let config = { (Types.default_config ~model:"test-model") with name } in
-  let provider : Provider.config =
-    { provider = Provider.Local { base_url }; model_id = "test-model"; api_key_env = "" }
+  let provider_config =
+    Provider_mock.local_provider_config
+      ~base_url
+      ~model_id:"test-model"
+      ~request_path:"/v1/chat/completions"
+      ()
   in
-  let options = { Agent.default_options with base_url; provider = Some provider } in
+  let options = { Agent.default_options with provider_config = Some provider_config } in
   Agent.create ~net ~config ~options ()
 ;;
 

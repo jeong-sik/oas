@@ -19,7 +19,7 @@ examples/   →  사용 예제
 | `lib/agent/` | Agent 라이프사이클, 턴 실행, 도구 호출, handoff |
 | `lib/pipeline/` | 6-stage 턴 파이프라인 |
 | `lib/protocol/` | A2A, Agent Card, Agent Registry, MCP |
-| `lib/*.ml` | API(multi-provider), Context, Hooks, Guardrails, Runtime 등 |
+| `lib/*.ml` | 단일-provider API, Context, Hooks, Guardrails, Runtime 등 |
 
 주요 모듈: `Agent`, `Types`, `Error`, `Provider`, `Context`, `Runtime`, `Hooks`, `Tool`
 
@@ -51,7 +51,18 @@ Full `dune build @all` / `dune runtest`는 CI 또는 명시적인 수동 검증�
 | GLM | `backend_glm.ml` | GLM API |
 | Ollama | `backend_ollama.ml` | OpenAI-compatible local endpoint |
 
-High-level routing type is `Provider.config` (4 variants: Local, Anthropic, OpenAICompat, Custom_registered). The backends above are the concrete `llm_provider` implementations — more granular than `Provider.config`.
+Agent 실행의 provider SSOT는
+`Agent.options.provider_config : Llm_provider.Provider_config.t option`이다.
+`Provider_config.t`가 provider identity, wire kind, endpoint, credential,
+request path, capability override를 함께 운반한다. 값이 없으면 OAS가 local
+또는 Anthropic을 기본값으로 선택하지 않고 설정 오류로 종료한다.
+
+외부 provider catalog를 쓰는 경우 `Provider_runtime_binding.find` 또는
+`find_catalog`의 exact binding을
+`Provider_runtime_binding.to_provider_config`로 변환한다. embedding
+application은 binding의 auth source에서 credential을 명시적으로 붙인다.
+찾지 못한 provider/model/credential은 다른 provider로 추정하지 않고
+실패시킨다.
 
 ## LLM Discovery (`lib/llm_provider/discovery.ml`)
 
@@ -91,11 +102,14 @@ OAS provides one-shot single-provider completion via `Complete.complete` and
 filtering, and circuit breaking are the responsibility of downstream consumers
 — OAS no longer ships built-in retry or multi-provider cascade execution.
 
-Supported providers: `llama`, `claude`, `gemini`, `glm`, `openrouter`, `custom:model@url`.
+지원 wire kind는 `Anthropic`, `Kimi`, `OpenAI_compat`, `Ollama`, `Gemini`,
+`Glm`, `DashScope`다. Provider label과 alias는 catalog 데이터이며, URL이나
+model 문자열에서 역추론하지 않는다.
 
 ## Key Types
 
 - `Types.agent_config` — 에이전트 설정 (model, system_prompt, provider output options 등)
+- `Agent.options.provider_config` — 실행에 필요한 exact provider carrier
 - `Types.api_response` — LLM 응답 (content blocks, usage, stop_reason)
 - `Error.sdk_error` — 타입 안전한 에러 (Agent, Config, Orchestration 등)
 

@@ -8,13 +8,13 @@ let test_build_snapshot_fresh () =
   let snap =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
-      ~provider:None
       ~model:"claude-sonnet-4-6"
       Agent_lifecycle.Running
   in
   Alcotest.(check string) "agent_name" "test-agent" snap.agent_name;
   Alcotest.(check bool) "status running" true (snap.status = Agent_lifecycle.Running);
   Alcotest.(check (option string)) "no run_id" None snap.current_run_id;
+  Alcotest.(check (option string)) "no resolved model" None snap.resolved_model;
   Alcotest.(check (option (float 0.001))) "no accepted_at" None snap.accepted_at;
   Alcotest.(check (option (float 0.001))) "no finished_at" None snap.finished_at
 ;;
@@ -23,7 +23,6 @@ let test_build_snapshot_merge_previous () =
   let prev =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
-      ~provider:None
       ~model:"claude-sonnet-4-6"
       ~accepted_at:100.0
       ~started_at:101.0
@@ -32,7 +31,6 @@ let test_build_snapshot_merge_previous () =
   let snap =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
-      ~provider:None
       ~model:"claude-sonnet-4-6"
       ~previous:prev
       ~finished_at:200.0
@@ -53,7 +51,6 @@ let test_build_snapshot_last_error () =
   let prev =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
-      ~provider:None
       ~model:"claude-sonnet-4-6"
       ~last_error:"previous error"
       Agent_lifecycle.Failed
@@ -61,7 +58,6 @@ let test_build_snapshot_last_error () =
   let snap =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
-      ~provider:None
       ~model:"claude-sonnet-4-6"
       ~previous:prev
       Agent_lifecycle.Running
@@ -72,14 +68,22 @@ let test_build_snapshot_last_error () =
     snap.last_error
 ;;
 
-let test_build_snapshot_with_provider () =
-  let provider : Provider.config =
-    { provider = Anthropic; model_id = "claude-sonnet-4-6"; api_key_env = "TEST" }
+let test_build_snapshot_with_provider_config () =
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:Llm_provider.Provider_config.Anthropic
+      ~provider_id:"anthropic"
+      ~model_id:"carrier-parent-model"
+      ~base_url:"https://api.anthropic.com"
+      ~api_key:"test"
+      ~headers:[ "Content-Type", "application/json" ]
+      ~request_path:"/v1/messages"
+      ()
   in
   let snap =
     Agent_lifecycle.build_snapshot
       ~agent_name:"test-agent"
-      ~provider:(Some provider)
+      ~provider_config
       ~model:"claude-sonnet-4-6"
       Agent_lifecycle.Accepted
   in
@@ -91,70 +95,6 @@ let test_build_snapshot_with_provider () =
     "resolved_model"
     (Some "claude-sonnet-4-6")
     snap.resolved_model
-;;
-
-(* ── provider_runtime_name tests ──────────────────────────── *)
-
-let test_runtime_name_none () =
-  Alcotest.(check (option string))
-    "None provider"
-    None
-    (Agent_lifecycle.provider_runtime_name None)
-;;
-
-let test_runtime_name_local () =
-  let cfg : Provider.config =
-    { provider = Local { base_url = "http://localhost:8085" }
-    ; model_id = "test"
-    ; api_key_env = "DUMMY"
-    }
-  in
-  Alcotest.(check (option string))
-    "local"
-    (Some "local")
-    (Agent_lifecycle.provider_runtime_name (Some cfg))
-;;
-
-let test_runtime_name_anthropic () =
-  let cfg : Provider.config =
-    { provider = Anthropic; model_id = "test"; api_key_env = "DUMMY" }
-  in
-  Alcotest.(check (option string))
-    "anthropic"
-    (Some "anthropic")
-    (Agent_lifecycle.provider_runtime_name (Some cfg))
-;;
-
-let test_runtime_name_openai_compat () =
-  let cfg : Provider.config =
-    { provider =
-        OpenAICompat
-          { base_url = "https://unlisted.example"
-          ; auth_header = None
-          ; path = "/v1/chat"
-          ; static_token = None
-          }
-    ; model_id = "test"
-    ; api_key_env = "DUMMY"
-    }
-  in
-  Alcotest.(check (option string))
-    "openai_compat"
-    (Some "openai_compat")
-    (Agent_lifecycle.provider_runtime_name (Some cfg))
-;;
-
-let test_runtime_name_custom () =
-  let cfg : Provider.config =
-    { provider = Custom_registered { name = "my-custom" }
-    ; model_id = "test"
-    ; api_key_env = "DUMMY"
-    }
-  in
-  Alcotest.(check (option string))
-    "custom"
-    (Some "my-custom")
-    (Agent_lifecycle.provider_runtime_name (Some cfg))
 ;;
 
 (* ── hook_decision_to_string tests ────────────────────────── *)
@@ -357,7 +297,6 @@ let test_lifecycle_snapshot_roundtrip () =
   let snap =
     Agent_lifecycle.build_snapshot
       ~agent_name:"roundtrip-test"
-      ~provider:None
       ~model:"claude-sonnet-4-6"
       ~accepted_at:100.0
       ~started_at:101.0
@@ -390,14 +329,10 @@ let () =
       , [ Alcotest.test_case "fresh snapshot" `Quick test_build_snapshot_fresh
         ; Alcotest.test_case "merge previous" `Quick test_build_snapshot_merge_previous
         ; Alcotest.test_case "last_error carry" `Quick test_build_snapshot_last_error
-        ; Alcotest.test_case "with provider" `Quick test_build_snapshot_with_provider
-        ] )
-    ; ( "provider_runtime_name"
-      , [ Alcotest.test_case "None" `Quick test_runtime_name_none
-        ; Alcotest.test_case "Local" `Quick test_runtime_name_local
-        ; Alcotest.test_case "Anthropic" `Quick test_runtime_name_anthropic
-        ; Alcotest.test_case "OpenAICompat" `Quick test_runtime_name_openai_compat
-        ; Alcotest.test_case "Custom_registered" `Quick test_runtime_name_custom
+        ; Alcotest.test_case
+            "with provider config"
+            `Quick
+            test_build_snapshot_with_provider_config
         ] )
     ; ( "hook_decision"
       , [ Alcotest.test_case "string conversion" `Quick test_hook_decision_strings ] )

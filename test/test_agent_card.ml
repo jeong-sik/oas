@@ -117,12 +117,9 @@ let test_no_tools () =
     (Agent_card.has_capability card Agent_card.Tools)
 ;;
 
-let test_providers_default () =
+let test_providers_empty_stays_empty () =
   let card = Agent_card.of_info base_info in
-  Alcotest.(check (list string))
-    "default provider"
-    [ "anthropic" ]
-    card.supported_providers
+  Alcotest.(check (list string)) "no invented provider" [] card.supported_providers
 ;;
 
 let test_providers_custom () =
@@ -465,7 +462,7 @@ let () =
         ] )
     ; ( "queries"
       , [ test_case "can_handle_tool" `Quick test_can_handle_tool
-        ; test_case "providers default" `Quick test_providers_default
+        ; test_case "providers empty stays empty" `Quick test_providers_empty_stays_empty
         ; test_case "providers custom" `Quick test_providers_custom
         ; test_case "skills from registry" `Quick test_skills_from_registry
         ; test_case "has_capability false" `Quick test_has_capability_false

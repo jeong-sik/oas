@@ -80,6 +80,8 @@ type agent_info =
   ; config : Types.agent_config
   ; tool_schemas : Types.tool_schema list
   ; supported_providers : string list
+    (** Exact provider identities declared by the caller. An empty list stays
+        empty; construction never invents a default provider. *)
   ; mcp_clients_count : int
   ; has_elicitation : bool
     (** [true] for generic elicitation, exact tool approval, or both. *)

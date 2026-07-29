@@ -431,11 +431,12 @@ let test_coarse_sdk_provider_errors_fail_closed () =
     errors
 ;;
 
-let provider_config () : Provider.config =
-  { provider = Provider.Local { base_url = "https://provider.test" }
-  ; model_id = "model-a"
-  ; api_key_env = ""
-  }
+let provider_config () =
+  Provider_mock.local_provider_config
+    ~base_url:"https://provider.test"
+    ~model_id:"model-a"
+    ~request_path:"/v1/chat/completions"
+    ()
 ;;
 
 let transport_error : Http.http_error =
@@ -467,7 +468,7 @@ let empty_transport : Llm_provider.Llm_transport.t =
 let make_agent ~net ~transport name =
   let options =
     { Agent.default_options with
-      provider = Some (provider_config ())
+      provider_config = Some (provider_config ())
     ; transport = Some transport
     }
   in

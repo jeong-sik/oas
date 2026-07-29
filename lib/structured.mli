@@ -25,8 +25,7 @@ val schema_to_json_schema : _ schema -> Yojson.Safe.t
 val extract
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> ?base_url:string
-  -> ?provider:Provider.config
+  -> provider_config:Llm_provider.Provider_config.t
   -> config:agent_config
   -> schema:'a schema
   -> string
@@ -80,8 +79,7 @@ val run_structured
 val extract_stream
   :  sw:Eio.Switch.t
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> ?base_url:string
-  -> ?provider:Provider.config
+  -> provider_config:Llm_provider.Provider_config.t
   -> ?clock:float Eio.Time.clock_ty Eio.Resource.t
   -> config:agent_config
   -> schema:'a schema

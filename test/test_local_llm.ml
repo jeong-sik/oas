@@ -7,21 +7,22 @@
 open Agent_sdk
 open Types
 
-let provider : Provider.config =
-  { provider = Local { base_url = "http://127.0.0.1:8085" }
-  ; model_id = "dashscope-3.5-35b-a3b-ud-q8-xl"
-  ; api_key_env = "DUMMY_KEY"
-  }
+let base_url = "http://127.0.0.1:8085"
+let local_model = "dashscope-3.5-35b-a3b-ud-q8-xl"
+
+let provider_config =
+  Llm_provider.Provider_config.make
+    ~kind:Llm_provider.Provider_config.OpenAI_compat
+    ~provider_id:"local"
+    ~model_id:local_model
+    ~base_url
+    ~api_key:""
+    ~headers:[ "Content-Type", "application/json" ]
+    ~request_path:"/v1/chat/completions"
+    ()
 ;;
 
-let base_url =
-  match provider.provider with
-  | Provider.Local { base_url } -> base_url
-  | _ -> "http://127.0.0.1:8085"
-;;
-
-let local_model = provider.model_id
-let options = { Agent.default_options with base_url; provider = Some provider }
+let options = { Agent.default_options with provider_config = Some provider_config }
 
 let provider_m_config name system_prompt max_tokens =
   { (default_config ~model:local_model) with

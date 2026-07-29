@@ -94,25 +94,6 @@ module Tool_middleware = Tool_middleware
 module Durable_event = Durable_event
 module Journal_bridge = Journal_bridge
 
-(** {1 Quick Start} *)
-
-(** Create an agent with default config.
-    Convenience wrapper around {!Agent.create}. *)
-val create_agent
-  :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
-  -> model:Types.model
-  -> ?name:string
-  -> ?system_prompt:string
-  -> ?max_tokens:int
-  -> ?enable_thinking:bool
-  -> ?thinking_budget:int
-  -> ?reasoning_effort:Llm_provider.Reasoning_effort.t
-  -> ?cache_system_prompt:bool
-  -> ?provider:Provider.config
-  -> ?raw_trace:Raw_trace.t
-  -> unit
-  -> Agent.t
-
 (** {1 Version} *)
 
 val version : string

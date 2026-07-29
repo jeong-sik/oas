@@ -66,18 +66,13 @@ let prepare_turn ~tools ~messages ~turn_params ?model_input_projection () =
 
 (* ── Usage accumulation ───────────────────────────────────────── *)
 
-let pricing_identity ~provider ~provider_config ~response_model =
+let pricing_identity ~provider_config ~response_model =
   let provider_id, configured_model =
     match provider_config with
     | Some config ->
       ( config.Llm_provider.Provider_config.provider_id
       , Util.trim_non_empty_opt (Some config.Llm_provider.Provider_config.model_id) )
-    | None ->
-      (match provider with
-       | Some (config : Provider.config) ->
-         ( Some (Provider_runtime_binding.provider_id_of_config config)
-         , Util.trim_non_empty_opt (Some config.model_id) )
-       | None -> None, None)
+    | None -> None, None
   in
   let response_model = Util.trim_non_empty_opt response_model in
   provider_id, Util.first_some response_model configured_model
@@ -96,22 +91,14 @@ let with_pricing_gap usage model_id =
     }
 ;;
 
-let accumulate_usage
-      ~current_usage
-      ~provider_config
-      ~provider
-      ~response_model
-      ~response_usage
-  =
+let accumulate_usage ~current_usage ~provider_config ~response_model ~response_usage =
   match response_usage with
   | Some u ->
     let base = add_usage current_usage u in
     (match u.cost_usd with
      | Some cost -> { base with estimated_cost_usd = base.estimated_cost_usd +. cost }
      | None ->
-       let provider_id, model_id =
-         pricing_identity ~provider ~provider_config ~response_model
-       in
+       let provider_id, model_id = pricing_identity ~provider_config ~response_model in
        (match model_id with
         | None -> with_pricing_gap base None
         | Some model_id ->

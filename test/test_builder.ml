@@ -265,23 +265,7 @@ let test_with_context () =
      | _ -> None)
 ;;
 
-(* --- 14. with_provider --- *)
-
-let test_with_provider () =
-  with_net
-  @@ fun net ->
-  let provider = Provider.anthropic ~model_id:"claude-haiku-4-5-20251001" () in
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_provider provider
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check bool)
-    "provider set"
-    true
-    (Option.is_some (Agent.options agent).provider)
-;;
+(* --- 14. exact provider config --- *)
 
 let exact_provider_config () =
   let schema = `Assoc [ "type", `String "object" ] in
@@ -347,12 +331,8 @@ let test_with_provider_config_reaches_dispatch_losslessly () =
     }
   in
   let provider_config = exact_provider_config () in
-  let legacy =
-    Provider.local_llm ~base_url:"http://legacy.invalid" ~model_id:"legacy" ()
-  in
   let agent =
     Builder.create ~net ~model:"initial-model"
-    |> Builder.with_provider legacy
     |> Builder.with_provider_config provider_config
     |> Builder.with_max_tokens 777
     |> Builder.with_temperature 0.25
@@ -361,10 +341,6 @@ let test_with_provider_config_reaches_dispatch_losslessly () =
     |> Builder.build_safe
     |> Result.get_ok
   in
-  Alcotest.(check bool)
-    "typed selection clears legacy provider"
-    true
-    (Option.is_none (Agent.options agent).provider);
   Alcotest.(check bool)
     "exact carrier retained"
     true
@@ -449,6 +425,44 @@ let test_with_provider_config_reaches_dispatch_losslessly () =
     "later response format setter wins"
     (Types.show_response_format Types.JsonMode)
     (Types.show_response_format dispatched.response_format)
+;;
+
+let test_missing_provider_config_is_rejected_at_dispatch () =
+  with_net
+  @@ fun net ->
+  let transport_called = ref false in
+  let response : Types.api_response =
+    { id = "must-not-dispatch"
+    ; model = "must-not-dispatch"
+    ; stop_reason = Types.EndTurn
+    ; content = [ Types.Text "must not dispatch" ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          transport_called := true;
+          { response = Ok response; latency_ms = Some 0 })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ _request ->
+          transport_called := true;
+          Ok response)
+    }
+  in
+  let agent =
+    Builder.create ~net ~model:"missing-provider-config"
+    |> Builder.with_transport transport
+    |> Builder.build_safe
+    |> Result.get_ok
+  in
+  (match Eio.Switch.run (fun sw -> Agent.run ~sw agent "hello") with
+   | Error (Error.Config (Error.InvalidConfig { field; _ })) ->
+     Alcotest.(check string) "exact carrier field" "provider_config" field
+   | Error error -> Alcotest.failf "unexpected error: %s" (Error.to_string error)
+   | Ok _ -> Alcotest.fail "missing provider_config reached transport");
+  Alcotest.(check bool) "transport not called" false !transport_called
 ;;
 
 let test_handoff_inherits_injected_transport () =
@@ -537,63 +551,7 @@ let test_handoff_inherits_injected_transport () =
   Alcotest.(check int) "all scripted responses consumed" 0 (List.length !responses)
 ;;
 
-let test_provider_selection_last_setter_wins () =
-  with_net
-  @@ fun net ->
-  let exact = exact_provider_config () in
-  let legacy =
-    Provider.local_llm ~base_url:"http://legacy.invalid" ~model_id:"legacy" ()
-  in
-  let legacy_last =
-    Builder.create ~net ~model:"initial"
-    |> Builder.with_provider_config exact
-    |> Builder.with_provider legacy
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check bool)
-    "legacy selection clears exact carrier"
-    true
-    (Option.is_none (Agent.provider_config legacy_last));
-  Alcotest.(check bool)
-    "legacy selection retained"
-    true
-    (Option.is_some (Agent.options legacy_last).provider);
-  let exact_last =
-    Builder.create ~net ~model:"initial"
-    |> Builder.with_provider legacy
-    |> Builder.with_provider_config exact
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check bool)
-    "exact selection clears legacy provider"
-    true
-    (Option.is_none (Agent.options exact_last).provider);
-  Alcotest.(check bool)
-    "exact selection retained"
-    true
-    (Option.is_some (Agent.provider_config exact_last))
-;;
-
-(* --- 15. with_base_url --- *)
-
-let test_with_base_url () =
-  with_net
-  @@ fun net ->
-  let agent =
-    Builder.create ~net ~model:"claude-sonnet-4-6"
-    |> Builder.with_base_url "http://localhost:8080"
-    |> Builder.build_safe
-    |> Result.get_ok
-  in
-  Alcotest.(check string)
-    "base_url"
-    "http://localhost:8080"
-    (Agent.options agent).base_url
-;;
-
-(* --- 16. with_mcp_clients --- *)
+(* --- 15. with_mcp_clients --- *)
 
 let test_with_mcp_clients () =
   with_net
@@ -819,7 +777,6 @@ let test_chain_multiple () =
     |> Builder.with_temperature 0.5
     |> Builder.with_tool t1
     |> Builder.with_tool t2
-    |> Builder.with_base_url "http://test:9090"
     |> Builder.with_enable_thinking true
     |> Builder.with_thinking_budget 5000
     |> Builder.build_safe
@@ -831,7 +788,6 @@ let test_chain_multiple () =
     (Some 1024)
     (Agent.state agent).config.max_tokens;
   Alcotest.(check int) "tool count" 2 (Tool_set.size (Agent.tools agent));
-  Alcotest.(check string) "base_url" "http://test:9090" (Agent.options agent).base_url;
   Alcotest.(check (option int))
     "thinking_budget"
     (Some 5000)
@@ -879,14 +835,6 @@ let test_defaults_match_agent_create () =
     "cache_system_prompt"
     dc.cache_system_prompt
     bc.cache_system_prompt;
-  Alcotest.(check string)
-    "base_url"
-    (Agent.options direct_agent).base_url
-    (Agent.options builder_agent).base_url;
-  Alcotest.(check bool)
-    "provider none"
-    (Option.is_none (Agent.options direct_agent).provider)
-    (Option.is_none (Agent.options builder_agent).provider);
   Alcotest.(check int) "tools" 0 (Tool_set.size (Agent.tools builder_agent))
 ;;
 
@@ -921,11 +869,7 @@ let test_build_minimal_required_only () =
   check_model "model" "claude-3-7-sonnet" (Agent.state agent).config.model;
   Alcotest.(check string) "name" "agent" (Agent.state agent).config.name;
   Alcotest.(check (option int)) "max_tokens" None (Agent.state agent).config.max_tokens;
-  Alcotest.(check int) "tools" 0 (Tool_set.size (Agent.tools agent));
-  Alcotest.(check string)
-    "base_url"
-    "https://api.anthropic.com"
-    (Agent.options agent).base_url
+  Alcotest.(check int) "tools" 0 (Tool_set.size (Agent.tools agent))
 ;;
 
 (* --- Run all --- *)
@@ -946,20 +890,18 @@ let () =
         ; Alcotest.test_case "tracer" `Quick test_with_tracer
         ; Alcotest.test_case "transport" `Quick test_with_transport
         ; Alcotest.test_case "context" `Quick test_with_context
-        ; Alcotest.test_case "provider" `Quick test_with_provider
         ; Alcotest.test_case
             "exact provider config reaches dispatch losslessly"
             `Quick
             test_with_provider_config_reaches_dispatch_losslessly
         ; Alcotest.test_case
+            "missing provider config rejected at dispatch"
+            `Quick
+            test_missing_provider_config_is_rejected_at_dispatch
+        ; Alcotest.test_case
             "handoff inherits injected transport"
             `Quick
             test_handoff_inherits_injected_transport
-        ; Alcotest.test_case
-            "provider selection last setter wins"
-            `Quick
-            test_provider_selection_last_setter_wins
-        ; Alcotest.test_case "base_url" `Quick test_with_base_url
         ; Alcotest.test_case "mcp_clients" `Quick test_with_mcp_clients
         ; Alcotest.test_case
             "contract composes prompt"

@@ -64,7 +64,7 @@ let make_empty_agent ~net ~stop_reason ~name =
   let options =
     { Agent_types.default_options with
       transport = Some (mk_empty_transport stop_reason)
-    ; provider = Some (Provider_mock.to_provider_config ())
+    ; provider_config = Some (Provider_mock.to_provider_config ())
     }
   in
   Agent.create
@@ -159,13 +159,22 @@ let test_stage_route_passes_trace_context_headers () =
   let transport = mk_header_capture_transport observed_headers in
   let provider =
     Some
-      { Provider.provider = Provider.Custom_registered { name = "nous" }
-      ; model_id = "gpt-4"
-      ; api_key_env = ""
-      }
+      (Llm_provider.Provider_config.make
+         ~kind:Llm_provider.Provider_config.OpenAI_compat
+         ~provider_id:"nous"
+         ~model_id:"gpt-4"
+         ~base_url:"http://test.invalid"
+         ~api_key:""
+         ~headers:[ "Content-Type", "application/json" ]
+         ~request_path:"/v1/chat/completions"
+         ())
   in
   let options =
-    { Agent_types.default_options with transport = Some transport; tracer; provider }
+    { Agent_types.default_options with
+      transport = Some transport
+    ; tracer
+    ; provider_config = provider
+    }
   in
   let agent =
     Agent.create
@@ -248,13 +257,21 @@ let test_sdk_error_preserves_streaming_timeout_phase () =
   in
   let provider =
     Some
-      { Provider.provider = Provider.Custom_registered { name = "nous" }
-      ; model_id = "gpt-4"
-      ; api_key_env = ""
-      }
+      (Llm_provider.Provider_config.make
+         ~kind:Llm_provider.Provider_config.OpenAI_compat
+         ~provider_id:"nous"
+         ~model_id:"gpt-4"
+         ~base_url:"http://test.invalid"
+         ~api_key:""
+         ~headers:[ "Content-Type", "application/json" ]
+         ~request_path:"/v1/chat/completions"
+         ())
   in
   let options =
-    { Agent_types.default_options with transport = Some transport; provider }
+    { Agent_types.default_options with
+      transport = Some transport
+    ; provider_config = provider
+    }
   in
   let agent =
     Agent.create

@@ -7,11 +7,12 @@ let check_int = Alcotest.(check int)
 let check_string = Alcotest.(check string)
 let check_opt_string = Alcotest.(check (option string))
 
-let openai_config : Provider.config =
-  { provider = Local { base_url = "http://127.0.0.1:65535" }
-  ; model_id = "openai_chat"
-  ; api_key_env = "DUMMY_KEY"
-  }
+let openai_config =
+  Provider_mock.local_provider_config
+    ~base_url:"http://127.0.0.1:65535"
+    ~model_id:"openai_chat"
+    ~request_path:"/v1/chat/completions"
+    ()
 ;;
 
 let echo_tool =
@@ -99,7 +100,7 @@ let test_agent_type_accessors_card_and_state_mutators () =
   let options =
     { Internal_agent.default_options with
       description = Some "Coverage agent"
-    ; provider = Some openai_config
+    ; provider_config = Some openai_config
     }
   in
   Eio_main.run
@@ -119,9 +120,9 @@ let test_agent_type_accessors_card_and_state_mutators () =
     (Some "Coverage agent")
     (Internal_agent.description agent);
   check_bool
-    "provider option"
+    "provider config option"
     true
-    (Option.is_some (Internal_agent.options agent).provider);
+    (Option.is_some (Internal_agent.options agent).provider_config);
   let card = Internal_agent.card agent in
   check_string "card name" "coverage-agent" card.name;
   check_opt_string "card description" (Some "Coverage agent") card.description;

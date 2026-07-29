@@ -276,26 +276,6 @@ let test_error_message_all_variants () =
     cases
 ;;
 
-let test_provider_constructors () =
-  let p =
-    Provider.local_llm
-      ~base_url:Llm_provider.Constants.Endpoints.default_url_localhost
-      ~model_id:"test-model"
-      ()
-  in
-  check string "local exact model" "test-model" p.model_id;
-  let p = Provider.anthropic ~model_id:"claude-sonnet-4-6" () in
-  check string "anthropic exact sonnet" "claude-sonnet-4-6" p.model_id;
-  let p = Provider.anthropic ~model_id:"claude-haiku-4-5-20251001" () in
-  check string "anthropic exact haiku" "claude-haiku-4-5-20251001" p.model_id;
-  let p = Provider.anthropic ~model_id:"claude-opus-4-6" () in
-  check string "anthropic exact opus" "claude-opus-4-6" p.model_id;
-  let p = Provider.openrouter ~model_id:"test-model" () in
-  check string "openrouter exact model" "test-model" p.model_id;
-  let p = Provider.openrouter ~model_id:"google/gemini-2.5-pro" () in
-  check string "openrouter override" "google/gemini-2.5-pro" p.model_id
-;;
-
 let () =
   run
     "Retry"
@@ -324,6 +304,5 @@ let () =
             test_invalid_request_reason_boundary
         ; test_case "error_message all variants" `Quick test_error_message_all_variants
         ] )
-    ; "providers", [ test_case "constructor defaults" `Quick test_provider_constructors ]
     ]
 ;;

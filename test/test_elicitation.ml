@@ -195,8 +195,7 @@ let test_agent_elicit_input_without_callback_pauses () =
   in
   let options =
     { Agent.default_options with
-      base_url = "http://unused"
-    ; hooks = { Hooks.empty with before_turn = Some before_turn }
+      hooks = { Hooks.empty with before_turn = Some before_turn }
     }
   in
   let config =

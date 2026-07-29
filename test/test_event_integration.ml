@@ -11,6 +11,18 @@ open Agent_sdk
 
 let event_kind (event : Event_bus.event) = Event_bus.payload_kind event.payload
 
+let local_provider_config ~base_url ~model_id =
+  Llm_provider.Provider_config.make
+    ~kind:Llm_provider.Provider_config.OpenAI_compat
+    ~provider_id:"test"
+    ~model_id
+    ~base_url
+    ~api_key:""
+    ~headers:[ "Content-Type", "application/json" ]
+    ~request_path:"/v1/chat/completions"
+    ()
+;;
+
 (* ── A. run_with_handoffs emits Handoff{Requested,Completed} ──── *)
 
 (* Reuse the same mock wire format as test_handoff: OpenAI-compatible
@@ -102,13 +114,10 @@ let test_handoff_emits_request_and_completion () =
       ; tools = []
       }
     in
-    let provider : Provider.config =
-      { provider = Provider.Local { base_url }; model_id = "mock"; api_key_env = "" }
-    in
+    let provider_config = local_provider_config ~base_url ~model_id:"mock" in
     let options =
       { Agent.default_options with
-        base_url
-      ; provider = Some provider
+        provider_config = Some provider_config
       ; event_bus = Some bus
       }
     in
@@ -210,13 +219,10 @@ let index_of_kind kind names =
 ;;
 
 let run_agent_once ~sw env ~base_url bus =
-  let provider : Provider.config =
-    { provider = Provider.Local { base_url }; model_id = "mock"; api_key_env = "" }
-  in
+  let provider_config = local_provider_config ~base_url ~model_id:"mock" in
   let options =
     { Agent.default_options with
-      base_url
-    ; provider = Some provider
+      provider_config = Some provider_config
     ; event_bus = Some bus
     }
   in
@@ -372,13 +378,10 @@ let test_run_emits_terminal_on_switch_cancel () =
       |> Result.get_ok
     in
     let sub = Event_bus.subscribe ~config bus in
-    let provider : Provider.config =
-      { provider = Provider.Local { base_url }; model_id = "mock"; api_key_env = "" }
-    in
+    let provider_config = local_provider_config ~base_url ~model_id:"mock" in
     let options =
       { Agent.default_options with
-        base_url
-      ; provider = Some provider
+        provider_config = Some provider_config
       ; event_bus = Some bus
       }
     in

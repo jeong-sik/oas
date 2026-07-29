@@ -6,6 +6,18 @@
 
 open Agent_sdk
 
+let local_provider_config ~base_url ~model_id =
+  Llm_provider.Provider_config.make
+    ~kind:Llm_provider.Provider_config.OpenAI_compat
+    ~provider_id:"test"
+    ~model_id
+    ~base_url
+    ~api_key:""
+    ~headers:[ "Content-Type", "application/json" ]
+    ~request_path:"/v1/chat/completions"
+    ()
+;;
+
 let contains_substring ~sub text =
   let sub_len = String.length sub in
   let text_len = String.length text in
@@ -106,12 +118,8 @@ let make_agent ~net ~transport () =
     { Agent.default_options with
       transport = Some transport
     ; event_bus = Some event_bus
-    ; provider =
-        Some
-          { provider = Provider.Local { base_url = "http://mock.local" }
-          ; model_id = "mock-model"
-          ; api_key_env = ""
-          }
+    ; provider_config =
+        Some (local_provider_config ~base_url:"http://mock.local" ~model_id:"mock-model")
     }
   in
   let config =
@@ -142,12 +150,8 @@ let make_checkpoint_agent
     ; journal
     ; hooks
     ; context_injector
-    ; provider =
-        Some
-          { provider = Provider.Local { base_url = "http://mock.local" }
-          ; model_id = "mock-model"
-          ; api_key_env = ""
-          }
+    ; provider_config =
+        Some (local_provider_config ~base_url:"http://mock.local" ~model_id:"mock-model")
     }
   in
   let config =
@@ -222,12 +226,8 @@ let test_run_stream_without_event_bus_skips_telemetry () =
   let options =
     { Agent.default_options with
       transport = Some transport
-    ; provider =
-        Some
-          { provider = Provider.Local { base_url = "http://mock.local" }
-          ; model_id = "mock-model"
-          ; api_key_env = ""
-          }
+    ; provider_config =
+        Some (local_provider_config ~base_url:"http://mock.local" ~model_id:"mock-model")
     }
   in
   let config =

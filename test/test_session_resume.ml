@@ -300,22 +300,29 @@ let test_resume_default_options () =
   @@ fun net ->
   let cp = make_checkpoint () in
   let agent = Agent.resume ~net ~checkpoint:cp () in
-  Alcotest.(check string)
-    "base_url"
-    Llm_provider.Api_common.default_base_url
-    (Agent.options agent).base_url
+  Alcotest.(check bool)
+    "no provider config"
+    true
+    (Option.is_none (Agent.options agent).provider_config)
 ;;
 
 let test_resume_custom_options () =
   with_net
   @@ fun net ->
   let cp = make_checkpoint () in
-  let opts = { Agent.default_options with base_url = "http://localhost:8080" } in
+  let provider_config =
+    Provider_mock.local_provider_config
+      ~base_url:"http://localhost:8080"
+      ~model_id:"resume-model"
+      ~request_path:"/v1/chat/completions"
+      ()
+  in
+  let opts = { Agent.default_options with provider_config = Some provider_config } in
   let agent = Agent.resume ~net ~checkpoint:cp ~options:opts () in
   Alcotest.(check string)
-    "custom base_url"
+    "custom provider endpoint"
     "http://localhost:8080"
-    (Agent.options agent).base_url
+    (Option.get (Agent.options agent).provider_config).base_url
 ;;
 
 let test_resume_with_config_override () =

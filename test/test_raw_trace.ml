@@ -239,19 +239,13 @@ let test_agent_run_stream_append_only_raw_trace () =
       Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
     let options =
       { Agent.default_options with
-        base_url
-      ; provider =
+        provider_config =
           Some
-            { Provider.provider =
-                Provider.OpenAICompat
-                  { base_url
-                  ; auth_header = None
-                  ; path = "/chat/completions"
-                  ; static_token = None
-                  }
-            ; model_id = "test-model"
-            ; api_key_env = "DUMMY_KEY"
-            }
+            (Provider_mock.local_provider_config
+               ~base_url
+               ~model_id:"test-model"
+               ~request_path:"/chat/completions"
+               ())
       ; raw_trace = Some sink
       }
     in

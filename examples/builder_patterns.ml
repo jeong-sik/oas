@@ -4,11 +4,11 @@
     - Builder.create -> chain -> build_safe
     - Minimal vs full configuration
     - Validation errors from build_safe
-    - with_hooks, with_provider
+    - with_hooks, with_provider_config
     - with_context, with_initial_messages
 
     Prerequisites:
-    - A running llama-server on port 8085 (or set provider accordingly)
+    - A running llama-server on port 8085
 
     Usage:
       dune exec examples/builder_patterns.exe *)
@@ -16,15 +16,25 @@
 open Agent_sdk
 open Types
 
+let local_provider_config ~model_id =
+  Llm_provider.Provider_config.make
+    ~kind:OpenAI_compat
+    ~model_id
+    ~base_url:"http://127.0.0.1:8085"
+    ()
+;;
+
 (* ── 1. Minimal builder ──────────────────────────────── *)
 
 let demo_minimal () =
   Printf.printf "--- 1. Minimal Builder ---\n";
   Eio_main.run
   @@ fun env ->
+  let provider_config = local_provider_config ~model_id:"test-model" in
   let agent =
-    Builder.create ~net:env#net ~model:"test-model"
+    Builder.create ~net:env#net ~model:provider_config.model_id
     |> Builder.with_name "minimal"
+    |> Builder.with_provider_config provider_config
     |> Builder.build_safe
     |> Result.get_ok
   in
@@ -59,8 +69,10 @@ let demo_full () =
     }
   in
   let result =
-    Builder.create ~net:env#net ~model:"test-model"
+    let provider_config = local_provider_config ~model_id:"test-model" in
+    Builder.create ~net:env#net ~model:provider_config.model_id
     |> Builder.with_name "full-demo"
+    |> Builder.with_provider_config provider_config
     |> Builder.with_system_prompt "You are a helpful assistant."
     |> Builder.with_max_tokens 1024
     |> Builder.with_temperature 0.7
@@ -91,8 +103,10 @@ let demo_validation_error () =
   Printf.printf "\n--- 3. Validation Error ---\n";
   Eio_main.run
   @@ fun env ->
+  let provider_config = local_provider_config ~model_id:"test-model" in
   let result =
-    Builder.create ~net:env#net ~model:"test-model"
+    Builder.create ~net:env#net ~model:provider_config.model_id
+    |> Builder.with_provider_config provider_config
     |> Builder.with_max_tokens (-1) (* invalid provider request bound *)
     |> Builder.build_safe
   in
@@ -109,9 +123,11 @@ let demo_context () =
   @@ fun env ->
   let ctx = Context.create () in
   Context.set ctx "shared_key" (`String "shared_value");
+  let provider_config = local_provider_config ~model_id:"test-model" in
   let agent =
-    Builder.create ~net:env#net ~model:"test-model"
+    Builder.create ~net:env#net ~model:provider_config.model_id
     |> Builder.with_name "ctx-demo"
+    |> Builder.with_provider_config provider_config
     |> Builder.with_context ctx
     |> Builder.build_safe
     |> Result.get_ok

@@ -2,7 +2,6 @@
 
     Prerequisites:
     - A running llama-server (or any OpenAI-compatible endpoint) on port 8085
-    - Or set OAS_PROVIDER=anthropic and ANTHROPIC_API_KEY
 
     Usage:
       dune exec examples/basic_agent.exe *)
@@ -16,13 +15,21 @@ let () =
   let net = Eio.Stdenv.net env in
   Eio.Switch.run
   @@ fun sw ->
+  let provider_config =
+    Llm_provider.Provider_config.make
+      ~kind:OpenAI_compat
+      ~model_id:"qwen3.5"
+      ~base_url:"http://127.0.0.1:8085"
+      ()
+  in
   let config =
-    { (default_config ~model:"claude-sonnet-4-6") with
+    { (default_config ~model:provider_config.model_id) with
       name = "hello-agent"
     ; system_prompt = Some "You are a helpful assistant. Be concise."
     }
   in
-  let agent = Agent.create ~net ~config ~tools:[] () in
+  let options = { Agent.default_options with provider_config = Some provider_config } in
+  let agent = Agent.create ~net ~config ~options ~tools:[] () in
   match Agent.run ~sw agent "What is 2 + 2? Answer in one word." with
   | Ok response ->
     List.iter

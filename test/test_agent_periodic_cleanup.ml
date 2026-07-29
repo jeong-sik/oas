@@ -16,11 +16,12 @@ let response : Types.api_response =
   }
 ;;
 
-let provider : Provider.config =
-  { provider = Provider.Local { base_url = "http://mock.local" }
-  ; model_id = "mock-model"
-  ; api_key_env = ""
-  }
+let provider_config =
+  Provider_mock.local_provider_config
+    ~base_url:"http://mock.local"
+    ~model_id:"mock-model"
+    ~request_path:"/v1/chat/completions"
+    ()
 ;;
 
 let make_transport ~clock ~sleep_s () : Llm_provider.Llm_transport.t =
@@ -38,7 +39,7 @@ let make_transport ~clock ~sleep_s () : Llm_provider.Llm_transport.t =
 let make_agent ?on_run_complete ?raw_trace ~net ~transport ?(periodic_callbacks = []) () =
   let options =
     { Agent.default_options with
-      provider = Some provider
+      provider_config = Some provider_config
     ; transport = Some transport
     ; periodic_callbacks
     ; on_run_complete

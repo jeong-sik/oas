@@ -58,14 +58,12 @@ val prepare_turn
 (** {1 Usage accumulation} *)
 
 (** Accumulate response usage into running totals, including observational cost
-    estimation. [provider_config] and [provider] are alternative identity
-    carriers; the exact non-empty [response_model] takes precedence over the
+    estimation. The exact non-empty [response_model] takes precedence over the
     configured request model. Missing or incomplete pricing records a gap and
     never blocks the turn. *)
 val accumulate_usage
   :  current_usage:Types.usage_stats
   -> provider_config:Llm_provider.Provider_config.t option
-  -> provider:Provider.config option
   -> response_model:string option
   -> response_usage:Types.api_usage option
   -> Types.usage_stats

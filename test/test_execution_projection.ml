@@ -64,12 +64,17 @@ let child_agent ~net =
   let options =
     { Agent.default_options with
       transport = Some child_transport
-    ; provider =
+    ; provider_config =
         Some
-          { Provider.provider = Provider.Local { base_url = "http://projection.invalid" }
-          ; model_id = "projection-child-model"
-          ; api_key_env = ""
-          }
+          (Llm_provider.Provider_config.make
+             ~kind:Llm_provider.Provider_config.OpenAI_compat
+             ~provider_id:"test"
+             ~base_url:"http://projection.invalid"
+             ~model_id:"projection-child-model"
+             ~api_key:""
+             ~headers:[ "Content-Type", "application/json" ]
+             ~request_path:"/v1/chat/completions"
+             ())
     }
   in
   Agent.create

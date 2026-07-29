@@ -41,8 +41,7 @@ type model_input_projection = Types.message list -> (Types.message list, string)
 type pre_dispatch_serialization_observer = Llm_provider.Request_wire_observer.try_observe
 
 type options =
-  { base_url : string
-  ; provider : Provider.config option
+  { provider_config : Llm_provider.Provider_config.t option
   ; stream_idle_timeout_s : float option
     (** Inter-line idle deadline applied to streaming HTTP responses.
         Threaded through {!Pipeline.stage_route} into
@@ -171,7 +170,6 @@ type t =
   ; net : [ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   ; context : Context.t
   ; options : options
-  ; provider_config : Llm_provider.Provider_config.t option
   ; context_fit_admission : context_fit_admission
   ; model_input_projection : model_input_projection option
   ; pre_dispatch_serialization_observer : pre_dispatch_serialization_observer option
@@ -207,7 +205,6 @@ val create
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
-  -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
   -> ?model_input_projection:model_input_projection
   -> ?pre_dispatch_serialization_observer:pre_dispatch_serialization_observer

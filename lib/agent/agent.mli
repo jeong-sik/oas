@@ -42,8 +42,7 @@ type model_input_projection = Agent_types.model_input_projection
 type pre_dispatch_serialization_observer = Agent_types.pre_dispatch_serialization_observer
 
 type options = Agent_types.options =
-  { base_url : string
-  ; provider : Provider.config option
+  { provider_config : Llm_provider.Provider_config.t option
   ; stream_idle_timeout_s : float option
   ; first_event_timeout_s : float option
   ; body_timeout_s : float option
@@ -107,9 +106,8 @@ val sdk_version : string
     rather than through {!options} so callers that construct options records
     remain source-compatible.
 
-    [provider_config] is the exact typed provider carrier. When supplied it
-    replaces [options.provider]; endpoint, credential, request path, headers,
-    and capability overrides are not reconstructed from the legacy option.
+    [options.provider_config] is the exact typed provider carrier. Endpoint,
+    credential, request path, headers, and capability overrides are preserved.
 
     [context_fit_admission], [model_input_projection], and
     [pre_dispatch_serialization_observer] are separate from [options] so callers
@@ -128,7 +126,6 @@ val create
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
-  -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
   -> ?model_input_projection:model_input_projection
   -> ?pre_dispatch_serialization_observer:pre_dispatch_serialization_observer
@@ -537,8 +534,8 @@ val run_with_handoffs_blocks_detailed
     non-persisted runtime fields use those defaults. The optional sink is the same caller-owned
     turn-boundary checkpoint sink used by {!create}. It is not stored in
     {!options}; pass it explicitly when resumed turns should continue emitting
-    crash-recovery checkpoints. An explicit [provider_config] replaces
-    [options.provider] under the same exact-carrier contract as {!create}.
+    crash-recovery checkpoints. [options.provider_config] uses the same
+    exact-carrier contract as {!create}.
     [context_fit_admission], [model_input_projection], and
     [pre_dispatch_serialization_observer] must be supplied again when a resumed
     Agent should retain opt-in provider-fit enforcement, caller-owned
@@ -549,7 +546,6 @@ val resume
   -> ?tools:Tool.t list
   -> ?context:Context.t
   -> ?options:options
-  -> ?provider_config:Llm_provider.Provider_config.t
   -> ?context_fit_admission:context_fit_admission
   -> ?model_input_projection:model_input_projection
   -> ?pre_dispatch_serialization_observer:pre_dispatch_serialization_observer

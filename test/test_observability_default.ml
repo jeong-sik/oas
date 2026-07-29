@@ -10,16 +10,20 @@
 
 open Agent_sdk
 
-(* The agent's provider config. [Provider.Local] resolves to provider kind
-   [OpenAI_compat] (provider.ml), so [Complete_common.patch_telemetry] stamps
-   the response telemetry with that kind on the way back through [Complete].
+(* The agent's exact provider config selects [OpenAI_compat], so
+   [Complete_common.patch_telemetry] stamps the response telemetry with that kind.
    The producer therefore emits [provider = "openai_compat"] regardless of the
    value the mock transport sets, which is what the emit test asserts. *)
-let mock_provider : Provider.config =
-  { provider = Provider.Local { base_url = "http://mock.local" }
-  ; model_id = "mock-model"
-  ; api_key_env = ""
-  }
+let mock_provider =
+  Llm_provider.Provider_config.make
+    ~kind:Llm_provider.Provider_config.OpenAI_compat
+    ~provider_id:"test"
+    ~api_key:""
+    ~headers:[ "Content-Type", "application/json" ]
+    ~request_path:"/v1/chat/completions"
+    ~base_url:"http://mock.local"
+    ~model_id:"mock-model"
+    ()
 ;;
 
 (* A completed-turn response carrying usage and llama-server-style timings.
@@ -195,7 +199,7 @@ let test_pipeline_emits_inference_telemetry_on_default_bus () =
   let agent =
     Builder.create ~net ~model:"mock-model"
     |> Builder.with_name "obs-emit"
-    |> Builder.with_provider mock_provider
+    |> Builder.with_provider_config mock_provider
     |> Builder.with_transport transport
     |> build_or_fail
   in
@@ -268,7 +272,7 @@ let test_tools_turns_and_interleaving_observed_by_default () =
   let agent =
     Builder.create ~net ~model:"mock-model"
     |> Builder.with_name "obs-tools"
-    |> Builder.with_provider mock_provider
+    |> Builder.with_provider_config mock_provider
     |> Builder.with_transport transport
     |> Builder.with_tool get_time_tool
     |> build_or_fail

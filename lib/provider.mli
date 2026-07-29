@@ -1,36 +1,7 @@
-(** LLM Provider abstraction.
+(** Shared capability, pricing, authentication, and agent-turn projections.
 
     @stability Stable
     @since 0.93.1 *)
-
-type provider =
-  | Local of { base_url : string }
-  | Anthropic
-  | OpenAICompat of
-      { base_url : string
-      ; auth_header : string option
-      ; path : string
-      ; static_token : string option
-      }
-  | Custom_registered of { name : string }
-
-type config =
-  { provider : provider
-  ; model_id : string
-  ; api_key_env : string
-  }
-
-type request_kind =
-  | Anthropic_messages
-  | Openai_chat_completions
-  | Custom of string
-
-type modality =
-  | Text
-  | Image
-  | Audio
-  | Video
-  | Multimodal
 
 (** Wire-format for controlling thinking/reasoning on OpenAI-compat backends.
 
@@ -117,11 +88,8 @@ type task = Llm_provider.Capabilities.task =
 
 (* Re-export the canonical capabilities record from [Llm_provider.Capabilities]
    with its type equality exposed, so downstream consumers (e.g. catalog
-   overlays) can pass an [Llm_provider.Capabilities.capabilities] straight into
-   [register_provider] instead of hand-copying all fields. provider.ml already
-   [include]s [Llm_provider.Capabilities]; this only surfaces that identity
-   through the interface. The field list is kept for in-repo documentation and
-   is checked against the source record by the compiler. *)
+   overlays) do not hand-copy fields. The field list is kept for in-repo
+   documentation and is checked against the source record by the compiler. *)
 type capabilities = Llm_provider.Capabilities.capabilities =
   { max_context_tokens : int option
   ; serving_constraint : Llm_provider.Serving_constraint.t option
@@ -167,61 +135,15 @@ type capabilities = Llm_provider.Capabilities.capabilities =
   ; supported_models : string list option
   }
 
-type inference_contract =
-  { provider : provider
-  ; model_id : string
-  ; modality : modality
-  ; task : task option
-    (** Catalog-declared task threaded from [capabilities.task]; [None] for
-        every model whose catalog entry declares no [task] field. *)
-  }
-
-type model_spec =
-  { provider : provider
-  ; model_id : string
-  ; api_key_env : string
-  ; request_kind : request_kind
-  ; request_path : string
-  ; capabilities : capabilities
-  }
-
-val request_kind : provider -> request_kind
-val request_path : provider -> string
-val modality_to_string : modality -> string
-val task_to_string : task -> string
-val modality_of_capabilities : capabilities -> modality
 val default_capabilities : capabilities
-val capabilities_for_model : provider:provider -> model_id:string -> capabilities
-val capabilities_for_config : config -> capabilities
-val inference_contract_of_model_spec : model_spec -> inference_contract
-val inference_contract_of_config : config -> inference_contract
-
-val validate_inference_contract
-  :  capabilities:capabilities
-  -> inference_contract
-  -> (unit, Error.sdk_error) result
-
-val model_spec_of_config : config -> model_spec
-
-(** Resolve provider config to (base_url, api_key, headers) *)
-val resolve : config -> (string * string * (string * string) list, Error.sdk_error) result
 
 (** Return only the auth-specific headers for a given provider kind.
-    Unlike [headers_with_auth_for_kind] which returns the full header list
-    (including Content-Type), this returns only the authentication header
-    so it can be merged with existing non-auth headers at request time.
-    This keeps [Provider_config.t.headers] free of sensitive tokens. *)
+    This keeps [Provider_config.t.headers] free of sensitive tokens until
+    request time. *)
 val auth_headers_only_for_kind
   :  kind:Llm_provider.Provider_config.provider_kind
   -> api_key:string
   -> (string * string) list
-
-(** Explicit provider configs. These constructors never consult ambient
-    endpoint/model settings and never choose a model alias. *)
-val local_llm : base_url:string -> model_id:string -> unit -> config
-
-val anthropic : model_id:string -> unit -> config
-val openrouter : model_id:string -> unit -> config
 
 (** {2 Pricing: per-model cost estimation} *)
 
@@ -258,56 +180,6 @@ val estimate_cost
   -> ?cache_read_input_tokens:int
   -> unit
   -> cost_estimate
-
-(** {2 Custom Provider Registry} *)
-
-type provider_impl =
-  { name : string
-  ; provider_kind : Llm_provider.Provider_config.provider_kind
-  ; request_kind : request_kind
-  ; request_path : string
-  ; capabilities : capabilities
-  ; resolve : config -> (string * string * (string * string) list, Error.sdk_error) result
-  }
-
-val register_provider : provider_impl -> unit
-val find_provider : string -> provider_impl option
-val registered_providers : unit -> string list
-
-val custom_provider
-  :  name:string
-  -> model_id:string
-  -> ?api_key_env:string
-  -> unit
-  -> config
-
-(** Forward adapter: build a {!Llm_provider.Provider_config.t} from an
-    agent state and optional {!config}. Sampling params, tool_choice,
-    thinking controls come from [state.config]; provider kind,
-    headers, request_path, and api_key come from [provider_opt]. [None]
-    is rejected explicitly; this boundary never selects a default provider,
-    endpoint, model, or credential name.
-
-    [OpenAICompat] provider collapses to [OpenAI_compat] kind: the
-    legacy {!config} variant does not distinguish arbitrary
-    OpenAI-compatible endpoints from named providers carrying their own
-    kind.  Callers needing kind + arbitrary URL should construct
-    {!Llm_provider.Provider_config.t} via
-    {!Llm_provider.Provider_config.make} directly.
-
-    [Custom_registered {name}] preserves the registry-declared
-    {!Llm_provider.Provider_config.provider_kind} by looking [name] up
-    in {!Llm_provider.Provider_registry.default} and using
-    [entry.defaults.kind].  Errors with [InvalidConfig] when [name] is
-    not registered.
-
-    @since 0.155.0
-    @since 0.161.0 — Custom_registered kind preservation *)
-val provider_config_of_agent
-  :  state:Types.agent_state
-  -> base_url:string
-  -> config option
-  -> (Llm_provider.Provider_config.t, Error.sdk_error) result
 
 (** Project the caller-owned agent turn controls onto an exact provider
     configuration. Provider identity, wire kind, endpoint, credential, headers,
