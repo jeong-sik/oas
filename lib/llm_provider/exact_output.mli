@@ -140,6 +140,12 @@ type target_catalog_admission_error =
 type wire_admission_error
 type admission_error
 
+type request_body_projection = private
+  { actual_bytes : int
+  ; limit_bytes : int option
+  ; within_limit : bool
+  }
+
 type token_capacity_rejection =
   | Capacity_evidence_not_yet_valid of
       { now_unix_s : int
@@ -393,6 +399,20 @@ val make_output_requirement
   :  schema:Yojson.Safe.t
   -> minimum_guarantee:minimum_guarantee
   -> output_requirement
+
+(** Project the exact serialized generation-body size for one catalog-admitted
+    target without resolving credentials, allocating an attempt, measuring
+    tokens, or dispatching. The same provider serializer and output requirement
+    transformation used by admission produce [actual_bytes].
+
+    [within_limit] compares only the target's declared request-body ceiling.
+    This function is not a token/context-fit oracle; callers must not convert
+    bytes to tokens or infer an undeclared context boundary from it. *)
+val project_request_body
+  :  target:admitted_target
+  -> messages:Types.message list
+  -> output_requirement
+  -> (request_body_projection, admission_error) result
 
 (** Pure admission. It performs no token-count request, estimation, provider
     completion, or global admission. The returned immutable plan freezes one

@@ -122,6 +122,14 @@ type admitted_target =
   ; evidence : catalog_evidence
   }
 
+type projection_target =
+  { config : PC.t
+  ; capabilities : Caps.capabilities
+  ; anthropic_thinking_control : Caps.anthropic_thinking_control option
+  ; body_timeout_s : float option
+  ; model_admitted : bool
+  }
+
 type selected_target =
   { config : PC.t
   ; capabilities : Caps.capabilities
@@ -905,6 +913,17 @@ let admit_target_ref snapshot value =
 let admitted_target_identity (admitted : admitted_target) = admitted.target.identity
 let admitted_target_catalog_generation (admitted : admitted_target) = admitted.generation
 let admitted_target_catalog_evidence (admitted : admitted_target) = admitted.evidence
+
+let projection_target (admitted : admitted_target) =
+  let target = admitted.target in
+  { config = target.config
+  ; capabilities = target.capabilities
+  ; anthropic_thinking_control = target.anthropic_thinking_control
+  ; body_timeout_s = target.body_timeout_s
+  ; model_admitted =
+      Binding.target_model_admitted target.capabilities ~model_id:target.config.model_id
+  }
+;;
 
 let resolve_target (admitted : admitted_target) =
   let target = admitted.target in

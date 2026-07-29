@@ -105,6 +105,12 @@ type admission_error =
   | Invalid_schema
   | Wire_admission_rejected of wire_admission_error
 
+type request_body_projection = private
+  { actual_bytes : int
+  ; limit_bytes : int option
+  ; within_limit : bool
+  }
+
 type 'callback_error flow_request_error =
   | Flow_request_admission_failed of
       admission_error * Exact_output_flow_admission.measurement_evidence
@@ -121,6 +127,16 @@ val make_output_requirement
   :  schema:Yojson.Safe.t
   -> minimum_guarantee:minimum_guarantee
   -> output_requirement
+
+(** Purely serialize the exact provider request body for one credential-free
+    admitted-target projection. The returned count is produced by the same
+    provider serializer used by admission. Token/context fit is deliberately
+    outside this body-only contract. *)
+val project_request_body
+  :  target:Exact_output_resolver.projection_target
+  -> messages:Types.message list
+  -> output_requirement
+  -> (request_body_projection, admission_error) result
 
 val admit
   :  target:Exact_output_resolver.selected_target

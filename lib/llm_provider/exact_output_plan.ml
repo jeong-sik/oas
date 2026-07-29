@@ -468,6 +468,10 @@ let preflight_connect_timeout_s (preflight : preflight) = preflight.wire.connect
 let preflight_body_timeout_s (preflight : preflight) = preflight.wire.body_timeout_s
 let preflight_request_body_sha256 (preflight : preflight) = preflight.wire.body_sha256
 
+let preflight_request_body_bytes (preflight : preflight) =
+  String.length preflight.wire.body
+;;
+
 let resolve_context_limit (preflight : preflight) =
   Prepared_completion_request.resolve_context_limit preflight.prepared
 ;;
