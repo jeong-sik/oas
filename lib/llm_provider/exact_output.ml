@@ -119,6 +119,13 @@ type success =
   ; raw_response : raw_response
   }
 
+type flow_candidate_identity =
+  { candidate_id : string
+  ; catalog_generation : catalog_generation
+  ; catalog_evidence : catalog_evidence
+  ; target_identity : target_identity
+  }
+
 type flow_candidate =
   { identity : flow_candidate_identity
   ; admitted_target : admitted_target
