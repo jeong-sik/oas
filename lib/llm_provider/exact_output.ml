@@ -4,11 +4,9 @@ module Measurement_receipt = Exact_output_measurement_receipt
 include Measurement_receipt
 module Exec = Exact_output_execution
 module Flow_state = Exact_output_flow
-module Flow_contract = Exact_output_flow_contract
 module Trace = Exact_output_provider_trace
 module Generation_receipt = Exact_output_generation_receipt
 include Exact_output_resolver
-include Flow_contract
 include Exact_output_ready_admission
 
 let project_request_body ~target ~messages requirement =

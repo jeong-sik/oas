@@ -455,8 +455,6 @@
   ../lib/llm_provider/exact_output.mli
   ../lib/llm_provider/exact_output_flow.ml
   ../lib/llm_provider/exact_output_flow.mli
-  ../lib/llm_provider/exact_output_flow_contract.ml
-  ../lib/llm_provider/exact_output_flow_contract.mli
   ../lib/llm_provider/exact_output_resolver.ml
   ../lib/llm_provider/exact_output_resolver.mli
   ../lib/llm_provider/exact_output_catalog_binding.ml
@@ -518,7 +516,6 @@
     %{dep:../scripts/check-exact-output-resolver-boundary.sh}
     %{dep:../lib/llm_provider/exact_output.ml}
     %{dep:../lib/llm_provider/exact_output_flow.ml}
-    %{dep:../lib/llm_provider/exact_output_flow_contract.ml}
     %{dep:../lib/llm_provider/exact_output_resolver.ml}
     %{dep:../lib/llm_provider/exact_output_catalog_binding.ml}
     %{dep:../lib/llm_provider/exact_output_flow_admission.ml}
