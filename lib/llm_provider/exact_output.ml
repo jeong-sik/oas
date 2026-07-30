@@ -1141,7 +1141,7 @@ let evidence_admission ~flow_id ~ordinal ~expected_identity = function
              }))
 ;;
 
-let visit_ordinal visit = flow_visit_ordinal_to_int visit.ordinal
+let visit_ordinal (visit : flow_candidate_visit) = flow_visit_ordinal_to_int visit.ordinal
 
 let advance_failed_visit = function
   | Flow_advance_candidate_rejected receipt -> receipt.visit
