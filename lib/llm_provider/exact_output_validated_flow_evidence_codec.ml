@@ -352,7 +352,7 @@ let parse_outcome ~path json =
   | _ -> invalid_fields path "expected object"
 ;;
 
-let parse_step ~index json =
+let parse_step ~index json : (step, decode_error) result =
   let path = Printf.sprintf "$.steps[%d]" index in
   let* fields =
     exact_assoc ~path [ "ordinal"; "admission"; "measurement"; "attempt"; "outcome" ] json
