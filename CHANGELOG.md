@@ -87,6 +87,13 @@ The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical
 `Llm_provider.Provider_config.t` values.
 
+## [0.231.7](https://github.com/jeong-sik/oas/compare/v0.231.6...v0.231.7) (2026-07-30)
+
+
+### Features
+
+* **exact-output:** persist validated flow evidence ([#2896](https://github.com/jeong-sik/oas/issues/2896)) ([f6cc380](https://github.com/jeong-sik/oas/commit/f6cc380562bfc70fa8d9a1f3d77595f797fbd169))
+
 ## [0.231.6](https://github.com/jeong-sik/oas/compare/v0.231.5...v0.231.6) (2026-07-30)
 
 
