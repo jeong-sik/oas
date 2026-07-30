@@ -1049,7 +1049,15 @@ require_code_sequence \
   "$exact_output_interface"
 require_code_sequence \
   "outer exact-flow evidence lost its sole declared candidate snapshot" \
-  'type[[:space:]]+flow_evidence[[:space:]]*=[[:space:]]*private.*flow_id[[:space:]]*:.*declared_candidate_snapshot.*candidate_visit_count.*measurements.*admissions.*attempts' \
+  'type[[:space:]]+flow_evidence[[:space:]]*=[[:space:]]*private.*flow_id[[:space:]]*:.*declared_candidate_snapshot.*candidate_visit_count.*measurements.*admissions.*attempts.*advances' \
+  "$exact_output_interface"
+require_opaque_type \
+  "validated exact flow lost its current durable evidence snapshot" \
+  "$exact_output_interface" \
+  validated_flow_evidence_snapshot
+require_code_sequence \
+  "validated exact flow lost its direct durable evidence adapter" \
+  'val[[:space:]]+snapshot_validated_flow_evidence.*project_accepted:.*project_rejection:.*validated_flow_success.*validated_flow_evidence_snapshot' \
   "$exact_output_interface"
 require_code_sequence \
   "validated exact flow lost its parametric semantic verdict or nonempty trace" \

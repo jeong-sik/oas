@@ -127,8 +127,16 @@ Every flow evidence projection carries:
 - ordered admission outcomes only for candidates reached so far;
 - every non-shared execution receipt allocated for an admitted current
   candidate;
-- every successfully confirmed transport-failure advance, bound to the failed
-  visit and its predetermined adjacent successor;
+- every successfully confirmed candidate-admission rejection or typed
+  transport-failure advance, bound to the failed visit and its predetermined
+  adjacent successor;
+
+After semantic validation succeeds, callers can project their accepted and
+rejected domain values exactly once into a current-only durable transcript.
+OAS preserves the declared candidate order, admissions, measurement receipts,
+generation attempts, advances, semantic rejections, and final acceptance in
+one integrity-bound snapshot. Decoding reconstructs evidence only; it never
+reconstructs a live affine flow or performs a domain commit.
 
 Terminal variants additionally carry the candidate's exact
 rejection, success, or execution failure. The `admitted_flow_candidate` and

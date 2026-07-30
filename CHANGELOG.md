@@ -10,6 +10,12 @@ original tag dates. `0.100.4` was never tagged or released.
 
 ### Changed
 
+Validated exact-output flows can now be frozen through the direct
+`Exact_output.snapshot_validated_flow_evidence` API. The current-only canonical
+snapshot preserves declared-order admission, measurement, attempt, transport
+advance, semantic rejection, and final acceptance evidence without
+reconstructing a live flow during decode.
+
 Execution projection no longer re-checks committed event sequence uniqueness.
 The read-only event store supplies only private validated snapshots, and the
 journal reducer enforces the exact next sequence before projection mutates its
@@ -28,6 +34,11 @@ refusal, while a missing or unknown terminal reason remains non-executable
 instead of being inferred as `STOP` from tool-block presence.
 
 ### Breaking Changes
+
+`Exact_output.execution_error_cause` no longer exposes the removed
+`Input_capacity_refused` wrapper. Current callers match the typed
+`Serialized_request_refused { http_status }` cause directly; no compatibility
+constructor or migration decoder is provided.
 
 `Structured.schema` now contains only the provider-native JSON Schema
 parameters and typed parser. The unused forced-tool `name` and `description`
