@@ -389,6 +389,32 @@ module Conversation_metadata = struct
   ;;
 end
 
+module Extra_system_context_provenance = struct
+  type classification =
+    | Absent
+    | Present
+    | Invalid
+    | Duplicate
+
+  let key = "oas.extra_system_context.v1"
+  let entry = key, `Bool true
+  let metadata = [ entry ]
+
+  let classify metadata =
+    let values =
+      List.filter_map
+        (fun (field_key, value) ->
+           if String.equal field_key key then Some value else None)
+        metadata
+    in
+    match values with
+    | [] -> Absent
+    | [ `Bool true ] -> Present
+    | [ _ ] -> Invalid
+    | _ -> Duplicate
+  ;;
+end
+
 (** Exact producer binding for stored reasoning artifacts. *)
 module Reasoning_source = struct
   type provider_instance = Provider_instance_id of string [@@deriving show]

@@ -41,7 +41,7 @@ let prepare_messages ~messages ~turn_params () =
       ; content = [ Text ("[system context] " ^ ctx) ]
       ; name = None
       ; tool_call_id = None
-      ; metadata = []
+      ; metadata = Extra_system_context_provenance.metadata
       }
     in
     messages @ [ system_msg ]
