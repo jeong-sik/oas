@@ -25,6 +25,12 @@ type measurement_dispatch =
 type measurement_outcome =
   | Measurement_not_required
   | Measurement_succeeded
+  | Measurement_unsupported
+  | Measurement_local_invalid
+  | Measurement_transport_failed
+  | Measurement_invalid_response
+  | Measurement_fence_rejected
+  | Measurement_cancelled
 
 type measurement_evidence =
   { dispatch : measurement_dispatch
@@ -351,7 +357,6 @@ let check_provenance ~ordinal candidate provenance =
 
 let rejected_measurement_state_is_valid evidence =
   evidence.dispatch = No_measurement_dispatch
-  && evidence.outcome = Measurement_not_required
 ;;
 
 let admitted_measurement_state_is_valid evidence =
@@ -359,7 +364,14 @@ let admitted_measurement_state_is_valid evidence =
   | No_measurement_dispatch, Measurement_not_required
   | Measurement_dispatch_started, Measurement_succeeded -> true
   | No_measurement_dispatch, Measurement_succeeded
-  | Measurement_dispatch_started, Measurement_not_required -> false
+  | Measurement_dispatch_started, Measurement_not_required
+  | ( (No_measurement_dispatch | Measurement_dispatch_started)
+    , ( Measurement_unsupported
+      | Measurement_local_invalid
+      | Measurement_transport_failed
+      | Measurement_invalid_response
+      | Measurement_fence_rejected
+      | Measurement_cancelled ) ) -> false
 ;;
 
 let measurement_state_is_valid measurement =
@@ -566,6 +578,12 @@ let measurement_dispatch_to_string = function
 let measurement_outcome_to_string = function
   | Measurement_not_required -> "not_required"
   | Measurement_succeeded -> "succeeded"
+  | Measurement_unsupported -> "unsupported"
+  | Measurement_local_invalid -> "local_invalid"
+  | Measurement_transport_failed -> "transport_failed"
+  | Measurement_invalid_response -> "invalid_response"
+  | Measurement_fence_rejected -> "fence_rejected"
+  | Measurement_cancelled -> "cancelled"
 ;;
 
 let attempt_phase_to_string = function
@@ -1039,6 +1057,12 @@ let measurement_dispatch_of_string ~path = function
 let measurement_outcome_of_string ~path = function
   | "not_required" -> Ok Measurement_not_required
   | "succeeded" -> Ok Measurement_succeeded
+  | "unsupported" -> Ok Measurement_unsupported
+  | "local_invalid" -> Ok Measurement_local_invalid
+  | "transport_failed" -> Ok Measurement_transport_failed
+  | "invalid_response" -> Ok Measurement_invalid_response
+  | "fence_rejected" -> Ok Measurement_fence_rejected
+  | "cancelled" -> Ok Measurement_cancelled
   | _ -> invalid_fields path "unknown measurement outcome"
 ;;
 

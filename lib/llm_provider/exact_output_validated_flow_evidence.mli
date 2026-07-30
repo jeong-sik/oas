@@ -34,6 +34,12 @@ type measurement_dispatch =
 type measurement_outcome =
   | Measurement_not_required
   | Measurement_succeeded
+  | Measurement_unsupported
+  | Measurement_local_invalid
+  | Measurement_transport_failed
+  | Measurement_invalid_response
+  | Measurement_fence_rejected
+  | Measurement_cancelled
 
 type measurement_evidence =
   { dispatch : measurement_dispatch
