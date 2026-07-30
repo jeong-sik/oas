@@ -87,6 +87,15 @@ The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical
 `Llm_provider.Provider_config.t` values.
 
+## [0.231.10](https://github.com/jeong-sik/oas/compare/v0.231.9...v0.231.10) (2026-07-30)
+
+
+### Bug Fixes
+
+* **exact-output:** complete evidence type disambiguation ([#2907](https://github.com/jeong-sik/oas/issues/2907)) ([c0e003a](https://github.com/jeong-sik/oas/commit/c0e003a198704d5af7efdb33ed8fa3bcd4a3566c))
+* **exact-output:** disambiguate evidence records ([#2904](https://github.com/jeong-sik/oas/issues/2904)) ([6cb98e6](https://github.com/jeong-sik/oas/commit/6cb98e65a3b9f2a429c9034a7419fd58fb13ef9e))
+* **exact-output:** pin evidence record types ([#2906](https://github.com/jeong-sik/oas/issues/2906)) ([5ff166d](https://github.com/jeong-sik/oas/commit/5ff166df5abab07433a1ef09a9d997a5e23ea6e9))
+
 ## [0.231.9](https://github.com/jeong-sik/oas/compare/v0.231.8...v0.231.9) (2026-07-30)
 
 
