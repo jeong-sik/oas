@@ -170,11 +170,38 @@ let test_prepare_messages_extra_context () =
     { Hooks.default_turn_params with extra_system_context = Some "You are in test mode." }
   in
   let result = Agent_turn.prepare_messages ~messages:msgs ~turn_params () in
-  Alcotest.(check int) "prepended system msg" 2 (List.length result);
-  let first = List.hd result in
-  Alcotest.(check bool) "is User role" true (first.role = Types.User);
-  match first.content with
-  | [ Types.Text _ ] -> ()
+  Alcotest.(check int) "appended system context" 2 (List.length result);
+  let carrier = List.nth result 1 in
+  Alcotest.(check bool) "is User role" true (carrier.role = Types.User);
+  Alcotest.(check bool)
+    "typed provenance is present"
+    true
+    (Types.Extra_system_context_provenance.classify carrier.metadata
+     = Types.Extra_system_context_provenance.Present);
+  let provenance_key =
+    match Types.Extra_system_context_provenance.metadata with
+    | [ key, `Bool true ] -> key
+    | _ -> Alcotest.fail "provenance metadata shape drifted"
+  in
+  Alcotest.(check bool)
+    "missing provenance is explicit"
+    true
+    (Types.Extra_system_context_provenance.classify []
+     = Types.Extra_system_context_provenance.Absent);
+  Alcotest.(check bool)
+    "malformed provenance is explicit"
+    true
+    (Types.Extra_system_context_provenance.classify
+       [ provenance_key, `Bool false ]
+     = Types.Extra_system_context_provenance.Invalid);
+  Alcotest.(check bool)
+    "duplicate provenance is explicit"
+    true
+    (Types.Extra_system_context_provenance.classify
+       (carrier.metadata @ carrier.metadata)
+     = Types.Extra_system_context_provenance.Duplicate);
+  match carrier.content with
+  | [ Types.Text "[system context] You are in test mode." ] -> ()
   | _ -> Alcotest.fail "expected single Text block"
 ;;
 
@@ -222,9 +249,14 @@ let test_prepare_messages_both_override_and_extra_context () =
      is applied separately in pipeline. So only extra_system_context
      adds a message here. *)
   Alcotest.(check int) "extra context adds 1 message" 2 (List.length result);
-  let first = List.hd result in
-  Alcotest.(check bool) "injected msg is User" true (first.role = Types.User);
-  match first.content with
+  let carrier = List.nth result 1 in
+  Alcotest.(check bool) "injected msg is User" true (carrier.role = Types.User);
+  Alcotest.(check bool)
+    "typed provenance is present"
+    true
+    (Types.Extra_system_context_provenance.classify carrier.metadata
+     = Types.Extra_system_context_provenance.Present);
+  match carrier.content with
   | [ Types.Text _ ] -> ()
   | _ -> Alcotest.fail "expected single Text block"
 ;;

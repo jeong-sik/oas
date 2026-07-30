@@ -233,6 +233,20 @@ module Conversation_metadata : sig
   val is_mergeable_followup : metadata -> bool
 end
 
+(** Exact provenance for the synthetic User message created from
+    [Hooks.extra_system_context]. Consumers can remove or attribute that carrier
+    by typed identity instead of assuming a list position or matching text. *)
+module Extra_system_context_provenance : sig
+  type classification =
+    | Absent
+    | Present
+    | Invalid
+    | Duplicate
+
+  val metadata : metadata
+  val classify : metadata -> classification
+end
+
 (** Producer binding stamped on stored reasoning artifacts: provider kind,
     concrete endpoint instance, canonical request model, and typed replay
     contract. Whether a difference in any of those dimensions still admits
