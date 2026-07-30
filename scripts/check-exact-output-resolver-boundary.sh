@@ -6,7 +6,6 @@ trap 'status=$?; printf "exact-output resolver boundary ratchet aborted at line 
 required_basenames=(
   exact_output.ml
   exact_output_flow.ml
-  exact_output_flow_contract.ml
   exact_output_resolver.ml
   exact_output_catalog_binding.ml
   exact_output_flow_admission.ml
@@ -570,7 +569,6 @@ scan_public_error_accessors() {
 
 exact_output_source=""
 exact_output_flow_source=""
-exact_output_flow_contract_source=""
 exact_output_flow_admission_source=""
 exact_output_ready_admission_source=""
 resolver_source=""
@@ -583,10 +581,6 @@ for source_file in "${source_files[@]}"; do
     exact_output.ml) exact_output_source="$source_file" ;;
     exact_output_flow.ml)
       exact_output_flow_source="$source_file"
-      downstream_sources+=("$source_file")
-      ;;
-    exact_output_flow_contract.ml)
-      exact_output_flow_contract_source="$source_file"
       downstream_sources+=("$source_file")
       ;;
     exact_output_flow_admission.ml)
@@ -819,29 +813,6 @@ require_code_pattern \
   'include[[:space:]]+Exact_output_resolver' \
   "$exact_output_source"
 scan_code \
-  "canonical facade re-exported the retired preference lifecycle facade" \
-  'include[[:space:]]+Preference_lifecycle_facade' \
-  "$exact_output_source"
-scan_code \
-  "preference lifecycle implementation escaped its private facade" \
-  'let[[:space:]]+(commit_and_retire_flow_preference_scope|recover_flow_preferences)' \
-  "$exact_output_source"
-for retired_module in \
-  exact_output_domain_settlement \
-  exact_output_scope_retirement \
-  exact_output_preference_recovery \
-  exact_output_preference_lifecycle_facade
-do
-  for suffix in ml mli; do
-    if [[ -e "$module_dir/$retired_module.$suffix" ]]; then
-      echo \
-        "exact-output boundary violation: retired module returned: $retired_module.$suffix" \
-        >&2
-      exit 1
-    fi
-  done
-done
-scan_code \
   "secondary target projection exposed by the canonical facade" \
   'type[[:space:]]+(resolver_snapshot|selected_target|target_identity)[[:space:]]*=|val[[:space:]]+(target_(identity_id|provider_id|model_id|base_url|request_path)|selected_target_(provider_id|model_id|base_url|request_path)|target_identity_(provider_id|model_id|base_url|request_path))|Invalid_target_ref[[:space:]]+of[[:space:]]+string' \
   "$module_dir/exact_output.mli"
@@ -1072,10 +1043,6 @@ require_opaque_type \
   "outer exact flow lost typed candidate-rejection receipts" \
   "$exact_output_interface" \
   candidate_rejection_receipt
-scan_code \
-  "retired exact-flow preference or domain lifecycle returned to the public surface" \
-  'flow_preference|flow_scope|flow_success_ordinal|preference_observation|domain_settlement|commit_and_settle|commit_and_retire|recover_flow_preferences' \
-  "$exact_output_interface"
 require_code_sequence \
   "outer exact flow stopped freezing caller-declared order directly" \
   'val[[:space:]]+snapshot_flow[[:space:]]*:[[:space:]]*first:flow_candidate[[:space:]]*->[[:space:]]*rest:flow_candidate[[:space:]]+list[[:space:]]*->[[:space:]]*messages:Types[.]message[[:space:]]+list' \
@@ -1098,22 +1065,16 @@ scan_code \
   "$exact_output_source" \
   "$exact_output_interface"
 scan_code \
-  "declared exact flow regained preference ordering or domain settlement" \
-  'prefer_last_good|allocate_flow_success_ordinal|commit_and_settle_flow_domain|create_domain_settlement' \
-  "$exact_output_source"
-scan_code \
   "outer exact flow revived a legacy attempt or admission alias" \
   'candidate_attempt_count|admission_rejection|ready_flow|admit_flow' \
   "$exact_output_source" \
   "$exact_output_interface" \
-  "$exact_output_flow_source" \
-  "$exact_output_flow_contract_source"
+  "$exact_output_flow_source"
 scan_code \
-  "outer exact-flow preference acquired an implicit clock or environment policy" \
+  "outer exact flow acquired an implicit clock or environment policy" \
   'Unix\.gettimeofday|Sys\.getenv|Eio\.Time\.now' \
   "$exact_output_source" \
-  "$exact_output_flow_source" \
-  "$exact_output_flow_contract_source"
+  "$exact_output_flow_source"
 require_code_sequence \
   "outer flow candidate no longer accepts a catalog-admitted target" \
   'val[[:space:]]+make_flow_candidate[[:space:]]*:[[:space:]]*id:string[[:space:]]*->[[:space:]]*admitted_target:admitted_target' \
