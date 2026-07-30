@@ -3492,9 +3492,7 @@ let test_context_window_400_prose_remains_terminal () =
   check int "HTTP 400 prose dispatches once" 1 posts;
   check int "HTTP 400 prose requests no advance" 0 advances;
   match result with
-  | Error
-      (EO.Flow_execution_terminal { cause = EO.Flow_exact_execution_failed failure; _ })
-    ->
+  | Error (EO.Flow_exact_execution_failed failure) ->
     check
       bool
       "HTTP 400 prose remains unattributed completion failure"
