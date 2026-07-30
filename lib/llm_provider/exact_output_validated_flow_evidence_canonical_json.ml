@@ -100,7 +100,7 @@ let attempt_phase_to_string = function
   | Terminal -> "terminal"
 ;;
 
-let candidate_json candidate =
+let candidate_json (candidate : candidate) =
   `Assoc
     [ "candidate_id", `String candidate.candidate_id
     ; "candidate_binding_sha256", `String candidate.candidate_binding_sha256
@@ -109,7 +109,7 @@ let candidate_json candidate =
     ]
 ;;
 
-let provenance_json provenance =
+let provenance_json (provenance : provenance) =
   `Assoc
     [ "source_schema_sha256", `String provenance.source_schema_sha256
     ; ( "effective_schema_sha256"
@@ -124,14 +124,15 @@ let provenance_json provenance =
     ]
 ;;
 
-let measurement_evidence_json measurement =
+let measurement_evidence_json (measurement : measurement_evidence) =
   `Assoc
     [ "dispatch", `String (measurement_dispatch_to_string measurement.dispatch)
     ; "outcome", `String (measurement_outcome_to_string measurement.outcome)
     ]
 ;;
 
-let admission_json = function
+let admission_json (admission : normalized_admission) =
+  match admission with
   | Normalized_rejected rejected ->
     `Assoc
       [ "kind", `String "rejected"
@@ -148,7 +149,7 @@ let admission_json = function
       ]
 ;;
 
-let measurement_json measurement =
+let measurement_json (measurement : measurement) =
   `Assoc
     [ "operation_id", `String measurement.operation_id
     ; "request_body_sha256", `String measurement.request_body_sha256
@@ -160,7 +161,7 @@ let measurement_json measurement =
     ]
 ;;
 
-let attempt_json attempt =
+let attempt_json (attempt : attempt) =
   let optional_string = Option.fold ~none:`Null ~some:(fun value -> `String value) in
   `Assoc
     [ "call_id", `String attempt.call_id
@@ -209,7 +210,7 @@ let outcome_json = function
       ]
 ;;
 
-let step_json step =
+let step_json (step : normalized_step) =
   `Assoc
     [ "ordinal", `Int step.ordinal
     ; "admission", admission_json step.admission
