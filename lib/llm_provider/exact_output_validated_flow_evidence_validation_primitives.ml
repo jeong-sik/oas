@@ -96,11 +96,16 @@ let rejected_measurement_receipt_state_is_valid (measurement : measurement) =
   && measurement.outcome <> Measurement_not_required
 ;;
 
+let successful_http_status = function
+  | Some status -> status >= 200 && status <= 299
+  | None -> false
+;;
+
 let attempt_success_state_is_valid attempt =
   match attempt.phase with
   | Terminal ->
     attempt.dispatch_count = 1
-    && Option.exists (fun status -> status >= 200 && status <= 299) attempt.http_status
+    && successful_http_status attempt.http_status
     && Option.is_some attempt.provider_trace_sha256
     && Option.is_some attempt.raw_response_sha256
   | Before_dispatch | Response_received -> false
@@ -121,7 +126,7 @@ let attempt_advance_state_is_valid attempt failure =
     && Option.is_some attempt.raw_response_sha256
   | Invalid_json_output, (Response_received | Terminal) ->
     attempt.dispatch_count = 1
-    && Option.exists (fun status -> status >= 200 && status <= 299) attempt.http_status
+    && successful_http_status attempt.http_status
     && Option.is_some attempt.provider_trace_sha256
     && Option.is_some attempt.raw_response_sha256
   | Candidate_rejected, _
