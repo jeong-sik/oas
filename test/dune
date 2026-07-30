@@ -424,6 +424,11 @@
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
+ (name test_exact_output_validated_flow_evidence)
+ (modules test_exact_output_validated_flow_evidence)
+ (libraries agent_sdk llm_provider alcotest digestif eio_main))
+
+(test
  (name test_exact_output_resolver_snapshot)
  (modules test_exact_output_resolver_snapshot)
  (libraries agent_sdk llm_provider alcotest eio_main))
