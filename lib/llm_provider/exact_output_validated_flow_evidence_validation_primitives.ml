@@ -67,11 +67,11 @@ let check_provenance ~ordinal candidate provenance =
   else Error (Attempt_binding_mismatch { ordinal })
 ;;
 
-let rejected_measurement_state_is_valid evidence =
+let rejected_measurement_state_is_valid (evidence : measurement_evidence) =
   evidence.dispatch = No_measurement_dispatch
 ;;
 
-let admitted_measurement_state_is_valid evidence =
+let admitted_measurement_state_is_valid (evidence : measurement_evidence) =
   match evidence.dispatch, evidence.outcome with
   | No_measurement_dispatch, Measurement_not_required
   | Measurement_dispatch_started, Measurement_succeeded -> true
@@ -86,21 +86,26 @@ let admitted_measurement_state_is_valid evidence =
       | Measurement_cancelled ) ) -> false
 ;;
 
-let measurement_state_is_valid measurement =
+let measurement_state_is_valid (measurement : measurement) =
   measurement.dispatch = Measurement_dispatch_started
   && measurement.outcome = Measurement_succeeded
 ;;
 
-let rejected_measurement_receipt_state_is_valid measurement =
+let rejected_measurement_receipt_state_is_valid (measurement : measurement) =
   measurement.dispatch = No_measurement_dispatch
   && measurement.outcome <> Measurement_not_required
+;;
+
+let successful_http_status = function
+  | Some status -> status >= 200 && status <= 299
+  | None -> false
 ;;
 
 let attempt_success_state_is_valid attempt =
   match attempt.phase with
   | Terminal ->
     attempt.dispatch_count = 1
-    && Option.exists (fun status -> status >= 200 && status <= 299) attempt.http_status
+    && successful_http_status attempt.http_status
     && Option.is_some attempt.provider_trace_sha256
     && Option.is_some attempt.raw_response_sha256
   | Before_dispatch | Response_received -> false
@@ -121,7 +126,7 @@ let attempt_advance_state_is_valid attempt failure =
     && Option.is_some attempt.raw_response_sha256
   | Invalid_json_output, (Response_received | Terminal) ->
     attempt.dispatch_count = 1
-    && Option.exists (fun status -> status >= 200 && status <= 299) attempt.http_status
+    && successful_http_status attempt.http_status
     && Option.is_some attempt.provider_trace_sha256
     && Option.is_some attempt.raw_response_sha256
   | Candidate_rejected, _

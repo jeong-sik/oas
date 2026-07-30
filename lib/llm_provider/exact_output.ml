@@ -1373,10 +1373,9 @@ let snapshot_validated_flow_evidence
         then
           Error
             (Validated_flow_source_evidence_invalid
-               ((if outcome_count = 0
-                 then Evidence_missing_entry
-                 else Evidence_unexpected_entry)
-                  { collection = "outcome"; ordinal }))
+               (if outcome_count = 0
+                then Evidence_missing_entry { collection = "outcome"; ordinal }
+                else Evidence_unexpected_entry { collection = "outcome"; ordinal }))
         else
           let* outcome, raw_response_sha256, expected_call_id =
             match advance, semantic, is_accepted with
