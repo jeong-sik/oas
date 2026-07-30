@@ -4,7 +4,7 @@ module Check = Exact_output_validated_flow_evidence_validation_primitives
 
 let ( let* ) = Result.bind
 
-let normalize ~declared_candidates ~steps =
+let normalize ~(declared_candidates : candidate list) ~(steps : step list) =
   let declared_candidates = Array.of_list declared_candidates in
   let steps = Array.of_list steps in
   let declared_count = Array.length declared_candidates in

@@ -1243,7 +1243,7 @@ let snapshot_validated_flow_evidence
   in
   let rec project_rejections projected_rev = function
     | [] -> Ok (List.rev projected_rev)
-    | receipt :: rest ->
+    | (receipt : _ semantic_rejection_receipt) :: rest ->
       let ordinal = visit_ordinal receipt.transport_success.candidate.visit in
       if ordinal < 1 || ordinal > visited_candidates
       then
