@@ -18,7 +18,7 @@ let check_optional_sha256 ~ordinal field = function
   | Some value -> check_sha256 ~ordinal field value
 ;;
 
-let check_candidate ?ordinal candidate =
+let check_candidate ?ordinal (candidate : candidate) =
   let* () = check_identifier ?ordinal "candidate_id" candidate.candidate_id in
   let* () =
     check_sha256 ?ordinal "candidate_binding_sha256" candidate.candidate_binding_sha256
@@ -29,7 +29,7 @@ let check_candidate ?ordinal candidate =
   check_sha256 ?ordinal "catalog_evidence_sha256" candidate.catalog_evidence_sha256
 ;;
 
-let check_provenance ~ordinal candidate provenance =
+let check_provenance ~ordinal (candidate : candidate) (provenance : provenance) =
   let* () =
     check_sha256 ~ordinal "source_schema_sha256" provenance.source_schema_sha256
   in
@@ -101,7 +101,7 @@ let successful_http_status = function
   | None -> false
 ;;
 
-let attempt_success_state_is_valid attempt =
+let attempt_success_state_is_valid (attempt : attempt) =
   match attempt.phase with
   | Terminal ->
     attempt.dispatch_count = 1
@@ -111,7 +111,7 @@ let attempt_success_state_is_valid attempt =
   | Before_dispatch | Response_received -> false
 ;;
 
-let attempt_advance_state_is_valid attempt failure =
+let attempt_advance_state_is_valid (attempt : attempt) (failure : transport_failure) =
   match failure, attempt.phase with
   | Completion_failed_before_dispatch, Before_dispatch ->
     attempt.dispatch_count = 0
@@ -145,11 +145,11 @@ let check_http_status ~ordinal field = function
 
 let check_measurement
       ~ordinal
-      ~candidate
+      ~(candidate : candidate)
       ~request_body_sha256
       ~measurement_ids
       ~state_is_valid
-      measurement
+      (measurement : measurement)
   =
   let* () =
     check_identifier ~ordinal "measurement.operation_id" measurement.operation_id
@@ -214,7 +214,14 @@ let check_measurement
   else Ok ()
 ;;
 
-let check_attempt ~ordinal ~candidate ~admitted ~call_ids ~outcome attempt =
+let check_attempt
+      ~ordinal
+      ~(candidate : candidate)
+      ~(admitted : admitted)
+      ~call_ids
+      ~(outcome : normalized_outcome)
+      (attempt : attempt)
+  =
   let* () = check_identifier ~ordinal "attempt.call_id" attempt.call_id in
   let* () = check_sha256 ~ordinal "attempt.plan_sha256" attempt.plan_sha256 in
   let* () =
