@@ -366,7 +366,7 @@ let parse_step ~index json : (step, decode_error) result =
   let* attempt = parse_attempt ~path:(path ^ ".attempt") attempt_json in
   let* outcome_json = field ~path fields "outcome" in
   let* outcome = parse_outcome ~path:(path ^ ".outcome") outcome_json in
-  Ok { ordinal; admission; measurement; attempt; outcome }
+  Ok ({ ordinal; admission; measurement; attempt; outcome } : step)
 ;;
 
 let rec parse_list_indexed parse index acc = function

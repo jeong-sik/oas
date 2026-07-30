@@ -67,11 +67,11 @@ let check_provenance ~ordinal candidate provenance =
   else Error (Attempt_binding_mismatch { ordinal })
 ;;
 
-let rejected_measurement_state_is_valid evidence =
+let rejected_measurement_state_is_valid (evidence : measurement_evidence) =
   evidence.dispatch = No_measurement_dispatch
 ;;
 
-let admitted_measurement_state_is_valid evidence =
+let admitted_measurement_state_is_valid (evidence : measurement_evidence) =
   match evidence.dispatch, evidence.outcome with
   | No_measurement_dispatch, Measurement_not_required
   | Measurement_dispatch_started, Measurement_succeeded -> true
@@ -86,12 +86,12 @@ let admitted_measurement_state_is_valid evidence =
       | Measurement_cancelled ) ) -> false
 ;;
 
-let measurement_state_is_valid measurement =
+let measurement_state_is_valid (measurement : measurement) =
   measurement.dispatch = Measurement_dispatch_started
   && measurement.outcome = Measurement_succeeded
 ;;
 
-let rejected_measurement_receipt_state_is_valid measurement =
+let rejected_measurement_receipt_state_is_valid (measurement : measurement) =
   measurement.dispatch = No_measurement_dispatch
   && measurement.outcome <> Measurement_not_required
 ;;
