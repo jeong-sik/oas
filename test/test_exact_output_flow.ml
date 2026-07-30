@@ -385,6 +385,13 @@ let flow_failure_id = function
   | EO.Flow_candidate_execution_failed { candidate; _ } -> candidate_id candidate
 ;;
 
+let flow_advance_failure_id = function
+  | EO.Flow_advance_candidate_rejected rejection ->
+    (EO.candidate_rejection_identity rejection).candidate_id
+  | EO.Flow_advance_execution_failed { candidate; _ } ->
+    candidate.visit.identity.candidate_id
+;;
+
 let flow_execution_failure = function
   | EO.Flow_candidate_execution_failed { candidate; cause; _ } -> candidate, cause
   | EO.Flow_candidate_rejected _ ->
@@ -784,6 +791,19 @@ let test_fenced_text_json_advances_to_frozen_successor () =
       "bare JSON successor serves the request"
       "bare-text"
       (candidate_id (EO.flow_success_candidate success));
+    (match (EO.flow_success_evidence success).advances with
+     | [ advance ] ->
+       check
+         string
+         "durable advance binds failed candidate"
+         "fenced-text"
+         (flow_advance_failure_id advance.failed);
+       check
+         string
+         "durable advance binds declared successor"
+         "bare-text"
+         advance.next.identity.candidate_id
+     | _ -> fail "successful fallback did not retain exactly one advance receipt");
     check
       bool
       "successor output is parsed without cleanup"
@@ -3334,7 +3354,12 @@ let test_callback_failures_are_terminal () =
       (EO.flow_execution_error_generation_dispatch error = EO.No_generation_dispatch);
     check string "failed attempt identity" "advance-a" (flow_failure_id failed);
     check string "withheld successor identity" "advance-b" next.identity.candidate_id;
-    check int "withheld successor remains unprepared" 1 (List.length evidence.attempts)
+    check int "withheld successor remains unprepared" 1 (List.length evidence.attempts);
+    check
+      int
+      "failed callback publishes no advance receipt"
+      0
+      (List.length evidence.advances)
   | Ok _ | Error _ -> fail "failed advance did not return typed terminal evidence"
 ;;
 
@@ -3404,6 +3429,11 @@ let assert_typed_capacity_refusal_advances_once ~label ~first_response ~assert_c
   check int (label ^ " typed capacity requests one successor advance") 1 advances;
   check
     int
+    (label ^ " typed capacity retains one advance receipt")
+    1
+    (List.length evidence.advances);
+  check
+    int
     (label ^ " typed capacity retains two attempts")
     2
     (List.length evidence.attempts);
@@ -3433,17 +3463,44 @@ let assert_typed_capacity_refusal_advances_once ~label ~first_response ~assert_c
   | Error _ -> fail (label ^ " typed capacity refusal did not advance")
 ;;
 
-let test_context_window_400_refusal_advances_once_to_successor () =
-  assert_typed_capacity_refusal_advances_once
-    ~label:"context-window"
-    ~first_response:
-      ( `Bad_request
-      , {|{"error":"The prompt is too long: 1400014, model maximum context length: 1048576 (ref: 8519ccf3-5d45-4686-9ac1-64d159f75ec1)"}|}
-      )
-    ~assert_cause:(function
-    | EO.Input_capacity_refused
-        (EO.Context_window_refused { limit_tokens = Some 1048576 }) -> ()
-    | _ -> fail "context-window 400 lost its typed capacity cause")
+let test_context_window_400_prose_remains_terminal () =
+  let response =
+    {|{"error":"The prompt is too long: 1400014, model maximum context length: 1048576 (ref: 8519ccf3-5d45-4686-9ac1-64d159f75ec1)"}|}
+  in
+  let (result, advances), posts =
+    with_server ~status:`Bad_request ~response
+    @@ fun ~sw:_ ~net ~clock:_ ~base_url ->
+    with_catalog
+      [ catalog_entry ~id:"context-prose-a" ~base_url ~native:true ~json:true ()
+      ; catalog_entry ~id:"context-prose-b" ~base_url ~native:true ~json:true ()
+      ]
+    @@ fun snapshot ->
+    let advances = ref 0 in
+    let result =
+      execute_with_accepting_test_validator
+        ~net
+        ~on_measurement_terminal:(fun _ -> Ok ())
+        ~before_measurement_dispatch:(fun _ -> Ok ())
+        ~before_dispatch:(fun _ -> Ok ())
+        ~before_advance:(fun ~failed:_ ~next:_ ->
+          incr advances;
+          Ok ())
+        (start_flow (frozen_flow snapshot [ "context-prose-a"; "context-prose-b" ]))
+    in
+    result, !advances
+  in
+  check int "HTTP 400 prose dispatches once" 1 posts;
+  check int "HTTP 400 prose requests no advance" 0 advances;
+  match result with
+  | Error
+      (EO.Flow_execution_terminal { cause = EO.Flow_exact_execution_failed failure; _ })
+    ->
+    check
+      bool
+      "HTTP 400 prose remains unattributed completion failure"
+      true
+      (failure.cause.cause = EO.Completion_failed)
+  | Ok _ | Error _ -> fail "HTTP 400 prose did not remain terminal"
 ;;
 
 let test_serialized_request_413_refusal_advances_once_to_successor () =
@@ -3452,8 +3509,7 @@ let test_serialized_request_413_refusal_advances_once_to_successor () =
     ~first_response:
       (Cohttp.Code.status_of_code 413, {|{"error":"request body too large"}|})
     ~assert_cause:(function
-      | EO.Input_capacity_refused (EO.Serialized_request_refused { http_status = 413 }) ->
-        ()
+      | EO.Serialized_request_refused { http_status = 413 } -> ()
       | _ -> fail "HTTP 413 lost its typed serialized-request cause")
 ;;
 
@@ -3610,6 +3666,11 @@ let test_semantic_rejection_advances_to_declared_successor () =
       "transport success belongs to successor"
       "semantic-b"
       (candidate_id (EO.flow_success_candidate success.transport_success));
+    check
+      int
+      "semantic rejection emits no transport advance receipt"
+      0
+      (List.length (EO.flow_success_evidence success.transport_success).advances);
     check
       (list string)
       "prior opaque rejection is preserved"
@@ -4113,9 +4174,9 @@ let () =
             `Quick
             test_callback_failures_are_terminal
         ; test_case
-            "context-window 400 advances with one dispatch per candidate"
+            "context-window 400 prose remains terminal"
             `Quick
-            test_context_window_400_refusal_advances_once_to_successor
+            test_context_window_400_prose_remains_terminal
         ; test_case
             "HTTP 413 serialized request advances with one dispatch per candidate"
             `Quick
