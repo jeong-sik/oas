@@ -180,7 +180,7 @@ let test_prepare_messages_extra_context () =
      = Types.Extra_system_context_provenance.Present);
   let provenance_key =
     match Types.Extra_system_context_provenance.metadata with
-    | [ key, `Bool true ] -> key
+    | [ (key, `Bool true) ] -> key
     | _ -> Alcotest.fail "provenance metadata shape drifted"
   in
   Alcotest.(check bool)
@@ -191,14 +191,12 @@ let test_prepare_messages_extra_context () =
   Alcotest.(check bool)
     "malformed provenance is explicit"
     true
-    (Types.Extra_system_context_provenance.classify
-       [ provenance_key, `Bool false ]
+    (Types.Extra_system_context_provenance.classify [ provenance_key, `Bool false ]
      = Types.Extra_system_context_provenance.Invalid);
   Alcotest.(check bool)
     "duplicate provenance is explicit"
     true
-    (Types.Extra_system_context_provenance.classify
-       (carrier.metadata @ carrier.metadata)
+    (Types.Extra_system_context_provenance.classify (carrier.metadata @ carrier.metadata)
      = Types.Extra_system_context_provenance.Duplicate);
   match carrier.content with
   | [ Types.Text "[system context] You are in test mode." ] -> ()
