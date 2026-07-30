@@ -76,6 +76,13 @@ The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical
 `Llm_provider.Provider_config.t` values.
 
+## [0.231.6](https://github.com/jeong-sik/oas/compare/v0.231.5...v0.231.6) (2026-07-30)
+
+
+### Features
+
+* **agent:** type extra context carrier provenance ([#2894](https://github.com/jeong-sik/oas/issues/2894)) ([ee920ff](https://github.com/jeong-sik/oas/commit/ee920fff93e99bb704ad7c73175d757e6ce8e394))
+
 ## [0.231.5](https://github.com/jeong-sik/oas/compare/v0.231.4...v0.231.5) (2026-07-30)
 
 
