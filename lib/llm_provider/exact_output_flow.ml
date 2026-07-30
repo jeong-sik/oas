@@ -5,22 +5,24 @@ type state =
 
 type t = state Atomic.t
 
-type ('admission, 'attempt, 'measurement) progress_snapshot =
+type ('admission, 'attempt, 'measurement, 'advance) progress_snapshot =
   { candidate_visit_count : int
   ; admissions : 'admission list
   ; attempts : 'attempt list
   ; measurements : 'measurement list
+  ; advances : 'advance list
   }
 
-type ('admission, 'attempt, 'measurement) progress_state =
+type ('admission, 'attempt, 'measurement, 'advance) progress_state =
   { candidate_visit_count : int
   ; admissions_rev : 'admission list
   ; attempts_rev : 'attempt list
   ; measurements_rev : 'measurement list
+  ; advances_rev : 'advance list
   }
 
-type ('admission, 'attempt, 'measurement) progress =
-  ('admission, 'attempt, 'measurement) progress_state Atomic.t
+type ('admission, 'attempt, 'measurement, 'advance) progress =
+  ('admission, 'attempt, 'measurement, 'advance) progress_state Atomic.t
 
 type ('accepted, 'rejection) semantic_verdict =
   | Accept of 'accepted
@@ -63,6 +65,7 @@ let create_progress () =
     ; admissions_rev = []
     ; attempts_rev = []
     ; measurements_rev = []
+    ; advances_rev = []
     }
 ;;
 
@@ -104,12 +107,18 @@ let publish_measurement progress ~same measurement =
     }
 ;;
 
+let record_advance progress advance =
+  let current = Atomic.get progress in
+  Atomic.set progress { current with advances_rev = advance :: current.advances_rev }
+;;
+
 let progress_snapshot progress =
   let current = Atomic.get progress in
   { candidate_visit_count = current.candidate_visit_count
   ; admissions = List.rev current.admissions_rev
   ; attempts = List.rev current.attempts_rev
   ; measurements = List.rev current.measurements_rev
+  ; advances = List.rev current.advances_rev
   }
 ;;
 

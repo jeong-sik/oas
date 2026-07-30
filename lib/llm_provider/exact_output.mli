@@ -208,16 +208,12 @@ type raw_response =
   ; body_sha256 : string
   }
 
-type input_capacity_refusal =
-  | Context_window_refused of { limit_tokens : int option }
-  | Serialized_request_refused of { http_status : int }
-
 type execution_error_cause =
   | Attempt_already_started
   | Clock_required_for_timeout
   | Frozen_request_mismatch
   | Completion_failed
-  | Input_capacity_refused of input_capacity_refusal
+  | Serialized_request_refused of { http_status : int }
   | Incomplete_output
   | Missing_output
   | Ambiguous_output of int
@@ -519,6 +515,19 @@ type flow_attempt_snapshot = private
   ; receipt : generation_receipt_snapshot
   }
 
+type flow_advance_failure_snapshot =
+  | Flow_advance_candidate_rejected of candidate_rejection_receipt
+  | Flow_advance_execution_failed of
+      { candidate : flow_attempt_snapshot
+      ; cause : execution_error_cause
+      ; raw_response_sha256 : string option
+      }
+
+type flow_advance_receipt = private
+  { failed : flow_advance_failure_snapshot
+  ; next : flow_candidate_visit
+  }
+
 val candidate_visit_count_to_int : candidate_visit_count -> int
 val measurement_operation_id_to_string : measurement_operation_id -> string
 
@@ -601,6 +610,7 @@ type flow_evidence = private
   ; measurements : measurement_receipt_snapshot list
   ; admissions : candidate_admission list
   ; attempts : flow_attempt_snapshot list
+  ; advances : flow_advance_receipt list
   }
 
 val flow_success_candidate : flow_success -> flow_attempt_receipt
@@ -710,7 +720,7 @@ val flow_attempt_evidence : flow_attempt -> flow_evidence
     moves directly to the predetermined successor without using [before_advance].
     Every candidate performs at most one generation POST. A final semantic
     rejection returns a typed nonempty exhaustion trace. OAS performs no domain
-    commit, settlement, retirement, recovery, or preference update. *)
+    durable commit, recovery, retirement, or preference update. *)
 val execute_flow_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock

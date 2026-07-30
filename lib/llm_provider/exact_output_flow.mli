@@ -5,13 +5,14 @@
     types that wrap the private exact plan and execution modules. *)
 
 type t
-type ('admission, 'attempt, 'measurement) progress
+type ('admission, 'attempt, 'measurement, 'advance) progress
 
-type ('admission, 'attempt, 'measurement) progress_snapshot =
+type ('admission, 'attempt, 'measurement, 'advance) progress_snapshot =
   { candidate_visit_count : int
   ; admissions : 'admission list
   ; attempts : 'attempt list
   ; measurements : 'measurement list
+  ; advances : 'advance list
   }
 
 type ('accepted, 'rejection) semantic_verdict =
@@ -52,26 +53,38 @@ val create : unit -> t
 (** Progress has exactly one writer: the invocation that wins [execute_once]'s
     affine gate. Concurrent readers may observe the honest point between a
     recorded admission and its subsequently allocated attempt. *)
-val create_progress : unit -> ('admission, 'attempt, 'measurement) progress
+val create_progress : unit -> ('admission, 'attempt, 'measurement, 'advance) progress
 
-val record_admission : ('admission, 'attempt, 'measurement) progress -> 'admission -> unit
-val record_attempt : ('admission, 'attempt, 'measurement) progress -> 'attempt -> unit
+val record_admission
+  :  ('admission, 'attempt, 'measurement, 'advance) progress
+  -> 'admission
+  -> unit
+
+val record_attempt
+  :  ('admission, 'attempt, 'measurement, 'advance) progress
+  -> 'attempt
+  -> unit
 
 val publish_attempt
-  :  ('admission, 'attempt, 'measurement) progress
+  :  ('admission, 'attempt, 'measurement, 'advance) progress
   -> same:('attempt -> 'attempt -> bool)
   -> 'attempt
   -> unit
 
 val publish_measurement
-  :  ('admission, 'attempt, 'measurement) progress
+  :  ('admission, 'attempt, 'measurement, 'advance) progress
   -> same:('measurement -> 'measurement -> bool)
   -> 'measurement
   -> unit
 
+val record_advance
+  :  ('admission, 'attempt, 'measurement, 'advance) progress
+  -> 'advance
+  -> unit
+
 val progress_snapshot
-  :  ('admission, 'attempt, 'measurement) progress
-  -> ('admission, 'attempt, 'measurement) progress_snapshot
+  :  ('admission, 'attempt, 'measurement, 'advance) progress
+  -> ('admission, 'attempt, 'measurement, 'advance) progress_snapshot
 
 val duplicate_key
   :  equal:('key -> 'key -> bool)

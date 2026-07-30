@@ -87,16 +87,12 @@ type raw_response = Trace.raw_response =
   ; body_sha256 : string
   }
 
-type input_capacity_refusal =
-  | Context_window_refused of { limit_tokens : int option }
-  | Serialized_request_refused of { http_status : int }
-
 type execution_error_cause =
   | Attempt_already_started
   | Clock_required_for_timeout
   | Frozen_request_mismatch
   | Completion_failed
-  | Input_capacity_refused of input_capacity_refusal
+  | Serialized_request_refused of { http_status : int }
   | Incomplete_output
   | Missing_output
   | Ambiguous_output of int
@@ -187,6 +183,19 @@ type flow_attempt_snapshot =
   ; receipt : generation_receipt_snapshot
   }
 
+type flow_advance_failure_snapshot =
+  | Flow_advance_candidate_rejected of candidate_rejection_receipt
+  | Flow_advance_execution_failed of
+      { candidate : flow_attempt_snapshot
+      ; cause : execution_error_cause
+      ; raw_response_sha256 : string option
+      }
+
+type flow_advance_receipt =
+  { failed : flow_advance_failure_snapshot
+  ; next : flow_candidate_visit
+  }
+
 type flow_attempt_publication =
   { call_id : call_id
   ; snapshot : flow_attempt_snapshot
@@ -202,7 +211,8 @@ type flow_attempt =
   ; progress :
       ( candidate_admission
         , flow_attempt_publication
-        , measurement_receipt_snapshot )
+        , measurement_receipt_snapshot
+        , flow_advance_receipt )
         Flow_state.progress
   }
 
@@ -230,6 +240,7 @@ type flow_evidence =
   ; measurements : measurement_receipt_snapshot list
   ; admissions : candidate_admission list
   ; attempts : flow_attempt_snapshot list
+  ; advances : flow_advance_receipt list
   }
 
 type flow_success =
@@ -608,7 +619,22 @@ let flow_attempt_evidence (flow : flow_attempt) =
   ; measurements = progress.measurements
   ; admissions = progress.admissions
   ; attempts = List.map (fun publication -> publication.snapshot) progress.attempts
+  ; advances = progress.advances
   }
+;;
+
+let flow_advance_failure_snapshot = function
+  | Flow_candidate_rejected receipt -> Flow_advance_candidate_rejected receipt
+  | Flow_candidate_execution_failed { candidate; cause } ->
+    Flow_advance_execution_failed
+      { candidate =
+          { visit = candidate.visit
+          ; receipt = Generation_receipt.snapshot candidate.receipt
+          }
+      ; cause = cause.cause
+      ; raw_response_sha256 =
+          Option.map (fun response -> response.body_sha256) cause.raw_response
+      }
 ;;
 
 let observe_phase = Generation_receipt.observe_phase
@@ -616,12 +642,10 @@ let synchronize_receipt = Generation_receipt.synchronize
 let raw_response = Trace.raw_response
 let record_provider_trace = Generation_receipt.record_provider_trace
 
-let input_capacity_refusal_of_http_error ~code ~body ~retry_after_header =
+let serialized_request_refusal_of_http_error ~code ~body ~retry_after_header =
   match Retry.classify_error ~retry_after_header ~status:code ~body with
-  | Retry.ContextOverflow { limit; _ } ->
-    Some (Context_window_refused { limit_tokens = limit })
   | Retry.InvalidRequest { reason = Retry.Request_body_refused_by_provider { status }; _ }
-    -> Some (Serialized_request_refused { http_status = status })
+    -> Some status
   | Retry.RateLimited _
   | Retry.Overloaded _
   | Retry.ServerError _
@@ -630,6 +654,7 @@ let input_capacity_refusal_of_http_error ~code ~body ~retry_after_header =
   | Retry.PaymentRequired _
   | Retry.InvalidRequest _
   | Retry.NotFound _
+  | Retry.ContextOverflow _
   | Retry.InputCapacity _
   | Retry.NetworkError _
   | Retry.Timeout _ -> None
@@ -639,8 +664,8 @@ let execution_error_cause = function
   | Exec.Clock_required_for_timeout -> Clock_required_for_timeout
   | Exec.Frozen_request_mismatch -> Frozen_request_mismatch
   | Exec.Provider_error (Http_client.HttpError { code; body; retry_after_header }) ->
-    (match input_capacity_refusal_of_http_error ~code ~body ~retry_after_header with
-     | Some refusal -> Input_capacity_refused refusal
+    (match serialized_request_refusal_of_http_error ~code ~body ~retry_after_header with
+     | Some http_status -> Serialized_request_refused { http_status }
      | None -> Completion_failed)
   | Exec.Provider_error _ -> Completion_failed
   | Exec.Output_normalization_failed (Exec.Incomplete_structured_response _) ->
@@ -746,7 +771,7 @@ let execute_once ~net ?clock attempt =
 let execution_failure_may_advance (error : execution_error) =
   match error.cause, receipt_phase error.receipt with
   | Completion_failed, Before_dispatch -> receipt_dispatch_count error.receipt = 0
-  | Input_capacity_refused _, Response_received ->
+  | Serialized_request_refused _, Response_received ->
     (* The response contract proves that the provider rejected this input before
        generation. Keep the honest one-dispatch receipt, but allow the frozen
        lane to try its predetermined successor. *)
@@ -754,7 +779,8 @@ let execution_failure_may_advance (error : execution_error) =
   | Invalid_json_output, (Response_received | Terminal) ->
     receipt_dispatch_count error.receipt = 1
   | Completion_failed, (Not_started | Dispatch_started | Response_received | Terminal)
-  | Input_capacity_refused _, (Not_started | Before_dispatch | Dispatch_started | Terminal)
+  | ( Serialized_request_refused _
+    , (Not_started | Before_dispatch | Dispatch_started | Terminal) )
   | Invalid_json_output, (Not_started | Before_dispatch | Dispatch_started)
   | ( ( Attempt_already_started
       | Clock_required_for_timeout
@@ -914,7 +940,13 @@ let execute_flow_once
           Flow_state.Reject_and_advance { transport_success; rejection })
       ~advanceable:advanceable_flow_failure
       ~before_advance:(fun ~failed:_ ~failure ~next ->
-        before_advance ~failed:failure ~next:next.visit)
+        match before_advance ~failed:failure ~next:next.visit with
+        | Error _ as error -> error
+        | Ok () ->
+          Flow_state.record_advance
+            flow.progress
+            { failed = flow_advance_failure_snapshot failure; next = next.visit };
+          Ok ())
   in
   let evidence = flow_attempt_evidence flow in
   let terminal prior_rejections cause =

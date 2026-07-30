@@ -277,114 +277,6 @@ let extract_error_message (body : string) : string =
     body
 ;;
 
-(** Ollama Cloud reports context overflow as a top-level [error] string with no
-    machine-readable [code] or [type]. Preserve only the exact causal grammars
-    observed on that wire, including its canonical UUID reference. Generic
-    context-related prose remains unknown. This classification belongs at the
-    provider response boundary; consumers must not repeat it. *)
-let is_ascii_digit = function
-  | '0' .. '9' -> true
-  | _ -> false
-;;
-
-let is_ascii_hex = function
-  | '0' .. '9' | 'a' .. 'f' | 'A' .. 'F' -> true
-  | _ -> false
-;;
-
-let is_uuid_reference reference =
-  String.length reference = 36
-  &&
-  let rec loop index =
-    if index = 36
-    then true
-    else if index = 8 || index = 13 || index = 18 || index = 23
-    then Char.equal reference.[index] '-' && loop (index + 1)
-    else is_ascii_hex reference.[index] && loop (index + 1)
-  in
-  loop 0
-;;
-
-let consume_ascii_digits text start =
-  let text_length = String.length text in
-  let rec consume index =
-    if index < text_length && is_ascii_digit text.[index]
-    then consume (index + 1)
-    else index
-  in
-  let finish = consume start in
-  if finish = start then None else Some finish
-;;
-
-let has_uuid_reference_tail ~prefix tail =
-  let prefix_length = String.length prefix in
-  String.starts_with ~prefix tail
-  && String.ends_with ~suffix:")" tail
-  && String.length tail > prefix_length + 1
-  &&
-  let reference =
-    String.sub tail prefix_length (String.length tail - prefix_length - 1)
-  in
-  is_uuid_reference reference
-;;
-
-let reports_excess_context_tokens message =
-  let prefix = "prompt too long; exceeded max context length by " in
-  if not (String.starts_with ~prefix message)
-  then false
-  else (
-    match consume_ascii_digits message (String.length prefix) with
-    | None -> false
-    | Some digits_end ->
-      let tail = String.sub message digits_end (String.length message - digits_end) in
-      has_uuid_reference_tail ~prefix:" tokens (ref: " tail)
-;;
-
-let reported_context_limit message =
-  let prefix = "The prompt is too long: " in
-  let limit_prefix = ", model maximum context length: " in
-  if not (String.starts_with ~prefix message)
-  then None
-  else (
-    match consume_ascii_digits message (String.length prefix) with
-    | None -> None
-    | Some prompt_digits_end ->
-      let after_prompt =
-        String.sub message prompt_digits_end (String.length message - prompt_digits_end)
-      in
-      if not (String.starts_with ~prefix:limit_prefix after_prompt)
-      then None
-      else (
-        let limit_start = prompt_digits_end + String.length limit_prefix in
-        match consume_ascii_digits message limit_start with
-        | None -> None
-        | Some limit_digits_end ->
-          let tail =
-            String.sub message limit_digits_end (String.length message - limit_digits_end)
-          in
-          if has_uuid_reference_tail ~prefix:" (ref: " tail
-          then
-            String.sub message limit_start (limit_digits_end - limit_start)
-            |> int_of_string_opt
-          else None))
-;;
-
-let observed_context_overflow body =
-  try
-    let json = Yojson.Safe.from_string body in
-    let open Yojson.Safe.Util in
-    match json |> member "error" with
-    | `String message ->
-      (match reported_context_limit message with
-       | Some limit -> Some (message, Some limit)
-       | None when reports_excess_context_tokens message -> Some (message, None)
-       | None -> None)
-    | `Assoc _ | `List _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
-  with
-  | Yojson.Json_error _ | Yojson.Safe.Util.Type_error _ | Yojson.Safe.Util.Undefined _ ->
-    None
-;;
-
 (** A retry_after delay is usable only when it is finite and non-negative:
     those are the values that can feed a sleep/backoff computation without
     producing a nonsensical or unbounded wait. Yojson parses JSON number
@@ -433,10 +325,7 @@ let classify_error ~retry_after_header ~status ~body : api_error =
        replaying the same request is not a transport retry. Preserve that exact
        boundary without inspecting provider prose. *)
     AuthorizationError { message }
-  | 400 ->
-    (match observed_context_overflow body with
-     | Some (message, limit) -> ContextOverflow { message; limit }
-     | None -> InvalidRequest { message; reason = Unknown_invalid_request })
+  | 400 -> InvalidRequest { message; reason = Unknown_invalid_request }
   | 422 -> InvalidRequest { message; reason = Unknown_invalid_request }
   | 413 ->
     (* HTTP 413 states the refusal cause in the status line: the payload was too
@@ -555,17 +444,12 @@ let%test "HTTP 400 prompt-too-long report without ref stays Unknown InvalidReque
   | Timeout _ -> false
 ;;
 
-let%test "HTTP 400 prompt-too-long report with UUID ref preserves ContextOverflow" =
+let%test "HTTP 400 prompt-too-long report with UUID ref stays unknown" =
   let body =
     {|{"error":"prompt too long; exceeded max context length by 62887 tokens (ref: 1630a4a4-998f-400a-9d54-2d87537e0c03)"}|}
   in
   match classify_error ~retry_after_header:None ~status:400 ~body with
-  | ContextOverflow
-      { message =
-          "prompt too long; exceeded max context length by 62887 tokens (ref: \
-           1630a4a4-998f-400a-9d54-2d87537e0c03)"
-      ; limit = None
-      } -> true
+  | InvalidRequest { reason = Unknown_invalid_request; _ } -> true
   | RateLimited _
   | Overloaded _
   | ServerError _
@@ -580,17 +464,12 @@ let%test "HTTP 400 prompt-too-long report with UUID ref preserves ContextOverflo
   | Timeout _ -> false
 ;;
 
-let%test "measured Ollama HTTP 400 preserves the declared context limit" =
+let%test "measured Ollama HTTP 400 prose stays unknown" =
   let body =
     {|{"error":"The prompt is too long: 1400014, model maximum context length: 1048576 (ref: 8519ccf3-5d45-4686-9ac1-64d159f75ec1)"}|}
   in
   match classify_error ~retry_after_header:None ~status:400 ~body with
-  | ContextOverflow
-      { message =
-          "The prompt is too long: 1400014, model maximum context length: 1048576 (ref: \
-           8519ccf3-5d45-4686-9ac1-64d159f75ec1)"
-      ; limit = Some 1048576
-      } -> true
+  | InvalidRequest { reason = Unknown_invalid_request; _ } -> true
   | RateLimited _
   | Overloaded _
   | ServerError _

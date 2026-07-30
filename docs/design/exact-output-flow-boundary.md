@@ -65,9 +65,16 @@ dispatch. For each predetermined candidate:
 3. For an admitted candidate, the caller's `before_dispatch` callback must
    confirm its durable binding before OAS invokes the unchanged single-plan
    `execute_once`.
-4. OAS may select the next frozen candidate only after either that candidate
-   rejection receipt or a first-use transport failure whose exact execution
-   receipt is `Before_dispatch` with `dispatch_count = 0`.
+4. OAS may select the next frozen candidate only after one of these typed
+   outcomes:
+   - that candidate rejection receipt;
+   - a first-use transport failure whose exact execution receipt is
+     `Before_dispatch` with `dispatch_count = 0`;
+   - an HTTP 413 request-body refusal recorded at `Response_received` with
+     `dispatch_count = 1`;
+   - locally detected invalid JSON after one structurally complete response,
+     recorded at `Response_received` or `Terminal` with
+     `dispatch_count = 1`.
 5. The caller's `before_advance` callback receives the typed failure and
    the predetermined successor visit, and must durably confirm release before
    OAS prepares that successor.
@@ -89,8 +96,8 @@ The following outcomes are terminal:
 - duplicate/replayed execution;
 - cancellation;
 - a missing execution prerequisite or frozen-request invariant failure;
-- any receipt with `dispatch_count > 0`;
-- response, partial, tool, structural-output, or normalization exposure;
+- any dispatched response outside the two typed advance cases above;
+- partial, tool, ambiguous structural-output, or non-JSON-contract exposure;
 - a final typed candidate rejection, reported as `Flow_candidates_exhausted`;
 - structural success.
 
@@ -99,6 +106,12 @@ callback exactly once. `Accept` returns the accepted value and prior rejection
 evidence. `Reject_and_advance` preserves the transport success and domain
 rejection as immutable evidence, then advances directly to the predetermined
 successor. A final semantic rejection returns a typed nonempty trace.
+
+The two post-response advance cases may add one completion dispatch for each
+subsequent declared candidate. This is explicit failover blast radius, not a
+retry of the same candidate: every attempt remains affine and every successful
+advance is retained with its exact failed and successor visits. Provider error
+prose is diagnostic only and cannot authorize an advance.
 
 OAS performs no domain commit, replay, ranking update, or lifecycle transition
 after validation. Those effects remain behind the caller's existing domain
@@ -114,14 +127,15 @@ Every flow evidence projection carries:
 - ordered admission outcomes only for candidates reached so far;
 - every non-shared execution receipt allocated for an admitted current
   candidate;
+- every successfully confirmed transport-failure advance, bound to the failed
+  visit and its predetermined adjacent successor;
 
 Terminal variants additionally carry the candidate's exact
 rejection, success, or execution failure. The `admitted_flow_candidate` and
 `flow_attempt_receipt` wrappers embed the same precomputed visit; a rejection
 embeds that visit without fabricating a plan, call ID, or execution receipt. A
 new `start_flow` always allocates a new flow identity; restart resume is
-unsupported here and belongs to the caller's authenticated lease or operation
-journal.
+unsupported here and belongs to the caller's authenticated operation journal.
 
 Every admission rejection and allocated outer attempt receipt carries the same
 precomputed visit as the flow evidence. The flow identity, candidate identity,
