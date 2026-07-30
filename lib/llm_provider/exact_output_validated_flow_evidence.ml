@@ -379,6 +379,11 @@ let measurement_state_is_valid measurement =
   && measurement.outcome = Measurement_succeeded
 ;;
 
+let rejected_measurement_receipt_state_is_valid measurement =
+  measurement.dispatch = No_measurement_dispatch
+  && measurement.outcome <> Measurement_not_required
+;;
+
 let attempt_success_state_is_valid attempt =
   match attempt.phase with
   | Terminal ->
@@ -426,6 +431,7 @@ let check_measurement
       ~candidate
       ~request_body_sha256
       ~measurement_ids
+      ~state_is_valid
       measurement
   =
   let* () =
@@ -469,7 +475,7 @@ let check_measurement
            })
   in
   if
-    (not (measurement_state_is_valid measurement))
+    (not (state_is_valid measurement))
     || not
          (Option.fold
             ~none:true
@@ -485,7 +491,7 @@ let check_measurement
                measurement.catalog_evidence_sha256
                candidate.catalog_evidence_sha256)
   then
-    if measurement_state_is_valid measurement
+    if state_is_valid measurement
     then Error (Measurement_binding_mismatch { ordinal })
     else Error (Invalid_measurement_state { ordinal })
   else Ok ()
@@ -830,16 +836,19 @@ let create ~flow_id ~declared_candidates ~steps =
           Error (Final_step_not_accepted { ordinal })
         | Normalized_semantic_rejected _ -> Ok ()
       in
-      let admission_measurement, request_body_sha256, receipt_required =
+      let ( admission_measurement
+          , request_body_sha256
+          , receipt_required
+          , receipt_state_is_valid )
+        =
         match normalized_admission with
         | Normalized_admitted admitted ->
           ( admitted.measurement
           , Some admitted.request_body_sha256
-          , admitted.measurement.outcome <> Measurement_not_required )
+          , admitted.measurement.outcome <> Measurement_not_required
+          , measurement_state_is_valid )
         | Normalized_rejected rejected ->
-          ( rejected.measurement
-          , None
-          , rejected.measurement.dispatch <> No_measurement_dispatch )
+          rejected.measurement, None, false, rejected_measurement_receipt_state_is_valid
       in
       let* () =
         match admission_measurement.outcome, step.measurement with
@@ -861,6 +870,7 @@ let create ~flow_id ~declared_candidates ~steps =
               ~candidate
               ~request_body_sha256
               ~measurement_ids
+              ~state_is_valid:receipt_state_is_valid
               measurement
       in
       let* () =
