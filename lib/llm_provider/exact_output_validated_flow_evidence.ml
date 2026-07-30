@@ -244,7 +244,9 @@ let duplicate_key fields =
     fields
 ;;
 
-let rec canonicalize_projector_json json =
+let rec canonicalize_projector_json (json : Yojson.Safe.t)
+  : (Yojson.Safe.t, unit) result
+  =
   match json with
   | `Assoc fields ->
     (match duplicate_key fields with
@@ -268,11 +270,9 @@ let rec canonicalize_projector_json json =
         loop (value :: acc) rest
     in
     loop [] values
-  | (`Null | `Bool _ | `Int _ | `Intlit _ | `Floatlit _ | `String _) as scalar ->
-    Ok scalar
+  | (`Null | `Bool _ | `Int _ | `Intlit _ | `String _) as scalar -> Ok scalar
   | `Float value when Float.is_finite value -> Ok (`Float value)
   | `Float _ -> Error ()
-  | `Tuple _ | `Variant _ -> Error ()
 ;;
 
 let projector ~ordinal ~location json =

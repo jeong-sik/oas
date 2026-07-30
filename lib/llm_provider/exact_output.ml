@@ -706,18 +706,18 @@ let validated_flow_evidence_accepted_domain_sha256 =
 
 let evidence_sha256 value = Digestif.SHA256.(to_hex (digest_string value))
 
-let rec canonical_evidence_json = function
+let rec canonical_evidence_json (json : Yojson.Safe.t) : Yojson.Safe.t =
+  match json with
   | `Assoc fields ->
     `Assoc
       (fields
        |> List.map (fun (name, value) -> name, canonical_evidence_json value)
        |> List.sort (fun (left, _) (right, _) -> String.compare left right))
   | `List values -> `List (List.map canonical_evidence_json values)
-  | (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Tuple _ | `Variant _)
-    as value -> value
+  | (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _) as value -> value
 ;;
 
-let output_evidence_sha256 value =
+let output_evidence_sha256 (value : Yojson.Safe.t) =
   value |> canonical_evidence_json |> Yojson.Safe.to_string |> evidence_sha256
 ;;
 
