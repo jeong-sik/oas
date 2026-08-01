@@ -1919,6 +1919,43 @@ let test_complete_ollama_malformed_ndjson_is_wire_error () =
   | Exit -> ()
 ;;
 
+let test_complete_ollama_incomplete_ndjson_preserves_wire_format () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server
+        ~sw
+        ~net:env#net
+        ~content_type:"application/x-ndjson"
+        {|{"model":"test-model","message":{"role":"assistant","content":"partial"},"done":false}
+|}
+    in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:(make_config ~kind:Provider_config.Ollama ~request_path:"/api/chat" url)
+         ~messages
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind =
+                Http_client.Provider_wire_error
+                  { format = Http_client.Ndjson; kind = Http_client.Incomplete_stream }
+            ; _
+            }) -> ()
+     | Error _ -> fail "expected typed incomplete NDJSON stream"
+     | Ok _ -> fail "unterminated NDJSON stream must not complete successfully");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let test_complete_stream_on_event_exception_is_nonfatal () =
   Eio_main.run
   @@ fun env ->
@@ -3302,6 +3339,10 @@ let () =
             "malformed Ollama NDJSON preserves its wire format"
             `Quick
             test_complete_ollama_malformed_ndjson_is_wire_error
+        ; test_case
+            "incomplete Ollama NDJSON preserves its wire format"
+            `Quick
+            test_complete_ollama_incomplete_ndjson_preserves_wire_format
         ; test_case
             "Kimi Anthropic Messages SSE codec"
             `Quick

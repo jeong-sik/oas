@@ -152,37 +152,6 @@ let%test "stream parse failure is malformed wire evidence" =
     (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
 ;;
 
-let%test "NDJSON parse failure preserves its wire format" =
-  match
-    http_error_of_stream_error
-      (Types.Stream_ndjson_parse_failed { reason = "bad json"; raw = "x" })
-  with
-  | Http_client.ProviderFailure
-      { kind =
-          Http_client.Provider_wire_error
-            { format = Http_client.Ndjson; kind = Http_client.Malformed_payload }
-      ; message
-      } -> message = "NDJSON parse failed: bad json raw=\"x\""
-  | _ -> false
-;;
-
-let%test "stream provider error remains provider-owned evidence" =
-  match
-    http_error_of_stream_error
-      (Types.Stream_provider_error
-         { message = "slow down"
-         ; error_type = Some "rate_limit_exceeded"
-         ; raw = {|{"error":{"type":"rate_limit_exceeded"}}|}
-         })
-  with
-  | Http_client.ProviderFailure
-      { kind =
-          Http_client.Provider_reported_error { error_type = Some "rate_limit_exceeded" }
-      ; _
-      } -> true
-  | _ -> false
-;;
-
 let%test "stream incompleteness remains distinct from malformed payload" =
   match
     http_error_of_stream_error
@@ -194,21 +163,6 @@ let%test "stream incompleteness remains distinct from malformed payload" =
             { format = Http_client.Sse; kind = Http_client.Incomplete_stream }
       ; _
       } -> true
-  | _ -> false
-;;
-
-let%test "NDJSON stream incompleteness preserves its wire format" =
-  match
-    http_error_of_stream_error
-      ~wire_format:Http_client.Ndjson
-      (Types.Stream_incomplete { reason = "terminal marker missing" })
-  with
-  | Http_client.ProviderFailure
-      { kind =
-          Http_client.Provider_wire_error
-            { format = Http_client.Ndjson; kind = Http_client.Incomplete_stream }
-      ; message
-      } -> message = "ndjson stream incomplete: terminal marker missing"
   | _ -> false
 ;;
 
