@@ -529,12 +529,17 @@ val post_stream
     callers (see {!Complete_stream.body_logic}) catch it inside [f] and
     emit the precise phase (prefill → [First_token], inter-chunk →
     [Stream_idle]); callers that let it propagate get
-    [TimeoutError { phase = Unknown_timeout; _ }] as a safe default. *)
+    [TimeoutError { phase = Unknown_timeout; _ }] as a safe default.
+
+    [reuse_connection] is evaluated on [f]'s successful return value before a
+    cached connection is parked. Callers that stop before consuming the full
+    body must return [false], which closes the connection instead. *)
 val with_post_stream
   :  ?cache:cache
   -> ?clock:_ Eio.Time.clock
   -> ?connect_timeout_s:float
   -> ?on_response_status:(int -> unit)
+  -> ?reuse_connection:('a -> bool)
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> url:string
   -> headers:(string * string) list

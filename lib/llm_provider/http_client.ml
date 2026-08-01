@@ -2134,6 +2134,7 @@ let with_post_stream
       ?clock
       ?connect_timeout_s
       ?on_response_status
+      ?(reuse_connection = fun _ -> true)
       ~net
       ~url
       ~headers
@@ -2266,8 +2267,9 @@ let with_post_stream
          raise exn)
   in
   (match body_result, cache with
-   | Ok _, Some cache -> cache_return cache uri { connection = conn; last_used_at = 0.0 }
-   | Ok _, None -> Eio.Resource.close conn
+   | Ok result, Some cache when reuse_connection result ->
+     cache_return cache uri { connection = conn; last_used_at = 0.0 }
+   | Ok _, Some _ | Ok _, None -> Eio.Resource.close conn
    | Error _, _ -> Eio.Resource.close conn);
   body_result
 ;;

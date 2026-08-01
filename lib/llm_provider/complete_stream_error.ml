@@ -61,7 +61,10 @@ let%test "terminal labels name the wire format the failure carries" =
 ;;
 
 let%test "a provider-reported envelope is not labelled a wire failure" =
-  (not (String.equal provider_reported_terminal_label (wire_error_terminal_label Http_client.Sse)))
+  (not
+     (String.equal
+        provider_reported_terminal_label
+        (wire_error_terminal_label Http_client.Sse)))
   && String.equal provider_reported_terminal_label "provider_stream_error"
 ;;
 

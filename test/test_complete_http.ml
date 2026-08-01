@@ -1589,6 +1589,45 @@ let start_sse_server
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
+let test_complete_injected_http_transport_preserves_stream_status_metrics () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_sse_server ~sw ~net:env#net (anthropic_sse_response "streamed") in
+    let transport = Complete.make_http_transport ~sw ~net:env#net () in
+    let status_calls = ref [] in
+    let metrics : Metrics.t =
+      { Metrics.noop with
+        on_http_status =
+          (fun ~provider ~model_id ~status ->
+            status_calls := (provider, model_id, status) :: !status_calls)
+      }
+    in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~transport
+         ~config:(make_config url)
+         ~messages
+         ~metrics
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Ok _ -> ()
+     | Error _ -> fail "expected injected HTTP transport stream to succeed");
+    check
+      (list (triple string string int))
+      "injected HTTP transport preserves response status"
+      [ "anthropic", "test-model", 200 ]
+      (List.rev !status_calls);
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let text_of_response (resp : Types.api_response) =
   List.filter_map
     (function
@@ -1940,7 +1979,8 @@ let test_complete_provider_error_envelope_is_not_a_wire_error () =
      with
      | Error
          (Http_client.ProviderFailure
-            { kind = Http_client.Provider_reported_error { error_type = Some _ }; _ }) -> ()
+            { kind = Http_client.Provider_reported_error { error_type = Some _ }; _ }) ->
+       ()
      | Error _ -> fail "expected a typed provider-reported error"
      | Ok _ -> fail "a provider error envelope must not complete successfully");
     let terminal =
@@ -3417,6 +3457,10 @@ let () =
             "direct streaming HTTP error uses metrics fallback"
             `Quick
             test_complete_stream_http_error_metrics_uses_fallback
+        ; test_case
+            "injected HTTP transport preserves streaming status"
+            `Quick
+            test_complete_injected_http_transport_preserves_stream_status_metrics
         ; test_case "transport http ok" `Quick test_complete_transport_http_metrics_ok
         ; test_case
             "transport http error"

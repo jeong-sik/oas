@@ -415,9 +415,7 @@ let complete_prepared_stream
        status wiring, so the sink travels with the request — the same way
        [observe_wire_chunk] does. An HTTP-backed transport reports what it
        observed; a CLI transport ignores the field and stays silent. *)
-    let request =
-      { request with observe_http_status = Some metrics.on_http_status }
-    in
+    let request = { request with observe_http_status = Some metrics.on_http_status } in
     let dispatch () =
       match transport with
       | Some t -> t.complete_stream ?on_telemetry:transport_on_telemetry ~on_event request
