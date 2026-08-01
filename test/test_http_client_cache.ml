@@ -504,9 +504,6 @@ let test_stream_typed_error_closes_unconsumed_connection () =
          ~url
          ~headers:[]
          ~body:""
-         ~reuse_connection:(function
-           | Ok _ -> true
-           | Error _ -> false)
          ~f:(fun _reader -> Error `Stop)
          ()
      with
@@ -516,6 +513,67 @@ let test_stream_typed_error_closes_unconsumed_connection () =
     let stats = Http_client.cache_stats cache in
     Alcotest.(check int) "typed error does not park connection" 0 stats.total_idle;
     Alcotest.(check int) "one create" 1 stats.create_count_total;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+(* A close-delimited stream reaches EOF precisely BECAUSE the peer went away.
+   Draining it proves the body was fully read; it proves nothing about whether
+   the socket may serve another request. Parking it would hand the next caller
+   a dead connection. *)
+let test_stream_connection_close_does_not_park () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let port = fresh_port () in
+    let body = "data: one\n\ndata: two\n\n" in
+    let handler flow _addr =
+      let reader = Eio.Buf_read.of_flow flow ~max_size:8192 in
+      drain_request_headers reader;
+      try
+        Eio.Flow.copy_string
+          ("HTTP/1.1 200 OK\r\n\
+            Content-Type: text/event-stream\r\n\
+            Connection: close\r\n\
+            \r\n"
+           ^ body)
+          flow
+      with
+      | End_of_file | Eio.Io _ | Unix.Unix_error _ -> ()
+    in
+    let socket =
+      Eio.Net.listen
+        env#net
+        ~sw
+        ~backlog:8
+        ~reuse_addr:true
+        (`Tcp (Eio.Net.Ipaddr.V4.loopback, port))
+    in
+    Eio.Fiber.fork ~sw (fun () ->
+      Eio.Net.run_server socket handler ~on_error:(fun _ -> ()) ~max_connections:4);
+    let url = Printf.sprintf "http://127.0.0.1:%d" port in
+    let cache = Http_client.create_cache ~sw () in
+    let seen = ref 0 in
+    (match
+       Http_client.with_post_stream
+         ~cache
+         ~net:env#net
+         ~url
+         ~headers:[]
+         ~body:""
+         ~f:(fun reader ->
+           Http_client.read_sse ~reader ~on_data:(fun ~event_type:_ _ -> incr seen) ();
+           Ok ())
+         ()
+     with
+     | Ok (Ok ()) -> ()
+     | Ok (Error _) | Error _ -> Alcotest.fail "close-delimited stream should drain");
+    Alcotest.(check int) "stream fully drained" 2 !seen;
+    let stats = Http_client.cache_stats cache in
+    Alcotest.(check int) "connection-close stream is not parked" 0 stats.total_idle;
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()
@@ -930,6 +988,10 @@ let () =
             "typed error closes unconsumed connection"
             `Quick
             test_stream_typed_error_closes_unconsumed_connection
+        ; Alcotest.test_case
+            "connection-close stream is not parked"
+            `Quick
+            test_stream_connection_close_does_not_park
         ] )
     ; ( "validation"
       , [ Alcotest.test_case
