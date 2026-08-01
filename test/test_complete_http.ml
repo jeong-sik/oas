@@ -1882,6 +1882,7 @@ let test_complete_ollama_malformed_ndjson_is_wire_error () =
     let url =
       start_sse_server ~sw ~net:env#net ~content_type:"application/x-ndjson" "{not-json\n"
     in
+    let telemetry = ref [] in
     (match
        Complete.complete_stream
          ~sw
@@ -1889,6 +1890,7 @@ let test_complete_ollama_malformed_ndjson_is_wire_error () =
          ~config:(make_config ~kind:Provider_config.Ollama ~request_path:"/api/chat" url)
          ~messages
          ~on_event:(fun _ -> ())
+         ~on_telemetry:(fun event -> telemetry := event :: !telemetry)
          ()
      with
      | Error
@@ -1900,6 +1902,18 @@ let test_complete_ollama_malformed_ndjson_is_wire_error () =
             }) -> ()
      | Error _ -> fail "expected typed malformed NDJSON payload"
      | Ok _ -> fail "malformed NDJSON payload must not complete successfully");
+    let terminal =
+      List.find_map
+        (function
+          | Telemetry_event.Streaming_summary { terminal; _ } -> Some terminal
+          | _ -> None)
+        !telemetry
+    in
+    check
+      (option (testable Telemetry_event.pp_streaming_terminal ( = )))
+      "NDJSON telemetry keeps its wire format"
+      (Some (Telemetry_event.Terminal_error "ndjson_wire_error"))
+      terminal;
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()

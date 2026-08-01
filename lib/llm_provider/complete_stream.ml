@@ -50,7 +50,11 @@ let parse_error_raw_excerpt raw =
 (* The stream boundary preserves the distinction between a provider-owned
    error envelope and a response that violates the declared wire contract.
    Retry policy is intentionally not inferred here. *)
-let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_error =
+let http_error_of_stream_error
+      ?(wire_format = Http_client.Sse)
+      (serr : Types.stream_error)
+  : Http_client.http_error
+  =
   match serr with
   | Types.Stream_provider_error { message; error_type; raw } ->
     Http_client.ProviderFailure
@@ -96,8 +100,12 @@ let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_er
     Http_client.ProviderFailure
       { kind =
           Http_client.Provider_wire_error
-            { format = Http_client.Sse; kind = Http_client.Incomplete_stream }
-      ; message = Printf.sprintf "SSE stream incomplete: %s" reason
+            { format = wire_format; kind = Http_client.Incomplete_stream }
+      ; message =
+          Printf.sprintf
+            "%s stream incomplete: %s"
+            (Http_client.provider_wire_format_to_string wire_format)
+            reason
       }
   | Types.Stream_unknown_event { event_type; _ } ->
     Http_client.ProviderFailure
@@ -186,6 +194,21 @@ let%test "stream incompleteness remains distinct from malformed payload" =
             { format = Http_client.Sse; kind = Http_client.Incomplete_stream }
       ; _
       } -> true
+  | _ -> false
+;;
+
+let%test "NDJSON stream incompleteness preserves its wire format" =
+  match
+    http_error_of_stream_error
+      ~wire_format:Http_client.Ndjson
+      (Types.Stream_incomplete { reason = "terminal marker missing" })
+  with
+  | Http_client.ProviderFailure
+      { kind =
+          Http_client.Provider_wire_error
+            { format = Http_client.Ndjson; kind = Http_client.Incomplete_stream }
+      ; message
+      } -> message = "ndjson stream incomplete: terminal marker missing"
   | _ -> false
 ;;
 
@@ -526,6 +549,15 @@ let complete_stream_http
      them. We trap them here and patch the finalised response below. *)
       let provider = Provider_config.string_of_provider_kind config.kind in
       let model = config.model_id in
+      let active_wire_format =
+        match http_codec with
+        | Provider_http_codec.Ollama_chat -> Http_client.Ndjson
+        | Anthropic_messages
+        | Openai_chat
+        | Openai_responses
+        | Gemini_generate_content
+        | Glm_chat -> Http_client.Sse
+      in
       let on_response_status =
         Option.map
           (fun observe status -> observe ~provider ~model_id:model ~status)
@@ -576,12 +608,11 @@ let complete_stream_http
         | Types.MessageDelta _ -> `Skip
         | Types.MessageStop -> `Done
         | Types.Ping -> `Heartbeat
-        | Types.SSEError _
-        | Types.SSEParseFailed _
-        | Types.NDJSONParseFailed _
-        | Types.SSEUnknownEventType _ -> `Wire_error
+        | Types.SSEError _ | Types.SSEParseFailed _ | Types.SSEUnknownEventType _ ->
+          `Wire_error Http_client.Sse
+        | Types.NDJSONParseFailed _ -> `Wire_error Http_client.Ndjson
         | Types.Connected -> `Skip
-        | Types.Timeout _ -> `Wire_error
+        | Types.Timeout _ -> `Wire_error active_wire_format
         | Types.StreamIncomplete _ -> `Skip
       in
       let percentiles () =
@@ -733,9 +764,12 @@ let complete_stream_http
                      | `Done ->
                        stream_idle_state := Http_client.Streaming_done;
                        incr n_done
-                     | `Wire_error ->
+                     | `Wire_error format ->
                        stream_idle_state := Http_client.Streaming_unknown;
-                       terminal_state := Telemetry_event.Terminal_error "sse_wire_error")
+                       terminal_state
+                       := Telemetry_event.Terminal_error
+                            (Http_client.provider_wire_format_to_string format
+                             ^ "_wire_error"))
                   events;
                 (* No thinking-only wall-clock cutoff: active reasoning
                      deltas ARE stream liveness. [stream_idle_timeout_s]
@@ -915,7 +949,9 @@ let complete_stream_http
                 let result =
                   match Complete_stream_acc.finalize_stream_acc acc with
                   | Ok _ as ok -> ok
-                  | Error serr -> Error (http_error_of_stream_error serr)
+                  | Error serr ->
+                    Error
+                      (http_error_of_stream_error ~wire_format:active_wire_format serr)
                 in
                 (* RFC-OAS-019: emit one [Streaming_summary] at stream
                    finalize on the normal path. terminal_state defaults to
