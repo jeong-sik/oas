@@ -87,6 +87,13 @@ The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical
 `Llm_provider.Provider_config.t` values.
 
+## [0.231.11](https://github.com/jeong-sik/oas/compare/v0.231.10...v0.231.11) (2026-08-01)
+
+
+### Bug Fixes
+
+* **sse:** keep first-event deadline until data arrives ([#2915](https://github.com/jeong-sik/oas/issues/2915)) ([63a671b](https://github.com/jeong-sik/oas/commit/63a671ba676e215af379361f0d8079a1e9cd0760))
+
 ## [0.231.10](https://github.com/jeong-sik/oas/compare/v0.231.9...v0.231.10) (2026-07-30)
 
 
