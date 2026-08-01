@@ -655,7 +655,14 @@ let complete_stream_http
                              | Provider_http_codec.Anthropic_messages ->
                                (match Streaming.parse_sse_event event_type data with
                                 | Some evt -> [ evt ], None
-                                | None -> [], None)
+                                | None ->
+                                  ( [ Types.SSEParseFailed
+                                        { raw = data
+                                        ; reason =
+                                            "anthropic_sse_parser_returned_no_event"
+                                        }
+                                    ]
+                                  , None ))
                              | Provider_http_codec.Openai_responses ->
                                Streaming.responses_sse_to_events
                                  (get_state ())

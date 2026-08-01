@@ -5,143 +5,161 @@
 
 open Types
 
+let event_type_of_payload event_type json : (string, string) result =
+  match json with
+  | `Assoc fields ->
+    (match event_type with
+     | Some value when not (Api_common.string_is_blank value) -> Ok value
+     | Some _ -> Error "sse_event_type_blank"
+     | None ->
+       (match List.assoc_opt "type" fields with
+        | Some (`String value) when not (Api_common.string_is_blank value) -> Ok value
+        | Some (`String _) -> Error "sse_event_type_blank"
+        | Some _ -> Error "sse_event_type_not_string"
+        | None -> Error "sse_event_type_missing"))
+  | _ -> Error "sse_payload_must_be_object"
+;;
+
 (** Parse a single SSE data JSON payload into an [sse_event]. *)
 let parse_sse_event event_type data_str =
   let open Yojson.Safe.Util in
   try
     let json = Yojson.Safe.from_string data_str in
-    let evt_type =
-      match event_type with
-      | Some t -> t
-      | None -> Cli_common_json.member_str "type" json
-    in
-    match evt_type with
-    | "message_start" ->
-      let msg = json |> member "message" in
-      let id = msg |> member "id" |> to_string in
-      let model = msg |> member "model" |> to_string in
-      let usage =
-        let u = msg |> member "usage" in
-        if u = `Null
-        then None
-        else (
-          let input_tokens = u |> member "input_tokens" |> to_int in
-          let cache_creation_input_tokens =
-            u
-            |> member "cache_creation_input_tokens"
-            |> to_int_option
-            |> Option.value ~default:0
-          in
-          let cache_read_input_tokens =
-            u
-            |> member "cache_read_input_tokens"
-            |> to_int_option
-            |> Option.value ~default:0
-          in
-          Some
-            { input_tokens
-            ; output_tokens = 0
-            ; cache_creation_input_tokens
-            ; cache_read_input_tokens
-            ; cost_usd = None
-            })
-      in
-      Some (MessageStart { id; model; usage })
-    | "content_block_start" ->
-      let index = json |> member "index" |> to_int in
-      let cb = json |> member "content_block" in
-      let content_type = cb |> member "type" |> to_string in
-      let tool_id =
-        match content_type with
-        | "redacted_thinking" -> cb |> member "data" |> to_string_option
-        | _ -> cb |> member "id" |> to_string_option
-      in
-      let tool_name = cb |> member "name" |> to_string_option in
-      let non_blank_tool_id =
-        match tool_id with
-        | Some id when not (Api_common.string_is_blank id) -> Some id
-        | Some _ | None -> None
-      in
-      (match content_type, non_blank_tool_id with
-       | "tool_use", None ->
-         Some
-           (SSEParseFailed
-              { raw = Printf.sprintf "anthropic tool_use index %d" index
-              ; reason =
-                  Printf.sprintf "malformed_tool_use:index:%d:missing_provider_id" index
-              })
-       | "tool_use", Some tool_id ->
-         Some
-           (ContentBlockStart { index; content_type; tool_id = Some tool_id; tool_name })
-       | _, _ -> Some (ContentBlockStart { index; content_type; tool_id; tool_name }))
-    | "content_block_delta" ->
-      let index = json |> member "index" |> to_int in
-      let delta_json = json |> member "delta" in
-      let delta_type = delta_json |> member "type" |> to_string in
-      let delta =
-        match delta_type with
-        | "text_delta" -> TextDelta (delta_json |> member "text" |> to_string)
-        | "thinking_delta" -> ThinkingDelta (delta_json |> member "thinking" |> to_string)
-        | "signature_delta" ->
-          ThinkingSignatureDelta (delta_json |> member "signature" |> to_string)
-        | "input_json_delta" ->
-          InputJsonDelta (delta_json |> member "partial_json" |> to_string)
-        | unknown_delta_type ->
-          raise
-            (Yojson.Safe.Util.Type_error
-               ("unsupported content_block_delta type: " ^ unknown_delta_type, delta_json))
-      in
-      Some (ContentBlockDelta { index; delta })
-    | "content_block_stop" ->
-      let index = json |> member "index" |> to_int in
-      Some (ContentBlockStop { index })
-    | "message_delta" ->
-      let delta = json |> member "delta" in
-      let stop_reason =
-        delta
-        |> member "stop_reason"
-        |> to_string_option
-        |> Option.map stop_reason_of_string
-      in
-      let usage =
-        let u = json |> member "usage" in
-        if u = `Null
-        then None
-        else (
-          let output_tokens = u |> member "output_tokens" |> to_int in
-          let cache_creation_input_tokens =
-            u
-            |> member "cache_creation_input_tokens"
-            |> to_int_option
-            |> Option.value ~default:0
-          in
-          let cache_read_input_tokens =
-            u
-            |> member "cache_read_input_tokens"
-            |> to_int_option
-            |> Option.value ~default:0
-          in
-          Some
-            { input_tokens = 0
-            ; output_tokens
-            ; cache_creation_input_tokens
-            ; cache_read_input_tokens
-            ; cost_usd = None
-            })
-      in
-      Some (MessageDelta { stop_reason; usage })
-    | "message_stop" -> Some MessageStop
-    | "ping" -> Some Ping
-    | "error" ->
-      let err = json |> member "error" in
-      let message =
-        match err |> member "message" |> to_string_option with
-        | Some m -> m
-        | None -> data_str
-      in
-      let error_type = err |> member "type" |> to_string_option in
-      Some (SSEError { message; error_type; raw = data_str })
-    | other -> Some (SSEUnknownEventType { event_type = other; raw = data_str })
+    match event_type_of_payload event_type json with
+    | Error reason -> Some (SSEParseFailed { raw = data_str; reason })
+    | Ok evt_type ->
+      (match evt_type with
+       | "message_start" ->
+         let msg = json |> member "message" in
+         let id = msg |> member "id" |> to_string in
+         let model = msg |> member "model" |> to_string in
+         let usage =
+           let u = msg |> member "usage" in
+           if u = `Null
+           then None
+           else (
+             let input_tokens = u |> member "input_tokens" |> to_int in
+             let cache_creation_input_tokens =
+               u
+               |> member "cache_creation_input_tokens"
+               |> to_int_option
+               |> Option.value ~default:0
+             in
+             let cache_read_input_tokens =
+               u
+               |> member "cache_read_input_tokens"
+               |> to_int_option
+               |> Option.value ~default:0
+             in
+             Some
+               { input_tokens
+               ; output_tokens = 0
+               ; cache_creation_input_tokens
+               ; cache_read_input_tokens
+               ; cost_usd = None
+               })
+         in
+         Some (MessageStart { id; model; usage })
+       | "content_block_start" ->
+         let index = json |> member "index" |> to_int in
+         let cb = json |> member "content_block" in
+         let content_type = cb |> member "type" |> to_string in
+         let tool_id =
+           match content_type with
+           | "redacted_thinking" -> cb |> member "data" |> to_string_option
+           | _ -> cb |> member "id" |> to_string_option
+         in
+         let tool_name = cb |> member "name" |> to_string_option in
+         let non_blank_tool_id =
+           match tool_id with
+           | Some id when not (Api_common.string_is_blank id) -> Some id
+           | Some _ | None -> None
+         in
+         (match content_type, non_blank_tool_id with
+          | "tool_use", None ->
+            Some
+              (SSEParseFailed
+                 { raw = Printf.sprintf "anthropic tool_use index %d" index
+                 ; reason =
+                     Printf.sprintf
+                       "malformed_tool_use:index:%d:missing_provider_id"
+                       index
+                 })
+          | "tool_use", Some tool_id ->
+            Some
+              (ContentBlockStart
+                 { index; content_type; tool_id = Some tool_id; tool_name })
+          | _, _ -> Some (ContentBlockStart { index; content_type; tool_id; tool_name }))
+       | "content_block_delta" ->
+         let index = json |> member "index" |> to_int in
+         let delta_json = json |> member "delta" in
+         let delta_type = delta_json |> member "type" |> to_string in
+         let delta =
+           match delta_type with
+           | "text_delta" -> TextDelta (delta_json |> member "text" |> to_string)
+           | "thinking_delta" ->
+             ThinkingDelta (delta_json |> member "thinking" |> to_string)
+           | "signature_delta" ->
+             ThinkingSignatureDelta (delta_json |> member "signature" |> to_string)
+           | "input_json_delta" ->
+             InputJsonDelta (delta_json |> member "partial_json" |> to_string)
+           | unknown_delta_type ->
+             raise
+               (Yojson.Safe.Util.Type_error
+                  ( "unsupported content_block_delta type: " ^ unknown_delta_type
+                  , delta_json ))
+         in
+         Some (ContentBlockDelta { index; delta })
+       | "content_block_stop" ->
+         let index = json |> member "index" |> to_int in
+         Some (ContentBlockStop { index })
+       | "message_delta" ->
+         let delta = json |> member "delta" in
+         let stop_reason =
+           delta
+           |> member "stop_reason"
+           |> to_string_option
+           |> Option.map stop_reason_of_string
+         in
+         let usage =
+           let u = json |> member "usage" in
+           if u = `Null
+           then None
+           else (
+             let output_tokens = u |> member "output_tokens" |> to_int in
+             let cache_creation_input_tokens =
+               u
+               |> member "cache_creation_input_tokens"
+               |> to_int_option
+               |> Option.value ~default:0
+             in
+             let cache_read_input_tokens =
+               u
+               |> member "cache_read_input_tokens"
+               |> to_int_option
+               |> Option.value ~default:0
+             in
+             Some
+               { input_tokens = 0
+               ; output_tokens
+               ; cache_creation_input_tokens
+               ; cache_read_input_tokens
+               ; cost_usd = None
+               })
+         in
+         Some (MessageDelta { stop_reason; usage })
+       | "message_stop" -> Some MessageStop
+       | "ping" -> Some Ping
+       | "error" ->
+         let err = json |> member "error" in
+         let message =
+           match err |> member "message" |> to_string_option with
+           | Some m -> m
+           | None -> data_str
+         in
+         let error_type = err |> member "type" |> to_string_option in
+         Some (SSEError { message; error_type; raw = data_str })
+       | other -> Some (SSEUnknownEventType { event_type = other; raw = data_str }))
   with
   | Yojson.Safe.Util.Type_error (msg, _) ->
     Some (SSEParseFailed { raw = data_str; reason = "type_error: " ^ msg })
@@ -2734,18 +2752,44 @@ let%test "parse_sse_event: malformed JSON yields SSEParseFailed" =
     false
 ;;
 
-let%test
-    "parse_sse_event: type field missing yields SSEUnknownEventType (not silent None)"
-  =
-  (* The [type] field is absent and event_type is unspecified.
-     Cli_common_json.member_str returns "" rather than raising, so the
-     match falls into the unknown-type branch. The contract is that we
-     emit *something* the consumer can react to; what matters here is
-     that we never return [None] for this input. *)
+let%test "parse_sse_event: type field missing yields SSEParseFailed" =
+  (* A valid JSON object without its discriminator is malformed protocol data,
+     not a future event type. Preserve that distinction for the stream error
+     classifier; do not manufacture an empty event type. *)
   let raw = "{\"id\":\"foo\"}" in
   match parse_sse_event None raw with
-  | Some (SSEUnknownEventType { event_type = ""; _ }) -> true
-  | Some (SSEParseFailed _) -> true
+  | Some (SSEParseFailed { raw = observed_raw; reason }) ->
+    observed_raw = raw && reason = "sse_event_type_missing"
+  | unexpected_event ->
+    let (_ : sse_event option) = unexpected_event in
+    false
+;;
+
+let%test "parse_sse_event: blank explicit event type yields SSEParseFailed" =
+  let raw = "{}" in
+  match parse_sse_event (Some "  ") raw with
+  | Some (SSEParseFailed { raw = observed_raw; reason }) ->
+    observed_raw = raw && reason = "sse_event_type_blank"
+  | unexpected_event ->
+    let (_ : sse_event option) = unexpected_event in
+    false
+;;
+
+let%test "parse_sse_event: non-string payload type yields SSEParseFailed" =
+  let raw = "{\"type\":42}" in
+  match parse_sse_event None raw with
+  | Some (SSEParseFailed { raw = observed_raw; reason }) ->
+    observed_raw = raw && reason = "sse_event_type_not_string"
+  | unexpected_event ->
+    let (_ : sse_event option) = unexpected_event in
+    false
+;;
+
+let%test "parse_sse_event: non-object payload yields SSEParseFailed" =
+  let raw = "[]" in
+  match parse_sse_event (Some "ping") raw with
+  | Some (SSEParseFailed { raw = observed_raw; reason }) ->
+    observed_raw = raw && reason = "sse_payload_must_be_object"
   | unexpected_event ->
     let (_ : sse_event option) = unexpected_event in
     false
