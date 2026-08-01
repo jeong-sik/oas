@@ -2153,14 +2153,14 @@ type ollama_line_shape =
       }
   | Ollama_malformed_fields of string
 
-let ollama_line_shape ~raw json =
+let ollama_line_shape json =
   let open Yojson.Safe.Util in
   match json |> member "error" with
   | `String message -> Ollama_provider_error_fields { message; error_type = None }
   | `Assoc error_fields ->
     let error = `Assoc error_fields in
     let message =
-      error |> member "message" |> to_string_option |> Option.value ~default:raw
+      error |> member "message" |> to_string_option |> Option.value ~default:""
     in
     let error_type = error |> member "type" |> to_string_option in
     Ollama_provider_error_fields { message; error_type }
@@ -2176,7 +2176,7 @@ let parse_ollama_ndjson_chunk data_str : ollama_ndjson_parse_result =
   let open Yojson.Safe.Util in
   try
     let json = Yojson.Safe.from_string data_str in
-    match ollama_line_shape ~raw:data_str json with
+    match ollama_line_shape json with
     | Ollama_provider_error_fields { message; error_type } ->
       Ollama_provider_error { message; error_type; raw = data_str }
     | Ollama_malformed_fields reason -> Ollama_parse_failed { reason; raw = data_str }
@@ -2521,6 +2521,16 @@ let%test "parse_ollama_ndjson_chunk: provider error is explicit" =
   | Ollama_provider_error { message; error_type = None; raw } ->
     message = "model failed" && raw = {|{"error":"model failed"}|}
   | Ollama_chunk _ | Ollama_parse_failed _ -> false
+  | Ollama_provider_error { error_type = Some _; _ } -> false
+;;
+
+let%test "parse_ollama_ndjson_chunk: missing provider message does not copy raw" =
+  let raw = {|{"error":{"type":"server_error","detail":"opaque"}}|} in
+  match parse_ollama_ndjson_chunk raw with
+  | Ollama_provider_error { message; error_type = Some "server_error"; raw = r } ->
+    message = "" && r = raw
+  | Ollama_chunk _ | Ollama_parse_failed _ -> false
+  | Ollama_provider_error { error_type = None; _ } -> false
   | Ollama_provider_error { error_type = Some _; _ } -> false
 ;;
 

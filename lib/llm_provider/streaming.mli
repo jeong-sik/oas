@@ -215,7 +215,9 @@ type ollama_ndjson_parse_result =
 
 (** Parse one NDJSON line without collapsing provider errors or malformed
     records into an absent chunk. The Ollama error envelope is a provider
-    fact; missing or incorrectly typed data fields are wire failures. *)
+    fact; missing or incorrectly typed data fields are wire failures. When a
+    provider error object omits [message], [message] stays empty and the
+    original payload remains available only through [raw]. *)
 val parse_ollama_ndjson_chunk : string -> ollama_ndjson_parse_result
 
 (** Convert a parsed {!ollama_chunk} into {!sse_event} list.

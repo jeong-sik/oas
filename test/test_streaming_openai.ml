@@ -1463,8 +1463,15 @@ let test_stream_tool_args_valid_parsed () =
 let parse_ollama_line_exn data =
   match S.parse_ollama_ndjson_chunk data with
   | S.Ollama_chunk chunk -> chunk
-  | S.Ollama_provider_error _ -> Alcotest.fail "expected Ollama NDJSON stream chunk"
-  | S.Ollama_parse_failed _ -> Alcotest.fail "expected Ollama NDJSON stream chunk"
+  | S.Ollama_provider_error { message; error_type; _ } ->
+    Alcotest.failf
+      "expected Ollama NDJSON stream chunk, got provider error message=%S type=%s"
+      message
+      (Option.value ~default:"<none>" error_type)
+  | S.Ollama_parse_failed { reason; _ } ->
+    Alcotest.failf
+      "expected Ollama NDJSON stream chunk, got parse failure reason=%S"
+      reason
 ;;
 
 let test_ollama_native_interleaved_thinking_tool_text_finalizes () =
