@@ -2521,7 +2521,6 @@ let test_complete_stream_unknown_latency_stays_unknown () =
         ~net:env#net
         ~latency_counter:Complete_common.Unknown_latency
         ~on_telemetry:(fun evt -> telemetry_events := evt :: !telemetry_events)
-        ~on_http_status:metrics.on_http_status
         ~metrics
         ~config
         ~messages

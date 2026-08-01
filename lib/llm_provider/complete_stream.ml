@@ -331,9 +331,8 @@ let complete_stream_http
         | Glm_chat -> Http_client.Sse
       in
       let on_response_status =
-        Option.map
-          (fun observe status -> observe ~provider ~model_id:model ~status)
-          on_http_status
+        let observe = Option.value ~default:metrics.on_http_status on_http_status in
+        fun status -> observe ~provider ~model_id:model ~status
       in
       let emit_telemetry evt =
         record_streaming_metrics metrics evt;
@@ -450,7 +449,7 @@ let complete_stream_http
           ?cache:connection_cache
           ?clock
           ?connect_timeout_s:config.connect_timeout_s
-          ?on_response_status
+          ~on_response_status
           ~net
           ~url
           ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
