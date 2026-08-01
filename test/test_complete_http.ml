@@ -2046,6 +2046,117 @@ let test_complete_ollama_malformed_ndjson_is_wire_error () =
   | Exit -> ()
 ;;
 
+let test_complete_ollama_provider_error_is_not_wire_error () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server
+        ~sw
+        ~net:env#net
+        ~content_type:"application/x-ndjson"
+        {|{"error":"model failed"}
+|}
+    in
+    let telemetry = ref [] in
+    let events = ref [] in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:(make_config ~kind:Provider_config.Ollama ~request_path:"/api/chat" url)
+         ~messages
+         ~on_event:(fun event -> events := event :: !events)
+         ~on_telemetry:(fun event -> telemetry := event :: !telemetry)
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind = Http_client.Provider_reported_error { error_type = None }; _ }) -> ()
+     | Error _ -> fail "expected a typed provider-reported error"
+     | Ok _ -> fail "a provider error envelope must not complete successfully");
+    let ndjson_errors =
+      List.filter_map
+        (function
+          | Types.NDJSONError { message; error_type = None; raw } -> Some (message, raw)
+          | Types.NDJSONError { error_type = Some _; _ } -> None
+          | _ -> None)
+        !events
+    in
+    check
+      bool
+      "Ollama provider error is not relabelled as SSE"
+      true
+      (not
+         (List.exists
+            (function
+              | Types.SSEError _ -> true
+              | _ -> false)
+            !events));
+    (match ndjson_errors with
+     | [ (message, raw) ] ->
+       check string "NDJSON provider error message" "model failed" message;
+       check string "NDJSON provider error raw" {|{"error":"model failed"}|} raw
+     | _ -> fail "Ollama provider error must remain exactly one NDJSON event");
+    let terminal =
+      List.find_map
+        (function
+          | Telemetry_event.Streaming_summary { terminal; _ } -> Some terminal
+          | _ -> None)
+        !telemetry
+    in
+    check
+      (option (testable Telemetry_event.pp_streaming_terminal ( = )))
+      "provider error telemetry is not a wire failure"
+      (Some (Telemetry_event.Terminal_error "provider_stream_error"))
+      terminal;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_ollama_missing_required_ndjson_field_is_wire_error () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server
+        ~sw
+        ~net:env#net
+        ~content_type:"application/x-ndjson"
+        {|{"model":"test-model","message":{"role":"assistant","content":"before"},"done":false}
+{}
+{"model":"test-model","message":{"role":"assistant","content":"after"},"done":true,"done_reason":"stop"}
+|}
+    in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:(make_config ~kind:Provider_config.Ollama ~request_path:"/api/chat" url)
+         ~messages
+         ~on_event:(fun _ -> ())
+         ~on_telemetry:(fun _ -> ())
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind =
+                Http_client.Provider_wire_error
+                  { format = Http_client.Ndjson; kind = Http_client.Malformed_payload }
+            ; _
+            }) -> ()
+     | Error _ -> fail "expected typed malformed NDJSON payload"
+     | Ok _ -> fail "missing required NDJSON field must not complete successfully");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let test_complete_ollama_incomplete_ndjson_preserves_wire_format () =
   Eio_main.run
   @@ fun env ->
@@ -3491,6 +3602,14 @@ let () =
             "malformed Ollama NDJSON preserves its wire format"
             `Quick
             test_complete_ollama_malformed_ndjson_is_wire_error
+        ; test_case
+            "Ollama provider errors are not wire failures"
+            `Quick
+            test_complete_ollama_provider_error_is_not_wire_error
+        ; test_case
+            "missing Ollama NDJSON fields are wire errors"
+            `Quick
+            test_complete_ollama_missing_required_ndjson_field_is_wire_error
         ; test_case
             "incomplete Ollama NDJSON preserves its wire format"
             `Quick

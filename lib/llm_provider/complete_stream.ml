@@ -131,8 +131,9 @@ let%test "clean stream finalizes Ok: Ollama done:true" =
      Streaming.parse_ollama_ndjson_chunk
        {|{"model":"m","done":true,"done_reason":"stop","message":{"role":"assistant","content":""}}|}
    with
-   | Some chunk -> accumulate_events acc (fst (Streaming.ollama_chunk_to_events st chunk))
-   | None -> ());
+   | Streaming.Ollama_chunk chunk ->
+     accumulate_events acc (fst (Streaming.ollama_chunk_to_events st chunk))
+   | Streaming.Ollama_provider_error _ | Streaming.Ollama_parse_failed _ -> ());
   match Complete_stream_acc.finalize_stream_acc acc with
   | Ok _ -> true
   | Error _ -> false
@@ -193,7 +194,8 @@ let%test
   | Error _ -> false
 ;;
 
-(* A provider error remains [SSEError], never [MessageStop] or an empty result. *)
+(* A provider error remains a typed provider-error event, never [MessageStop]
+   or an empty result. The concrete constructor preserves the wire format. *)
 let%test "OpenAI-compatible provider error result finalizes Error" =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
@@ -384,6 +386,7 @@ let complete_stream_http
            it. Classifying it as a wire error made the summary contradict the
            [Provider_reported_error] this stream actually returns. *)
         | Types.SSEError _ -> `Provider_reported_error
+        | Types.NDJSONError _ -> `Provider_reported_error
         (* [SSEParseFailed] is emitted by format-agnostic producers — the
            Ollama (NDJSON) tool-routing path raises it via
            [Streaming.reject_tool_block ~protocol:"ollama"] — so the format
@@ -620,15 +623,13 @@ let complete_stream_http
                          if not (Complete_stream_acc.stream_failed acc)
                          then (
                            match Streaming.parse_ollama_ndjson_chunk line with
-                           | None ->
+                           | Streaming.Ollama_parse_failed { raw; reason } ->
+                             dispatch ([ Types.NDJSONParseFailed { raw; reason } ], None)
+                           | Streaming.Ollama_provider_error { message; error_type; raw }
+                             ->
                              dispatch
-                               ( [ Types.NDJSONParseFailed
-                                     { raw = line
-                                     ; reason = "ollama_ndjson_chunk_parse_failure"
-                                     }
-                                 ]
-                               , None )
-                           | Some chunk ->
+                               ([ Types.NDJSONError { message; error_type; raw } ], None)
+                           | Streaming.Ollama_chunk chunk ->
                              (match chunk.oll_timings with
                               | Some _ as t -> ollama_timings := t
                               | None -> ());

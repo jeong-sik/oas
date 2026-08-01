@@ -169,6 +169,8 @@ let accumulate_event (acc : stream_acc) = function
      | None -> ())
   | Types.SSEError { message; error_type; raw } ->
     acc.sse_error := Some (Types.Stream_provider_error { message; error_type; raw })
+  | Types.NDJSONError { message; error_type; raw } ->
+    acc.sse_error := Some (Types.Stream_provider_error { message; error_type; raw })
   | Types.SSEParseFailed { raw; reason } ->
     acc.sse_error := Some (Types.Stream_parse_failed { reason; raw })
   | Types.NDJSONParseFailed { raw; reason } ->

@@ -72,6 +72,13 @@ let require_openai_chunk label = function
     fail (Printf.sprintf "%s: unexpected parse failure: %s" label reason)
 ;;
 
+let require_ollama_chunk label = function
+  | S.Ollama_chunk chunk -> chunk
+  | S.Ollama_provider_error _ -> fail (label ^ ": unexpected provider error")
+  | S.Ollama_parse_failed { reason; _ } ->
+    fail (Printf.sprintf "%s: unexpected parse failure: %s" label reason)
+;;
+
 let test_anthropic_sse_parser_edges () =
   (match
      S.parse_sse_event
@@ -138,6 +145,7 @@ let test_first_token_classifier_edges () =
     ; MessageDelta { stop_reason = None; usage = None }
     ; MessageStop
     ; SSEError { message = "boom"; error_type = None; raw = "boom" }
+    ; NDJSONError { message = "boom"; error_type = None; raw = "boom" }
     ; SSEParseFailed { raw = "x"; reason = "bad" }
     ; SSEUnknownEventType { event_type = "future"; raw = "{}" }
     ]
@@ -623,14 +631,14 @@ let test_gemini_event_edge_branches () =
 
 let test_ollama_parse_edge_shapes () =
   let non_object_message =
-    require_some
+    require_ollama_chunk
       "non-object message"
       (S.parse_ollama_ndjson_chunk {|{"model":"m","message":"text","done":false}|})
   in
   check (option string) "no content" None non_object_message.oll_delta_content;
   check int "no tool calls" 0 (List.length non_object_message.oll_tool_calls);
   let args_variants =
-    require_some
+    require_ollama_chunk
       "tool argument variants"
       (S.parse_ollama_ndjson_chunk
          {|{"model":"m","message":{"content":"","thinking":"","tool_calls":[{"id":"a","function":{"name":"null_args","arguments":null}},{"function":{"name":"string_args","arguments":"{\"x\":1}"}},{"function":{"name":"bool_args","arguments":true}}]},"done":true,"prompt_eval_duration":1000000,"eval_duration":0}|})
@@ -659,9 +667,21 @@ let test_ollama_parse_edge_shapes () =
      check (option (float 0.001)) "prompt ms" (Some 1.0) t.prompt_ms;
      check (option (float 0.001)) "zero eval rate" None t.predicted_per_second
    | None -> fail "expected timings");
+  (match S.parse_ollama_ndjson_chunk {|{"done":false}|} with
+   | S.Ollama_parse_failed _ -> ()
+   | S.Ollama_chunk _ | S.Ollama_provider_error _ -> fail "missing model must fail");
+  (match S.parse_ollama_ndjson_chunk {|{"model":"m"}|} with
+   | S.Ollama_parse_failed _ -> ()
+   | S.Ollama_chunk _ | S.Ollama_provider_error _ -> fail "missing done must fail");
+  (match S.parse_ollama_ndjson_chunk {|{"model":"   ","done":false}|} with
+   | S.Ollama_parse_failed _ -> ()
+   | S.Ollama_chunk _ | S.Ollama_provider_error _ -> fail "blank model must fail");
+  (match S.parse_ollama_ndjson_chunk {|{"error":42,"model":"m","done":false}|} with
+   | S.Ollama_parse_failed _ -> ()
+   | S.Ollama_chunk _ | S.Ollama_provider_error _ -> fail "invalid error field must fail");
   match S.parse_ollama_ndjson_chunk {|{"model":1,"done":false}|} with
-  | None -> ()
-  | Some _ -> fail "type error should return None"
+  | S.Ollama_parse_failed _ -> ()
+  | S.Ollama_chunk _ | S.Ollama_provider_error _ -> fail "type error should fail"
 ;;
 
 let test_ollama_event_edge_branches () =

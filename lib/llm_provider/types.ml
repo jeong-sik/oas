@@ -917,6 +917,11 @@ type sse_event =
                 can feed it to [Retry.classify_error] (retry_after, hard-quota
                 detection) exactly as the non-streaming path does. *)
       }
+  | NDJSONError of
+      { message : string
+      ; error_type : string option
+      ; raw : string
+      }
   | SSEParseFailed of
       { raw : string
       ; reason : string

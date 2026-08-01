@@ -115,6 +115,7 @@ let test_on_event_callback_fires () =
       | MessageStop -> "message_stop"
       | Ping -> "ping"
       | SSEError _ -> "error"
+      | NDJSONError _ -> "error"
       | SSEParseFailed _ -> "parse_failed"
       | NDJSONParseFailed _ -> "ndjson_parse_failed"
       | SSEUnknownEventType _ -> "unknown_event_type"
