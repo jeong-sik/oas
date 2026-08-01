@@ -2303,6 +2303,33 @@ let parse_sse_line line =
         , String.sub line value_start (String.length line - value_start) ))
 ;;
 
+(* [Eio.Buf_read.line] accepts LF and CRLF, while EventSource also accepts a
+   lone CR. Keep the bounded, cancellable buffered reader and consume all
+   three legal line endings at this protocol boundary. An unterminated final
+   line is returned once so [read_sse] can discard it as incomplete at EOF. *)
+let read_sse_line reader =
+  let line = Eio.Buf_read.take_while (fun ch -> ch <> '\n' && ch <> '\r') reader in
+  match Eio.Buf_read.peek_char reader with
+  | None -> if String.equal line "" then raise End_of_file else line
+  | Some '\n' ->
+    Eio.Buf_read.char '\n' reader;
+    line
+  | Some '\r' ->
+    Eio.Buf_read.char '\r' reader;
+    (match Eio.Buf_read.peek_char reader with
+     | Some '\n' -> Eio.Buf_read.char '\n' reader
+     | Some _ | None -> ());
+    line
+  | Some _ -> assert false
+;;
+
+let strip_initial_utf8_bom line =
+  if
+    String.length line >= 3 && line.[0] = '\xEF' && line.[1] = '\xBB' && line.[2] = '\xBF'
+  then String.sub line 3 (String.length line - 3)
+  else line
+;;
+
 let idle_timeout_without_clock site =
   invalid_arg
     (site
@@ -2447,9 +2474,18 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
      With nothing wired the wait stays unarmed, as before. Inter-token idle
      still guards once the stream produces. *)
   let first_event_seen = ref false in
+  let first_line = ref true in
+  let read_protocol_line () =
+    let line = read_sse_line reader in
+    if !first_line
+    then (
+      first_line := false;
+      strip_initial_utf8_bom line)
+    else line
+  in
   let read_meaningful_line () =
     let rec inner () =
-      match parse_sse_line (Eio.Buf_read.line reader) with
+      match parse_sse_line (read_protocol_line ()) with
       | Sse_comment -> inner ()
       | (Sse_blank | Sse_field _) as parsed -> parsed
     in
@@ -2476,7 +2512,9 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
        [Sse_comment] is already filtered inside [inner]; the only non-field
        line [inner] can return is [Sse_blank]. *)
     (match parsed with
-     | Sse_field _ -> first_event_seen := true
+     | Sse_field (name, _) ->
+       if String.equal name "event" || String.equal name "data"
+       then first_event_seen := true
      | Sse_blank -> ()
      | Sse_comment -> () (* unreachable: filtered in [inner] *));
     parsed
@@ -2505,7 +2543,9 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
       (* Filtered inside [read_meaningful_line]. *)
       loop ()
     | Sse_field ("event", value) ->
-      current_event_type := Some value;
+      (* An empty event field restores the default "message" event type. The
+         callback represents that default as [None], matching a missing field. *)
+      current_event_type := if String.equal value "" then None else Some value;
       loop ()
     | Sse_field ("data", value) ->
       if !data_seen then Buffer.add_char data_buffer '\n';

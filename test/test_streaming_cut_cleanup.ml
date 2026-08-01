@@ -44,7 +44,7 @@ let drain_request_headers flow =
 let send_prelude flow ~n_lines =
   Eio.Flow.copy_string sse_headers flow;
   for i = 1 to n_lines do
-    Eio.Flow.copy_string (Printf.sprintf "data: {\"i\":%d}\n" i) flow
+    Eio.Flow.copy_string (Printf.sprintf "data: {\"i\":%d}\n\n" i) flow
   done
 ;;
 

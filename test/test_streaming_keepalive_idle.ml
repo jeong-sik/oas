@@ -37,7 +37,7 @@ let test_keepalive_lines_skipped_between_real_events () =
      data: hello\n\n\
      : trailing keepalive\n\
      event: pong\n\
-     data: world\n"
+     data: world\n\n"
   in
   let calls = collect_sse_events payload in
   check int "two real events delivered" 2 (List.length calls);
@@ -57,7 +57,7 @@ let test_keepalive_only_stream_produces_no_events () =
 
 let test_bare_colon_line_treated_as_keepalive () =
   (* A lone ":" with no following text is still a comment per spec. *)
-  let payload = ":\n:\nevent: ready\ndata: ok\n" in
+  let payload = ":\n:\nevent: ready\ndata: ok\n\n" in
   let calls = collect_sse_events payload in
   check int "one event after bare-colon keepalives" 1 (List.length calls);
   match calls with

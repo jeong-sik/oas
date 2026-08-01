@@ -104,20 +104,18 @@ let%test "generic stream provider type stays diagnostic" =
          })
   with
   | Http_client.ProviderFailure
-      { kind = Http_client.Provider_reported_error { error_type = Some "provider_owned_type" }
+      { kind =
+          Http_client.Provider_reported_error { error_type = Some "provider_owned_type" }
       ; _
       } -> true
   | _ -> false
 ;;
 
-let maps_to_sse_parse_failure stream_error =
+let maps_to_sse_wire_failure ~expected_kind stream_error =
   match http_error_of_stream_error stream_error with
   | Http_client.ProviderFailure
-      { kind =
-          Http_client.Provider_wire_error
-            { format = Http_client.Sse; kind = Http_client.Malformed_payload }
-      ; _
-      } -> true
+      { kind = Http_client.Provider_wire_error { format = Http_client.Sse; kind }; _ } ->
+    kind = expected_kind
   | Http_client.HttpError _
   | Http_client.NetworkError _
   | Http_client.TimeoutError _
@@ -127,7 +125,9 @@ let maps_to_sse_parse_failure stream_error =
 ;;
 
 let%test "stream parse failure is malformed wire evidence" =
-  maps_to_sse_parse_failure (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
+  maps_to_sse_wire_failure
+    ~expected_kind:Http_client.Malformed_payload
+    (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
 ;;
 
 let%test "stream provider error remains provider-owned evidence" =
@@ -140,7 +140,8 @@ let%test "stream provider error remains provider-owned evidence" =
          })
   with
   | Http_client.ProviderFailure
-      { kind = Http_client.Provider_reported_error { error_type = Some "rate_limit_exceeded" }
+      { kind =
+          Http_client.Provider_reported_error { error_type = Some "rate_limit_exceeded" }
       ; _
       } -> true
   | _ -> false
@@ -200,7 +201,8 @@ let%test "parse failure redacts authorization values in the echoed raw buffer" =
 ;;
 
 let%test "stream unknown event is wire evidence" =
-  maps_to_sse_parse_failure
+  maps_to_sse_wire_failure
+    ~expected_kind:Http_client.Unknown_event
     (Types.Stream_unknown_event { event_type = "surprise"; raw = "event: surprise" })
 ;;
 

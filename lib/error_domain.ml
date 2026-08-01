@@ -18,7 +18,10 @@ type provider_error =
   | `Input_capacity of
       Retry.input_capacity_reason * Llm_provider.Serving_constraint.t * string
   | `Provider_wire_error of
-      string * Http_client.provider_wire_format * Http_client.provider_wire_error_kind * string
+      string
+      * Http_client.provider_wire_format
+      * Http_client.provider_wire_error_kind
+      * string
   | `Provider_reported_error of string * string option * string
   | `Payment_required of string
   ]

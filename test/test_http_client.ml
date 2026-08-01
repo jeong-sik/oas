@@ -160,6 +160,52 @@ let test_read_sse_no_space_after_colon () =
   Alcotest.(check string) "data without space" "hello" (snd ev)
 ;;
 
+let test_read_sse_eventsource_line_boundaries () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "\xEF\xBB\xBFevent:message\rdata:hello\r\rdata:next\r\r" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  match List.rev !events with
+  | [ (Some "message", "hello"); (None, "next") ] -> ()
+  | _ -> Alcotest.fail "SSE must accept BOM and LF/CRLF/CR boundaries"
+;;
+
+let test_read_sse_empty_event_type_restores_default () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "event: stale\nevent:\ndata: payload\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  match List.rev !events with
+  | [ (None, "payload") ] -> ()
+  | _ -> Alcotest.fail "an empty event field must use the default event type"
+;;
+
+let test_read_sse_does_not_dispatch_unterminated_event () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "data: partial\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  Alcotest.(check int) "unterminated event is discarded" 0 (List.length !events)
+;;
+
 let test_read_sse_ignores_id_and_retry_fields () =
   Eio_main.run
   @@ fun _env ->
@@ -648,6 +694,18 @@ let () =
             "no space after colon (spec grammar)"
             `Quick
             test_read_sse_no_space_after_colon
+        ; Alcotest.test_case
+            "EventSource line boundaries"
+            `Quick
+            test_read_sse_eventsource_line_boundaries
+        ; Alcotest.test_case
+            "empty event type"
+            `Quick
+            test_read_sse_empty_event_type_restores_default
+        ; Alcotest.test_case
+            "unterminated event is discarded"
+            `Quick
+            test_read_sse_does_not_dispatch_unterminated_event
         ; Alcotest.test_case
             "id/retry fields ignored"
             `Quick
