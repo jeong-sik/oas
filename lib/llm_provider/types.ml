@@ -921,6 +921,10 @@ type sse_event =
       { raw : string
       ; reason : string
       }
+  | NDJSONParseFailed of
+      { raw : string
+      ; reason : string
+      }
   | SSEUnknownEventType of
       { event_type : string
       ; raw : string
@@ -929,15 +933,13 @@ type sse_event =
   | Timeout of string
   | StreamIncomplete of { reason : string }
 
-(** Terminal error captured while accumulating an SSE stream.
+(** Terminal error captured while accumulating a streaming response.
 
-    The accumulator stores this typed value (not a flattened string) so the
-    consumer can route a provider-reported error through the same
-    [Http_client.HttpError {code; body}] -> [Retry.classify_error] path the
-    non-streaming boundary uses, while a genuine wire/parse failure stays an
-    unclassifiable network error. Replaces the prior [string] carrier that
-    collapsed rate-limit / auth / server errors into one [NetworkError
-    {Unknown}] bucket. *)
+    The accumulator stores this typed value (not a flattened string). Provider
+    envelopes, malformed payloads, unknown events, and incomplete streams are
+    preserved as distinct facts at the transport boundary; retry policy is
+    decided above OAS. This replaces the prior [string] carrier that collapsed
+    provider-owned failures into one [NetworkError {Unknown}] bucket. *)
 type stream_error =
   | Stream_provider_error of
       { message : string
@@ -948,6 +950,11 @@ type stream_error =
       { reason : string
       ; raw : string
       }
+  | Stream_ndjson_parse_failed of
+      { reason : string
+      ; raw : string
+      }
+  | Stream_incomplete of { reason : string }
   | Stream_unknown_event of
       { event_type : string
       ; raw : string

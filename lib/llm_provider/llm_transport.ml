@@ -7,6 +7,8 @@ type completion_request =
   ; messages : Types.message list
   ; tools : Yojson.Safe.t list
   ; capture_id : string option
+  ; observe_http_status :
+      (provider:string -> model_id:string -> status:int -> unit) option
   ; observe_wire_chunk : Wire_observer.observe_chunk option
   ; request_wire_observer : Request_wire_observer.try_observe option
   ; stream_idle_timeout_s : float option

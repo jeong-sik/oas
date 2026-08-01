@@ -63,6 +63,7 @@ let prepare
       ; messages
       ; tools
       ; capture_id
+      ; observe_http_status = None
       ; observe_wire_chunk = None
       ; request_wire_observer = None
       ; stream_idle_timeout_s

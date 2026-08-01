@@ -9,10 +9,11 @@
     stream would only terminate on the upstream consumer's hard cap.
 
     This test pins the [on_data] skip invariant via in-memory
-    payloads.  The deadline-preservation invariant is guaranteed by
-    the structural fact that keepalive skipping happens inside the
-    same [Eio.Time.with_timeout_exn] window (a single inner recursion
-    in [read_sse], not a fresh timeout per line). *)
+    payloads.  The deadline-preservation invariant is asserted
+    directly in [test_sse_budget_anchor.ml], which drives a mock clock
+    from inside the read and covers the other non-payload line shapes
+    ([id]/[retry], unknown fields, bare dispatch delimiters) that must
+    not renew the armed budget either. *)
 
 open Alcotest
 open Agent_sdk
@@ -37,7 +38,7 @@ let test_keepalive_lines_skipped_between_real_events () =
      data: hello\n\n\
      : trailing keepalive\n\
      event: pong\n\
-     data: world\n"
+     data: world\n\n"
   in
   let calls = collect_sse_events payload in
   check int "two real events delivered" 2 (List.length calls);
@@ -57,7 +58,7 @@ let test_keepalive_only_stream_produces_no_events () =
 
 let test_bare_colon_line_treated_as_keepalive () =
   (* A lone ":" with no following text is still a comment per spec. *)
-  let payload = ":\n:\nevent: ready\ndata: ok\n" in
+  let payload = ":\n:\nevent: ready\ndata: ok\n\n" in
   let calls = collect_sse_events payload in
   check int "one event after bare-colon keepalives" 1 (List.length calls);
   match calls with

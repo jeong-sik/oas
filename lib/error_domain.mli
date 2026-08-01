@@ -41,6 +41,14 @@ type provider_error =
       Llm_provider.Retry.input_capacity_reason
       * Llm_provider.Serving_constraint.t
       * string
+  | `Provider_wire_error of
+      string
+      * Llm_provider.Http_client.provider_wire_format
+      * Llm_provider.Http_client.provider_wire_error_kind
+      * string
+    (** provider, wire format, wire failure kind, detail *)
+  | `Provider_reported_error of string * string option * string
+    (** provider, provider-owned subtype, detail *)
   | `Payment_required of string
     (** HTTP 402 — hard billing/quota exhaustion, distinct from
         [`Invalid_request]. Always non-retryable. *)

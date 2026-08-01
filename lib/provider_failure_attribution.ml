@@ -210,11 +210,12 @@ let ownership_of_provider_failure ~binding = function
   | Http.Capability_mismatch _
   | Http.Cli_policy_invalid _
   | Http.Provider_parse_error _
+  | Http.Provider_wire_error _
   | Http.Request_body_too_large _
   | Http.Response_body_too_large _
   | Http.Empty_completion _ -> Attempt_local
   | Http.Cli_startup_failed { reason } -> ownership_of_cli_startup ~binding reason
-  | Http.Unknown_provider_failure _ -> Unclassified
+  | Http.Provider_reported_error _ | Http.Unknown_provider_failure _ -> Unclassified
 ;;
 
 let attribution_of_http_error ~binding = function
@@ -347,6 +348,17 @@ let provider_failure_to_yojson = function
     `Assoc
       [ "kind", `String "provider_parse_error"
       ; "parser_known", `Bool (Option.is_some parser)
+      ]
+  | Http.Provider_wire_error { format; kind } ->
+    `Assoc
+      [ "kind", `String "provider_wire_error"
+      ; "format", `String (Http.provider_wire_format_to_string format)
+      ; "wire_kind", `String (Http.provider_wire_error_kind_to_string kind)
+      ]
+  | Http.Provider_reported_error { error_type } ->
+    `Assoc
+      [ "kind", `String "provider_reported_error"
+      ; "error_type_known", `Bool (Option.is_some error_type)
       ]
   | Http.Request_body_too_large { actual_bytes; limit_bytes } ->
     `Assoc

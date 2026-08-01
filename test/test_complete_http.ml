@@ -147,12 +147,16 @@ let start_header_capture_server ~sw ~net ~seen response_body =
 
 (* ── Helper: make Provider_config ────────────────────── *)
 
-let make_config ?(kind = Provider_config.Anthropic) base_url =
+let make_config
+      ?(kind = Provider_config.Anthropic)
+      ?(request_path = "/v1/messages")
+      base_url
+  =
   Provider_config.make
     ~kind
     ~model_id:"test-model"
     ~base_url
-    ~request_path:"/v1/messages"
+    ~request_path
     ~temperature:0.0
     ~max_tokens:100
     ()
@@ -1091,6 +1095,45 @@ let test_complete_error_metrics () =
   | Exit -> ()
 ;;
 
+let test_complete_stream_http_error_metrics_uses_fallback () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_mock_server ~sw ~net:env#net ~status:`Bad_request "bad stream" in
+    let config = make_config url in
+    let status_calls = ref [] in
+    let metrics : Metrics.t =
+      { Metrics.noop with
+        on_http_status =
+          (fun ~provider ~model_id ~status ->
+            status_calls := (provider, model_id, status) :: !status_calls)
+      }
+    in
+    (match
+       Complete_stream.complete_stream_http
+         ~sw
+         ~net:env#net
+         ~metrics
+         ~config
+         ~messages
+         ~tools:[]
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Error (Http_client.HttpError { code = 400; _ }) -> ()
+     | Error _ -> fail "expected streaming HTTP 400"
+     | Ok _ -> fail "expected streaming HTTP error");
+    (match !status_calls with
+     | [ ("anthropic", "test-model", 400) ] -> ()
+     | [ (_, _, status) ] -> fail (Printf.sprintf "expected 400, got %d" status)
+     | _ -> fail "expected exactly one direct streaming status call");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let test_complete_transport_http_metrics_ok () =
   Eio_main.run
   @@ fun env ->
@@ -1512,7 +1555,14 @@ let start_clock_jump_stream_server ~sw ~net ~release_body ~content_type body =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-let start_sse_server ~sw ~net ?capture_body ?capture_path response_body =
+let start_sse_server
+      ~sw
+      ~net
+      ?capture_body
+      ?capture_path
+      ?(content_type = "text/event-stream")
+      response_body
+  =
   let port = fresh_port () in
   let handler _conn req body =
     let request_body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
@@ -1522,7 +1572,7 @@ let start_sse_server ~sw ~net ?capture_body ?capture_path response_body =
     (match capture_path with
      | Some seen -> seen := Some (Cohttp.Request.uri req |> Uri.path)
      | None -> ());
-    let headers = Cohttp.Header.of_list [ "content-type", "text/event-stream" ] in
+    let headers = Cohttp.Header.of_list [ "content-type", content_type ] in
     Cohttp_eio.Server.respond_string ~status:`OK ~headers ~body:response_body ()
   in
   let socket =
@@ -1537,6 +1587,45 @@ let start_sse_server ~sw ~net ?capture_body ?capture_path response_body =
   Eio.Fiber.fork ~sw (fun () ->
     Cohttp_eio.Server.run socket server ~on_error:(fun _ -> ()));
   Printf.sprintf "http://127.0.0.1:%d" port
+;;
+
+let test_complete_injected_http_transport_preserves_stream_status_metrics () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_sse_server ~sw ~net:env#net (anthropic_sse_response "streamed") in
+    let transport = Complete.make_http_transport ~sw ~net:env#net () in
+    let status_calls = ref [] in
+    let metrics : Metrics.t =
+      { Metrics.noop with
+        on_http_status =
+          (fun ~provider ~model_id ~status ->
+            status_calls := (provider, model_id, status) :: !status_calls)
+      }
+    in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~transport
+         ~config:(make_config url)
+         ~messages
+         ~metrics
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Ok _ -> ()
+     | Error _ -> fail "expected injected HTTP transport stream to succeed");
+    check
+      (list (triple string string int))
+      "injected HTTP transport preserves response status"
+      [ "anthropic", "test-model", 200 ]
+      (List.rev !status_calls);
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
 ;;
 
 let text_of_response (resp : Types.api_response) =
@@ -1815,6 +1904,195 @@ let test_complete_stream_preserves_thinking_signature () =
        | _ -> fail "expected thinking + tool use");
       Eio.Switch.fail sw Exit
     | Error _ -> fail "expected Ok"
+  with
+  | Exit -> ()
+;;
+
+let test_complete_stream_malformed_payload_is_wire_error () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_sse_server ~sw ~net:env#net "data: {not-json\n\n" in
+    let status_calls = ref [] in
+    let metrics : Metrics.t =
+      { Metrics.noop with
+        on_http_status =
+          (fun ~provider ~model_id ~status ->
+            status_calls := (provider, model_id, status) :: !status_calls)
+      }
+    in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:(make_config url)
+         ~messages
+         ~metrics
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind =
+                Http_client.Provider_wire_error
+                  { format = Http_client.Sse; kind = Http_client.Malformed_payload }
+            ; _
+            }) -> ()
+     | Error _ -> fail "expected typed malformed SSE payload"
+     | Ok _ -> fail "malformed SSE payload must not complete successfully");
+    (match !status_calls with
+     | [ ("anthropic", "test-model", 200) ] -> ()
+     | [ (_, _, status) ] -> fail (Printf.sprintf "expected 200, got %d" status)
+     | _ -> fail "expected exactly one status call for malformed SSE");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+(* A structurally valid provider error envelope is NOT a wire failure. The
+   summary used to say [sse_wire_error] while the returned error said
+   [Provider_reported_error] — the two halves of the same stream disagreed. *)
+let test_complete_provider_error_envelope_is_not_a_wire_error () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server
+        ~sw
+        ~net:env#net
+        "data: {\"error\":{\"type\":\"rate_limit_exceeded\",\"message\":\"slow down\"}}\n\n"
+    in
+    let telemetry = ref [] in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:(make_openai_config url)
+         ~messages
+         ~on_event:(fun _ -> ())
+         ~on_telemetry:(fun event -> telemetry := event :: !telemetry)
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind = Http_client.Provider_reported_error { error_type = Some _ }; _ }) ->
+       ()
+     | Error _ -> fail "expected a typed provider-reported error"
+     | Ok _ -> fail "a provider error envelope must not complete successfully");
+    let terminal =
+      List.find_map
+        (function
+          | Telemetry_event.Streaming_summary { terminal; _ } -> Some terminal
+          | _ -> None)
+        !telemetry
+    in
+    check
+      (option (testable Telemetry_event.pp_streaming_terminal ( = )))
+      "provider-reported envelope is not summarised as a wire failure"
+      (Some (Telemetry_event.Terminal_error "provider_stream_error"))
+      terminal;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_ollama_malformed_ndjson_is_wire_error () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server ~sw ~net:env#net ~content_type:"application/x-ndjson" "{not-json\n"
+    in
+    let telemetry = ref [] in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:(make_config ~kind:Provider_config.Ollama ~request_path:"/api/chat" url)
+         ~messages
+         ~on_event:(fun _ -> ())
+         ~on_telemetry:(fun event -> telemetry := event :: !telemetry)
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind =
+                Http_client.Provider_wire_error
+                  { format = Http_client.Ndjson; kind = Http_client.Malformed_payload }
+            ; _
+            }) -> ()
+     | Error _ -> fail "expected typed malformed NDJSON payload"
+     | Ok _ -> fail "malformed NDJSON payload must not complete successfully");
+    let terminal =
+      List.find_map
+        (function
+          | Telemetry_event.Streaming_summary { terminal; _ } -> Some terminal
+          | _ -> None)
+        !telemetry
+    in
+    check
+      (option (testable Telemetry_event.pp_streaming_terminal ( = )))
+      "NDJSON telemetry keeps its wire format"
+      (Some (Telemetry_event.Terminal_error "ndjson_wire_error"))
+      terminal;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_ollama_incomplete_ndjson_preserves_wire_format () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server
+        ~sw
+        ~net:env#net
+        ~content_type:"application/x-ndjson"
+        {|{"model":"test-model","message":{"role":"assistant","content":"partial"},"done":false}
+|}
+    in
+    let telemetry = ref [] in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:(make_config ~kind:Provider_config.Ollama ~request_path:"/api/chat" url)
+         ~messages
+         ~on_event:(fun _ -> ())
+         ~on_telemetry:(fun event -> telemetry := event :: !telemetry)
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind =
+                Http_client.Provider_wire_error
+                  { format = Http_client.Ndjson; kind = Http_client.Incomplete_stream }
+            ; _
+            }) -> ()
+     | Error _ -> fail "expected typed incomplete NDJSON stream"
+     | Ok _ -> fail "unterminated NDJSON stream must not complete successfully");
+    let terminal =
+      List.find_map
+        (function
+          | Telemetry_event.Streaming_summary { terminal; _ } -> Some terminal
+          | _ -> None)
+        !telemetry
+    in
+    check
+      (option (testable Telemetry_event.pp_streaming_terminal ( = )))
+      "incomplete NDJSON telemetry is not successful"
+      (Some (Telemetry_event.Terminal_error "ndjson_wire_error"))
+      terminal;
+    Eio.Switch.fail sw Exit
   with
   | Exit -> ()
 ;;
@@ -2365,6 +2643,7 @@ let test_complete_stream_unknown_latency_stays_unknown () =
     let telemetry_events = ref [] in
     let first_chunk_metrics = ref 0 in
     let inter_chunk_metrics = ref 0 in
+    let status_calls = ref [] in
     let metrics : Metrics.t =
       { Metrics.noop with
         on_streaming_first_chunk =
@@ -2372,6 +2651,9 @@ let test_complete_stream_unknown_latency_stays_unknown () =
       ; on_streaming_chunk =
           (fun ~provider:_ ~model_id:_ ~chunk_index:_ ~inter_chunk_ms:_ ->
             incr inter_chunk_metrics)
+      ; on_http_status =
+          (fun ~provider ~model_id ~status ->
+            status_calls := (provider, model_id, status) :: !status_calls)
       }
     in
     let result =
@@ -2425,6 +2707,10 @@ let test_complete_stream_unknown_latency_stays_unknown () =
      | None -> fail "expected streaming summary");
     check int "first chunk metrics skipped" 0 !first_chunk_metrics;
     check int "inter chunk metrics skipped" 0 !inter_chunk_metrics;
+    (match !status_calls with
+     | [ ("anthropic", "test-model", 200) ] -> ()
+     | [ (_, _, status) ] -> fail (Printf.sprintf "expected 200, got %d" status)
+     | _ -> fail "expected exactly one streaming status call");
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()
@@ -3167,6 +3453,14 @@ let () =
       , [ test_case "callbacks" `Quick test_complete_metrics
         ; test_case "tool call callback" `Quick test_complete_tool_call_metrics
         ; test_case "error callback" `Quick test_complete_error_metrics
+        ; test_case
+            "direct streaming HTTP error uses metrics fallback"
+            `Quick
+            test_complete_stream_http_error_metrics_uses_fallback
+        ; test_case
+            "injected HTTP transport preserves streaming status"
+            `Quick
+            test_complete_injected_http_transport_preserves_stream_status_metrics
         ; test_case "transport http ok" `Quick test_complete_transport_http_metrics_ok
         ; test_case
             "transport http error"
@@ -3185,6 +3479,22 @@ let () =
         ] )
     ; ( "stream"
       , [ test_case "sse ok" `Quick test_complete_stream_ok
+        ; test_case
+            "malformed SSE payload is a typed wire error"
+            `Quick
+            test_complete_stream_malformed_payload_is_wire_error
+        ; test_case
+            "provider error envelope is not a wire failure"
+            `Quick
+            test_complete_provider_error_envelope_is_not_a_wire_error
+        ; test_case
+            "malformed Ollama NDJSON preserves its wire format"
+            `Quick
+            test_complete_ollama_malformed_ndjson_is_wire_error
+        ; test_case
+            "incomplete Ollama NDJSON preserves its wire format"
+            `Quick
+            test_complete_ollama_incomplete_ndjson_preserves_wire_format
         ; test_case
             "Kimi Anthropic Messages SSE codec"
             `Quick

@@ -67,12 +67,34 @@ type cli_startup_failure_reason =
   | Unknown_cli_startup_failure
 [@@deriving yojson, show]
 
+type provider_wire_format =
+  | Sse
+  | Ndjson
+
+type provider_wire_error_kind =
+  | Malformed_payload
+  | Unknown_event
+  | Incomplete_stream
+  | Oversized_payload
+
 let cli_startup_failure_reason_to_string = function
   | Executable_unavailable -> "executable_unavailable"
   | Authentication_unavailable -> "authentication_unavailable"
   | Session_conflict_at_startup -> "session_conflict"
   | Configuration_invalid -> "configuration_invalid"
   | Unknown_cli_startup_failure -> "unknown"
+;;
+
+let provider_wire_format_to_string = function
+  | Sse -> "sse"
+  | Ndjson -> "ndjson"
+;;
+
+let provider_wire_error_kind_to_string = function
+  | Malformed_payload -> "malformed_payload"
+  | Unknown_event -> "unknown_event"
+  | Incomplete_stream -> "incomplete_stream"
+  | Oversized_payload -> "oversized_payload"
 ;;
 
 type provider_failure_kind =
@@ -89,6 +111,11 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
+  | Provider_wire_error of
+      { format : provider_wire_format
+      ; kind : provider_wire_error_kind
+      }
+  | Provider_reported_error of { error_type : string option }
   | Request_body_too_large of
       { actual_bytes : int
       ; limit_bytes : int
@@ -160,6 +187,14 @@ let provider_failure_kind_to_string = function
   | Provider_parse_error { parser = Some parser } ->
     Printf.sprintf "provider_parse_error:%s" parser
   | Provider_parse_error { parser = None } -> "provider_parse_error"
+  | Provider_wire_error { format; kind } ->
+    Printf.sprintf
+      "provider_wire_error:%s:%s"
+      (provider_wire_format_to_string format)
+      (provider_wire_error_kind_to_string kind)
+  | Provider_reported_error { error_type = Some error_type } ->
+    Printf.sprintf "provider_reported_error:%s" error_type
+  | Provider_reported_error { error_type = None } -> "provider_reported_error"
   | Request_body_too_large { actual_bytes; limit_bytes } ->
     Printf.sprintf "request_body_too_large:%d:%d" actual_bytes limit_bytes
   | Response_body_too_large { limit_bytes } ->
@@ -2094,7 +2129,19 @@ let post_stream ?cache ?clock ?connect_timeout_s ~sw ~net ~url ~headers ~body ()
       Error (HttpError { code; body = body_str; retry_after_header }))
 ;;
 
-let with_post_stream ?cache ?clock ?connect_timeout_s ~net ~url ~headers ~body ~f () =
+let with_post_stream
+      ?cache
+      ?clock
+      ?connect_timeout_s
+      ?on_response_status
+      ?(reuse_connection = fun _ -> true)
+      ~net
+      ~url
+      ~headers
+      ~body
+      ~f
+      ()
+  =
   let* deadline =
     resolve_explicit_deadline
       ~operation:"with_post_stream"
@@ -2154,7 +2201,11 @@ let with_post_stream ?cache ?clock ?connect_timeout_s ~net ~url ~headers ~body ~
                  ~body:(Cohttp_eio.Body.of_string body)
                  uri))
         in
-        match Cohttp.Response.status resp with
+        let status = Cohttp.Response.status resp in
+        Option.iter
+          (fun observe -> observe (Cohttp.Code.code_of_status status))
+          on_response_status;
+        match status with
         | `OK ->
           Ok
             ( uri
@@ -2216,8 +2267,9 @@ let with_post_stream ?cache ?clock ?connect_timeout_s ~net ~url ~headers ~body ~
          raise exn)
   in
   (match body_result, cache with
-   | Ok _, Some cache -> cache_return cache uri { connection = conn; last_used_at = 0.0 }
-   | Ok _, None -> Eio.Resource.close conn
+   | Ok result, Some cache when reuse_connection result ->
+     cache_return cache uri { connection = conn; last_used_at = 0.0 }
+   | Ok _, Some _ | Ok _, None -> Eio.Resource.close conn
    | Error _, _ -> Eio.Resource.close conn);
   body_result
 ;;
@@ -2234,10 +2286,30 @@ let with_post_stream ?cache ?clock ?connect_timeout_s ~net ~url ~headers ~body ~
    like "data:foo" (no space after the colon) — a provider or proxy
    that omits the optional space would make the whole stream vanish
    without a trace. *)
+(* The field NAME is wire syntax; it is parsed into this closed type at the
+   protocol boundary so no later stage compares strings again. Only [event] and
+   [data] drive the state machine: EventSource also defines [id] and [retry],
+   which this client does not implement (no reconnection), and the spec
+   requires unknown names to be ignored — all three are the same thing to every
+   reader below, so they share one constructor. *)
 type sse_line =
   | Sse_blank
   | Sse_comment
-  | Sse_field of string * string
+  | Sse_event_type of string
+  | Sse_data of string
+  | Sse_ignored_field
+
+(* WHATWG HTML 9.2.6 joins multiple [data] fields of one event with a single
+   LF. Defined once so the size check below charges exactly what the join
+   appends. *)
+let sse_data_join_separator = "\n"
+
+let classify_sse_field ~name ~value =
+  match name with
+  | "event" -> Sse_event_type value
+  | "data" -> Sse_data value
+  | _ -> Sse_ignored_field
+;;
 
 let parse_sse_line line =
   if String.length line = 0
@@ -2245,14 +2317,41 @@ let parse_sse_line line =
   else (
     match String.index_opt line ':' with
     | Some 0 -> Sse_comment
-    | None -> Sse_field (line, "")
+    | None -> classify_sse_field ~name:line ~value:""
     | Some i ->
       let value_start =
         if String.length line > i + 1 && line.[i + 1] = ' ' then i + 2 else i + 1
       in
-      Sse_field
-        ( String.sub line 0 i
-        , String.sub line value_start (String.length line - value_start) ))
+      classify_sse_field
+        ~name:(String.sub line 0 i)
+        ~value:(String.sub line value_start (String.length line - value_start)))
+;;
+
+(* [Eio.Buf_read.line] accepts LF and CRLF, while EventSource also accepts a
+   lone CR. Keep the bounded, cancellable buffered reader and consume all
+   three legal line endings at this protocol boundary. An unterminated final
+   line is returned once so [read_sse] can discard it as incomplete at EOF. *)
+let read_sse_line reader =
+  let line = Eio.Buf_read.take_while (fun ch -> ch <> '\n' && ch <> '\r') reader in
+  match Eio.Buf_read.peek_char reader with
+  | None -> if String.equal line "" then raise End_of_file else line
+  | Some '\n' ->
+    Eio.Buf_read.char '\n' reader;
+    line
+  | Some '\r' ->
+    Eio.Buf_read.char '\r' reader;
+    (match Eio.Buf_read.peek_char reader with
+     | Some '\n' -> Eio.Buf_read.char '\n' reader
+     | Some _ | None -> ());
+    line
+  | Some _ -> assert false
+;;
+
+let strip_initial_utf8_bom line =
+  if
+    String.length line >= 3 && line.[0] = '\xEF' && line.[1] = '\xBB' && line.[2] = '\xBF'
+  then String.sub line 3 (String.length line - 3)
+  else line
 ;;
 
 let idle_timeout_without_clock site =
@@ -2378,8 +2477,24 @@ let governing_timeout_knob ~state ~first_event_timeout ~body_timeout ~idle_timeo
   | Streaming_unknown -> Stream_idle_timeout
 ;;
 
-let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on_data () =
+exception
+  Sse_event_too_large of
+    { actual_bytes : int
+    ; limit_bytes : int
+    }
+
+let read_sse
+      ?clock
+      ?idle_timeout
+      ?first_event_timeout
+      ?body_timeout
+      ?(max_event_bytes = Api_common.max_response_body)
+      ~reader
+      ~on_data
+      ()
+  =
   let site = "read_sse" in
+  if max_event_bytes <= 0 then invalid_arg "read_sse: max_event_bytes must be positive";
   require_clock_when_idle ~site ~clock ~idle_timeout;
   require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeout;
   (* SSE keepalive comments carry no payload. Skipping them inside the
@@ -2399,11 +2514,34 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
      With nothing wired the wait stays unarmed, as before. Inter-token idle
      still guards once the stream produces. *)
   let first_event_seen = ref false in
+  (* The armed budget is anchored to the last PAYLOAD-bearing line, not to the
+     last line read. Comments are consumed inside one window for exactly this
+     reason; [id]/[retry]/unknown fields and bare dispatch delimiters carry no
+     payload either, and a per-read window lets a provider hold the stream open
+     forever by emitting one ignorable line just under each budget. A blank
+     delimiter cannot simply be swallowed inside the window — it must still
+     reach [loop] to dispatch and to reset the event type — so the anchor, not
+     the filter, is what closes that shape. An [event] field selects a type but
+     carries nothing, so it re-anchors only where it ends the first-event wait:
+     there the governing budget itself switches from the first-event window to
+     inter-token idle, and an anchor left at stream start would fire a spurious
+     timeout. *)
+  let budget_anchor = ref None in
+  let first_line = ref true in
+  let read_protocol_line () =
+    let line = read_sse_line reader in
+    if !first_line
+    then (
+      first_line := false;
+      strip_initial_utf8_bom line)
+    else line
+  in
   let read_meaningful_line () =
     let rec inner () =
-      match parse_sse_line (Eio.Buf_read.line reader) with
+      match parse_sse_line (read_protocol_line ()) with
       | Sse_comment -> inner ()
-      | (Sse_blank | Sse_field _) as parsed -> parsed
+      | (Sse_blank | Sse_event_type _ | Sse_data _ | Sse_ignored_field) as parsed ->
+        parsed
     in
     let active_timeout =
       if !first_event_seen
@@ -2412,7 +2550,22 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
     in
     let parsed =
       match clock, active_timeout with
-      | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
+      | Some c, Some budget ->
+        let anchored_at =
+          match !budget_anchor with
+          | Some t -> t
+          | None ->
+            let t = Eio.Time.now c in
+            budget_anchor := Some t;
+            t
+        in
+        let remaining = anchored_at +. budget -. Eio.Time.now c in
+        (* Already past the deadline: raise what [with_timeout_exn] would,
+           rather than arming a non-positive duration and depending on a
+           scheduler race to produce it. *)
+        if Float.compare remaining 0. <= 0
+        then raise Eio.Time.Timeout
+        else Eio.Time.with_timeout_exn c remaining inner
       | Some _, None -> inner ()
       (* No clock: nothing can be armed. Misconfiguration (an explicit
          deadline without a clock) already failed loud at entry, so this is
@@ -2428,35 +2581,69 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
        [Sse_comment] is already filtered inside [inner]; the only non-field
        line [inner] can return is [Sse_blank]. *)
     (match parsed with
-     | Sse_field _ -> first_event_seen := true
-     | Sse_blank -> ()
+     | (Sse_event_type _ | Sse_data _) when not !first_event_seen ->
+       first_event_seen := true;
+       budget_anchor := None
+     | Sse_data _ -> budget_anchor := None
+     | Sse_event_type _ | Sse_blank | Sse_ignored_field -> ()
      | Sse_comment -> () (* unreachable: filtered in [inner] *));
     parsed
   in
   let current_event_type = ref None in
+  let data_buffer = Buffer.create 256 in
+  let data_seen = ref false in
+  let dispatch_event () =
+    if !data_seen
+    then (
+      on_data ~event_type:!current_event_type (Buffer.contents data_buffer);
+      Buffer.clear data_buffer;
+      data_seen := false);
+    current_event_type := None
+  in
   let rec loop () =
     match read_meaningful_line () with
     | Sse_blank ->
-      current_event_type := None;
+      (* The blank line is the EventSource dispatch boundary. Multiple data
+         fields in one event are joined with a single LF; dispatching each
+         field independently would hand a JSON-lines fragment to a parser and
+         silently violate the SSE contract. *)
+      dispatch_event ();
       loop ()
     | Sse_comment ->
       (* Filtered inside [read_meaningful_line]. *)
       loop ()
-    | Sse_field ("event", value) ->
-      current_event_type := Some value;
+    | Sse_event_type value ->
+      (* An empty event field restores the default "message" event type. The
+         callback represents that default as [None], matching a missing field. *)
+      current_event_type := if String.equal value "" then None else Some value;
       loop ()
-    | Sse_field ("data", value) ->
-      (* Empty data is dispatched rather than dropped: the downstream
-         accumulator surfaces unparsable payloads as SSEParseFailed
-         events, which beats making protocol garbage invisible here. *)
-      on_data ~event_type:!current_event_type value;
+    | Sse_data value ->
+      (* Charge the join separator too: the bound must cover exactly what
+         [dispatch_event] will hand out, and it is checked BEFORE the append so
+         the accumulator never holds an over-limit payload. *)
+      let added_bytes =
+        String.length value
+        + if !data_seen then String.length sse_data_join_separator else 0
+      in
+      let actual_bytes = Buffer.length data_buffer + added_bytes in
+      if actual_bytes > max_event_bytes
+      then raise (Sse_event_too_large { actual_bytes; limit_bytes = max_event_bytes });
+      if !data_seen then Buffer.add_string data_buffer sse_data_join_separator;
+      Buffer.add_string data_buffer value;
+      (* Empty data is still observed: [data:] sets the data flag even when
+         its value is empty, so the blank boundary dispatches an empty
+         payload instead of making protocol garbage invisible. *)
+      data_seen := true;
       loop ()
-    | Sse_field (_, _) ->
-      (* "id" / "retry" are valid EventSource fields this client
-         deliberately does not use (no reconnect support); unknown
-         field names are ignored per spec. *)
+    | Sse_ignored_field ->
+      (* [id] / [retry] / unknown names, already classified at the parse
+         boundary. They do not re-anchor the armed budget. *)
       loop ()
-    | exception End_of_file -> ()
+    | exception End_of_file ->
+      (* An event without its blank dispatch boundary is incomplete. The
+         stream accumulator will fail closed when no terminal marker arrives;
+         do not invent a final event at EOF. *)
+      ()
   in
   loop ()
 ;;

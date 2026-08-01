@@ -12,6 +12,17 @@ type provider_error =
       ; detail : string
       }
   | ParseError of { detail : string }
+  | ProviderWireError of
+      { provider : string
+      ; format : Http_client.provider_wire_format
+      ; kind : Http_client.provider_wire_error_kind
+      ; detail : string
+      }
+  | ProviderReportedError of
+      { provider : string
+      ; error_type : string option
+      ; detail : string
+      }
   | UnknownVariant of
       { type_name : string
       ; value : string
@@ -126,6 +137,21 @@ let to_string = function
   | MissingApiKey r -> Printf.sprintf "Missing API key env var: %s" r.var_name
   | InvalidConfig r -> Printf.sprintf "Invalid config '%s': %s" r.field r.detail
   | ParseError r -> Printf.sprintf "Parse error: %s" r.detail
+  | ProviderWireError r ->
+    Printf.sprintf
+      "Provider '%s' wire error (%s/%s): %s"
+      r.provider
+      (Http_client.provider_wire_format_to_string r.format)
+      (Http_client.provider_wire_error_kind_to_string r.kind)
+      r.detail
+  | ProviderReportedError r ->
+    Printf.sprintf
+      "Provider '%s' reported an error%s: %s"
+      r.provider
+      (match r.error_type with
+       | Some error_type -> Printf.sprintf " (%s)" error_type
+       | None -> "")
+      r.detail
   | UnknownVariant r -> Printf.sprintf "Unknown %s variant: %s" r.type_name r.value
   | ProviderUnavailable r ->
     Printf.sprintf "Provider '%s' unavailable: %s" r.provider r.detail
@@ -276,6 +302,10 @@ let of_provider_failure ?provider kind message =
       | None -> "unknown_parser"
     in
     ParseError { detail = Printf.sprintf "%s: %s" parser message }
+  | Http_client.Provider_wire_error { format; kind } ->
+    ProviderWireError { provider; format; kind; detail = message }
+  | Http_client.Provider_reported_error { error_type } ->
+    ProviderReportedError { provider; error_type; detail = message }
   | Http_client.Request_body_too_large _ -> InvalidRequest { provider; reason = message }
   | Http_client.Response_body_too_large { limit_bytes } ->
     ParseError
@@ -363,6 +393,8 @@ let is_retryable = function
   | MissingApiKey _
   | InvalidConfig _
   | ParseError _
+  | ProviderWireError _
+  | ProviderReportedError _
   | UnknownVariant _
   | ProviderUnavailable _
   | HardQuota _

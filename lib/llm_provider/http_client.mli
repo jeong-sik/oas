@@ -118,6 +118,28 @@ type cli_startup_failure_reason =
 
 val cli_startup_failure_reason_to_string : cli_startup_failure_reason -> string
 
+(** Transport-independent wire format observed after the HTTP response was
+    accepted.  The format is evidence about the provider response, not a
+    retry decision. *)
+type provider_wire_format =
+  | Sse
+  | Ndjson
+
+(** Closed classification of a provider wire failure.  The diagnostic
+    message retains the parser's detail; control flow branches on this type,
+    never on that message. *)
+type provider_wire_error_kind =
+  | Malformed_payload
+  | Unknown_event
+  | Incomplete_stream
+  | Oversized_payload
+  (** One payload unit — a joined SSE event, or a single line — exceeded the
+        byte limit this client reads under. Distinct from
+        [Malformed_payload]: the bytes are well-formed, there are too many. *)
+
+val provider_wire_format_to_string : provider_wire_format -> string
+val provider_wire_error_kind_to_string : provider_wire_error_kind -> string
+
 (** Provider/runtime failure surfaced by a transport after it has parsed
     provider-specific HTTP/CLI details at the edge.
 
@@ -137,6 +159,17 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
+  | Provider_wire_error of
+      { format : provider_wire_format
+      ; kind : provider_wire_error_kind
+      }
+  (** The HTTP response was accepted, but its provider-owned stream did not
+      satisfy the declared wire contract.  This is distinct from an HTTP
+      status such as 429 and from a provider-reported error envelope. *)
+  | Provider_reported_error of { error_type : string option }
+  (** The provider sent a structurally valid error envelope inside an
+      otherwise accepted response.  [error_type] is provider-owned diagnostic
+      data; OAS does not infer rate-limit or retry semantics from it. *)
   | Request_body_too_large of
       { actual_bytes : int
       ; limit_bytes : int
@@ -496,11 +529,17 @@ val post_stream
     callers (see {!Complete_stream.body_logic}) catch it inside [f] and
     emit the precise phase (prefill → [First_token], inter-chunk →
     [Stream_idle]); callers that let it propagate get
-    [TimeoutError { phase = Unknown_timeout; _ }] as a safe default. *)
+    [TimeoutError { phase = Unknown_timeout; _ }] as a safe default.
+
+    [reuse_connection] is evaluated on [f]'s successful return value before a
+    cached connection is parked. Callers that stop before consuming the full
+    body must return [false], which closes the connection instead. *)
 val with_post_stream
   :  ?cache:cache
   -> ?clock:_ Eio.Time.clock
   -> ?connect_timeout_s:float
+  -> ?on_response_status:(int -> unit)
+  -> ?reuse_connection:('a -> bool)
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> url:string
   -> headers:(string * string) list
@@ -553,11 +592,30 @@ val with_post_stream
     idle still guards once the stream produces. Supplying
     [first_event_timeout] or [body_timeout] WITHOUT [clock] raises
     [Invalid_argument] (same silent-disarm guard as [idle_timeout]). *)
+exception
+  Sse_event_too_large of
+    { actual_bytes : int
+    ; limit_bytes : int
+    }
+(** Raised before an SSE event payload exceeds [max_event_bytes]. *)
+
+(** [max_event_bytes] bounds the JOINED payload of a single event, defaulting
+    to the shared response-body limit. Per-line size is already bounded by the
+    reader's own [max_size]; the multi-line join accumulates outside that
+    bound, so without this a provider that never sends the blank dispatch
+    boundary grows the accumulator without limit.
+
+    The armed deadline is anchored to the last payload-bearing line, not to the
+    last line read: comments, [id]/[retry]/unknown fields and bare delimiters
+    do not renew it, so a provider cannot hold the stream open by emitting one
+    ignorable line per budget. *)
+
 val read_sse
   :  ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
   -> ?first_event_timeout:float
   -> ?body_timeout:float
+  -> ?max_event_bytes:int
   -> reader:Eio.Buf_read.t
   -> on_data:(event_type:string option -> string -> unit)
   -> unit

@@ -171,6 +171,8 @@ let accumulate_event (acc : stream_acc) = function
     acc.sse_error := Some (Types.Stream_provider_error { message; error_type; raw })
   | Types.SSEParseFailed { raw; reason } ->
     acc.sse_error := Some (Types.Stream_parse_failed { reason; raw })
+  | Types.NDJSONParseFailed { raw; reason } ->
+    acc.sse_error := Some (Types.Stream_ndjson_parse_failed { reason; raw })
   | Types.SSEUnknownEventType { event_type; raw } ->
     acc.sse_error := Some (Types.Stream_unknown_event { event_type; raw })
   | Types.StreamIncomplete _ -> acc.terminal_incomplete := true
@@ -235,8 +237,9 @@ let finalize_stream_acc (acc : stream_acc) =
        Ollama-native ([done: true]) and Responses-API terminal defaults; only a
        sentinel-less close is rejected. *)
     Error
-      (Types.Stream_parse_failed
-         { reason = "stream_terminated_without_stop_reason"; raw = "" })
+      (* Preserve the established diagnostic reason while giving callers a
+         typed incomplete-stream fact instead of calling it malformed JSON. *)
+      (Types.Stream_incomplete { reason = "stream_terminated_without_stop_reason" })
   | None ->
     let indices =
       Hashtbl.fold (fun k _ acc -> k :: acc) acc.block_types [] |> List.sort compare
@@ -929,7 +932,12 @@ let%test "finalize_stream_acc fails closed on InputJsonDelta multi-object args (
   | Error (Types.Stream_parse_failed { reason; raw }) ->
     raw = {|{}{}|}
     && String.starts_with ~prefix:"malformed_tool_use_arguments:index:0" reason
-  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc fails closed on live multi-object tool args" =
@@ -968,7 +976,12 @@ let%test "finalize_stream_acc fails closed on live multi-object tool args" =
   | Error (Types.Stream_parse_failed { reason; raw }) ->
     raw = {|{"include_done":false}{"exclude_automation":true,"limit":5}|}
     && String.starts_with ~prefix:"malformed_tool_use_arguments:index:1" reason
-  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 let%test "accumulate_event MessageDelta None stop_reason keeps default" =
@@ -1006,7 +1019,12 @@ let%test "accumulate_event SSEError records typed provider error" =
   match !(acc.sse_error) with
   | Some (Types.Stream_provider_error { message; error_type; _ }) ->
     message = "bad" && error_type = Some "rate_limit_exceeded"
-  | Some (Types.Stream_parse_failed _ | Types.Stream_unknown_event _) | None -> false
+  | Some
+      ( Types.Stream_parse_failed _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | None -> false
 ;;
 
 (* SSEParseFailed and SSEUnknownEventType replace the previous silent [None]
@@ -1023,7 +1041,12 @@ let%test "accumulate_event SSEParseFailed marks typed parse failure with reason"
   match !(acc.sse_error) with
   | Some (Types.Stream_parse_failed { reason; raw }) ->
     reason = "json_error: Line 1, bytes 0-9" && raw = "{not json"
-  | Some (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | None -> false
+  | Some
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | None -> false
 ;;
 
 let%test "accumulate_event SSEUnknownEventType marks typed unknown event with type" =
@@ -1034,7 +1057,28 @@ let%test "accumulate_event SSEUnknownEventType marks typed unknown event with ty
        { event_type = "future_event_v3"; raw = "{\"type\":\"future_event_v3\"}" });
   match !(acc.sse_error) with
   | Some (Types.Stream_unknown_event { event_type; _ }) -> event_type = "future_event_v3"
-  | Some (Types.Stream_provider_error _ | Types.Stream_parse_failed _) | None -> false
+  | Some
+      ( Types.Stream_provider_error _
+      | Types.Stream_parse_failed _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | None -> false
+;;
+
+let%test "accumulate_event NDJSONParseFailed preserves wire-specific error" =
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.NDJSONParseFailed { raw = "{not json"; reason = "bad_json" });
+  match !(acc.sse_error) with
+  | Some (Types.Stream_ndjson_parse_failed { reason; raw }) ->
+    reason = "bad_json" && raw = "{not json"
+  | Some
+      ( Types.Stream_provider_error _
+      | Types.Stream_parse_failed _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _ )
+  | None -> false
 ;;
 
 let%test
@@ -1047,7 +1091,12 @@ let%test
      concern, not a data-loss point in the accumulator. *)
   match !(acc.sse_error) with
   | Some (Types.Stream_parse_failed { raw; _ }) -> String.length raw = 5000
-  | Some (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | None -> false
+  | Some
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | None -> false
 ;;
 
 (* --- finalize_stream_acc edge cases --- *)
@@ -1080,7 +1129,12 @@ let%test "finalize_stream_acc fails closed for unknown block kind with text" =
     && String.starts_with
          ~prefix:"unsupported_content_block_kind:server_tool_use:index:0"
          reason
-  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc fails closed for empty unknown block kind" =
@@ -1097,7 +1151,12 @@ let%test "finalize_stream_acc fails closed for empty unknown block kind" =
     && String.starts_with
          ~prefix:"unsupported_content_block_kind:container_upload:index:0"
          reason
-  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc assembles a streamed image block (multimodal)" =
@@ -1188,7 +1247,12 @@ let%test "finalize_stream_acc fails closed for media payload without metadata" =
   match finalize_stream_acc acc with
   | Error (Types.Stream_parse_failed { reason; raw }) ->
     raw = "" && reason = "malformed_media_block:image:index:0"
-  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc fails closed on malformed tool_use arguments" =
@@ -1213,7 +1277,12 @@ let%test "finalize_stream_acc fails closed on malformed tool_use arguments" =
        discarded. *)
     raw = "not valid json"
     && String.starts_with ~prefix:"malformed_tool_use_arguments:index:0" reason
-  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc keeps empty tool_use arguments as empty object" =
@@ -1332,7 +1401,12 @@ let%test "finalize_stream_acc tool_use missing id fails closed" =
   with
   | Error (Types.Stream_parse_failed { reason; raw }) ->
     reason = "malformed_tool_use:index:0:missing_id" && raw = ""
-  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc tool_use blank id fails closed" =
@@ -1349,7 +1423,12 @@ let%test "finalize_stream_acc tool_use blank id fails closed" =
   with
   | Error (Types.Stream_parse_failed { reason; raw }) ->
     reason = "malformed_tool_use:index:0:missing_id" && raw = ""
-  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc assembles tool_result block" =
@@ -1388,7 +1467,12 @@ let%test "finalize_stream_acc tool_result missing id fails closed" =
   with
   | Error (Types.Stream_parse_failed { reason; raw }) ->
     reason = "malformed_tool_result:index:0:missing_id" && raw = ""
-  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc assembles a streamed image block" =
@@ -1468,7 +1552,12 @@ let%test "finalize_stream_acc fails closed for media payload without metadata" =
   match finalize_stream_acc acc with
   | Error (Types.Stream_parse_failed { reason; raw }) ->
     reason = "malformed_media_block:image:index:0" && raw = ""
-  | Error (Types.Stream_provider_error _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_provider_error _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 let%test "finalize_stream_acc drops a media block with no payload" =
@@ -1519,7 +1608,12 @@ let%test "finalize_stream_acc returns Error when sse_error is set" =
     finalize_stream_acc acc
   with
   | Error (Types.Stream_provider_error { message; _ }) -> message = "server overloaded"
-  | Error (Types.Stream_parse_failed _ | Types.Stream_unknown_event _) | Ok _ -> false
+  | Error
+      ( Types.Stream_parse_failed _
+      | Types.Stream_unknown_event _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | Ok _ -> false
 ;;
 
 (* Phantom completion prevention: a stream that ends without a terminal
@@ -1535,9 +1629,8 @@ let%test "finalize_stream_acc returns Error when stream has no stop_reason" =
   Hashtbl.replace acc.block_texts 0 buf;
   (* No accumulate_event with MessageDelta { stop_reason = Some _; _ } *)
   match finalize_stream_acc acc with
-  | Error (Types.Stream_parse_failed { reason; _ }) ->
-    String.length reason > 0
-    && String.sub reason 0 (String.length "stream_terminated") = "stream_terminated"
+  | Error (Types.Stream_incomplete { reason }) ->
+    reason = "stream_terminated_without_stop_reason"
   | Error _ | Ok _ -> false
 ;;
 

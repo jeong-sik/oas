@@ -507,6 +507,36 @@ let test_provider_failure_remaining_variants_mapping () =
    | Error.ParseError { detail } ->
      check string "parser default" "unknown_parser: bad JSON" detail
    | _ -> fail "expected ParseError");
+  let wire =
+    provider_failure
+      ~provider:"glm"
+      (Http_client.Provider_wire_error
+         { format = Http_client.Sse; kind = Http_client.Malformed_payload })
+      "SSE parse failed: bad JSON"
+  in
+  (match wire with
+   | Error.ProviderWireError { provider; format; kind; detail } ->
+     check string "wire provider" "glm" provider;
+     check string "wire format" "sse" (Http_client.provider_wire_format_to_string format);
+     check
+       string
+       "wire kind"
+       "malformed_payload"
+       (Http_client.provider_wire_error_kind_to_string kind);
+     check string "wire detail" "SSE parse failed: bad JSON" detail
+   | _ -> fail "expected typed ProviderWireError");
+  let reported =
+    provider_failure
+      ~provider:"glm"
+      (Http_client.Provider_reported_error { error_type = Some "rate_limit_exceeded" })
+      "slow down"
+  in
+  (match reported with
+   | Error.ProviderReportedError
+       { provider; error_type = Some "rate_limit_exceeded"; detail } ->
+     check string "reported provider" "glm" provider;
+     check string "reported detail" "slow down" detail
+   | _ -> fail "expected typed ProviderReportedError");
   let request_body_limit_message =
     "serialized request body is 2048 bytes, target limit is 1024 bytes"
   in

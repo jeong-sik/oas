@@ -95,6 +95,92 @@ let test_read_sse_basic () =
   Alcotest.(check string) "second data" "second" (snd ev2)
 ;;
 
+let test_read_sse_joins_multiple_data_fields () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "event: message\ndata: first\ndata: second\n\ndata: next\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  match List.rev !events with
+  | [ (Some "message", "first\nsecond"); (None, "next") ] -> ()
+  | _ -> Alcotest.fail "SSE data fields must join at the blank event boundary"
+;;
+
+let test_read_sse_bounds_accumulated_event_payload () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "data: 12345\ndata: 67890\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  match
+    Http_client.read_sse
+      ~max_event_bytes:10
+      ~reader
+      ~on_data:(fun ~event_type:_ _ -> ())
+      ()
+  with
+  | exception Http_client.Sse_event_too_large { actual_bytes = 11; limit_bytes = 10 } ->
+    ()
+  | exception Http_client.Sse_event_too_large _ ->
+    Alcotest.fail "unexpected SSE event size evidence"
+  | () -> Alcotest.fail "oversized accumulated SSE event must fail closed"
+;;
+
+(* The bound is a maximum, not an off-by-one: an event landing exactly on it
+   must still dispatch, or the limit would silently reject legal payloads. *)
+let test_read_sse_accepts_event_exactly_at_the_bound () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "data: 12345\ndata: 6789\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~max_event_bytes:10 (* exactly "12345\n6789" *)
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  match List.rev !events with
+  | [ (None, "12345\n6789") ] -> ()
+  | _ -> Alcotest.fail "an event exactly at the bound must still dispatch"
+;;
+
+let test_read_sse_ignored_fields_do_not_extend_first_event_deadline () =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    Eio.Fiber.both
+      (fun () ->
+         List.iter
+           (fun field ->
+              Eio.Flow.copy_string field sink;
+              Eio.Time.sleep clock 0.03)
+           [ "id: 1\n"; "retry: 1000\n"; "ignored: value\n" ];
+         Eio.Flow.copy_string "data: too-late\n\n" sink;
+         Eio.Flow.close sink)
+      (fun () ->
+         Http_client.read_sse
+           ~clock
+           ~idle_timeout:1.0
+           ~first_event_timeout:0.05
+           ~reader
+           ~on_data:(fun ~event_type:_ _ -> ())
+           ());
+    Alcotest.fail "ignored SSE fields must not refresh the first-event deadline"
+  with
+  | Eio.Time.Timeout -> ()
+;;
+
 let test_read_sse_empty_lines () =
   Eio_main.run
   @@ fun _env ->
@@ -142,6 +228,52 @@ let test_read_sse_no_space_after_colon () =
   let ev = List.hd !events in
   Alcotest.(check (option string)) "event type without space" (Some "message") (fst ev);
   Alcotest.(check string) "data without space" "hello" (snd ev)
+;;
+
+let test_read_sse_eventsource_line_boundaries () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "\xEF\xBB\xBFevent:message\rdata:hello\r\rdata:next\r\r" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  match List.rev !events with
+  | [ (Some "message", "hello"); (None, "next") ] -> ()
+  | _ -> Alcotest.fail "SSE must accept BOM and LF/CRLF/CR boundaries"
+;;
+
+let test_read_sse_empty_event_type_restores_default () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "event: stale\nevent:\ndata: payload\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  match List.rev !events with
+  | [ (None, "payload") ] -> ()
+  | _ -> Alcotest.fail "an empty event field must use the default event type"
+;;
+
+let test_read_sse_does_not_dispatch_unterminated_event () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "data: partial\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  Alcotest.(check int) "unterminated event is discarded" 0 (List.length !events)
 ;;
 
 let test_read_sse_ignores_id_and_retry_fields () =
@@ -424,6 +556,14 @@ let test_provider_failure_string_helpers () =
       , "cli_startup_failed:executable_unavailable" )
     ; Http_client.Provider_parse_error { parser = Some "glm" }, "provider_parse_error:glm"
     ; Http_client.Provider_parse_error { parser = None }, "provider_parse_error"
+    ; ( Http_client.Provider_wire_error
+          { format = Http_client.Sse; kind = Http_client.Malformed_payload }
+      , "provider_wire_error:sse:malformed_payload" )
+    ; ( Http_client.Provider_wire_error
+          { format = Http_client.Ndjson; kind = Http_client.Oversized_payload }
+      , "provider_wire_error:ndjson:oversized_payload" )
+    ; ( Http_client.Provider_reported_error { error_type = Some "rate_limit_exceeded" }
+      , "provider_reported_error:rate_limit_exceeded" )
     ; ( Http_client.Response_body_too_large { limit_bytes = 1024 }
       , "response_body_too_large:1024" )
     ; ( Http_client.Empty_completion { stop_reason = Types.EndTurn }
@@ -617,12 +757,40 @@ let () =
         ] )
     ; ( "read_sse"
       , [ Alcotest.test_case "basic events" `Quick test_read_sse_basic
+        ; Alcotest.test_case
+            "multiple data fields join"
+            `Quick
+            test_read_sse_joins_multiple_data_fields
+        ; Alcotest.test_case
+            "accumulated event payload is bounded"
+            `Quick
+            test_read_sse_bounds_accumulated_event_payload
+        ; Alcotest.test_case
+            "event exactly at the bound dispatches"
+            `Quick
+            test_read_sse_accepts_event_exactly_at_the_bound
+        ; Alcotest.test_case
+            "ignored fields preserve first-event deadline"
+            `Quick
+            test_read_sse_ignored_fields_do_not_extend_first_event_deadline
         ; Alcotest.test_case "empty lines" `Quick test_read_sse_empty_lines
         ; Alcotest.test_case "DONE marker" `Quick test_read_sse_done_marker
         ; Alcotest.test_case
             "no space after colon (spec grammar)"
             `Quick
             test_read_sse_no_space_after_colon
+        ; Alcotest.test_case
+            "EventSource line boundaries"
+            `Quick
+            test_read_sse_eventsource_line_boundaries
+        ; Alcotest.test_case
+            "empty event type"
+            `Quick
+            test_read_sse_empty_event_type_restores_default
+        ; Alcotest.test_case
+            "unterminated event is discarded"
+            `Quick
+            test_read_sse_does_not_dispatch_unterminated_event
         ; Alcotest.test_case
             "id/retry fields ignored"
             `Quick

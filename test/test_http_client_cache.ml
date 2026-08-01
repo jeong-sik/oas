@@ -489,6 +489,38 @@ let test_stream_cancellation_closes_connection () =
   | Exit -> ()
 ;;
 
+let test_stream_typed_error_closes_unconsumed_connection () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_sse_server ~sw ~net:env#net "unconsumed stream body" in
+    let cache = Http_client.create_cache ~sw () in
+    (match
+       Http_client.with_post_stream
+         ~cache
+         ~net:env#net
+         ~url
+         ~headers:[]
+         ~body:""
+         ~reuse_connection:(function
+           | Ok _ -> true
+           | Error _ -> false)
+         ~f:(fun _reader -> Error `Stop)
+         ()
+     with
+     | Ok (Error `Stop) -> ()
+     | Ok (Ok _) -> Alcotest.fail "expected typed stream error"
+     | Error _ -> Alcotest.fail "expected body callback result");
+    let stats = Http_client.cache_stats cache in
+    Alcotest.(check int) "typed error does not park connection" 0 stats.total_idle;
+    Alcotest.(check int) "one create" 1 stats.create_count_total;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let with_raw_one_dispatch_server
       ?(http_version = "HTTP/1.1")
       ?(status = "200 OK")
@@ -894,6 +926,10 @@ let () =
             "cancellation closes connection"
             `Quick
             test_stream_cancellation_closes_connection
+        ; Alcotest.test_case
+            "typed error closes unconsumed connection"
+            `Quick
+            test_stream_typed_error_closes_unconsumed_connection
         ] )
     ; ( "validation"
       , [ Alcotest.test_case

@@ -573,17 +573,24 @@ type sse_event =
             Emit this event so the accumulator can mark the stream as
             corrupted and the caller can route to a different
             provider instead of presenting a phantom completion. *)
+  | NDJSONParseFailed of
+      { raw : string
+      ; reason : string
+      }
+  (** An NDJSON line could not be parsed. This is separate from
+      [SSEParseFailed] because the wire format is a transport fact consumed
+      by the HTTP boundary; it must not be relabeled as SSE. *)
   | SSEUnknownEventType of
       { event_type : string
       ; raw : string
       }
-  | Connected
-  | Timeout of string
   (** The chunk parsed cleanly but [event_type] did not match any
             documented variant. Likely a provider that added a new event
             type the OAS adapter has not yet learned. Emit explicitly so
             the consumer can decide (log + skip vs fail-fast) instead of
             silent data loss. *)
+  | Connected
+  | Timeout of string
   | StreamIncomplete of { reason : string }
   (** The provider signalled the turn was cut off before a natural stop (an
       OpenAI Responses [response.incomplete]). Any in-progress tool call is
@@ -593,11 +600,10 @@ type sse_event =
       covers incomplete reasons beyond [max_output_tokens], which the
       [stop_reason = MaxTokens] check alone misses. *)
 
-(** Terminal error captured while accumulating an SSE stream. The accumulator
-    stores this typed value (not a flattened string) so a provider-reported
-    error routes through the same [Http_client.HttpError {code; body}] ->
-    [Retry.classify_error] path the non-streaming boundary uses, while a wire /
-    parse failure stays an unclassifiable network error. *)
+(** Terminal error captured while accumulating a streaming response. The accumulator
+    stores this typed value (not a flattened string). Provider-owned error
+    envelopes, malformed payloads, unknown events, and incomplete streams stay
+    distinct at the transport boundary; retry policy is decided above OAS. *)
 type stream_error =
   | Stream_provider_error of
       { message : string
@@ -608,6 +614,15 @@ type stream_error =
       { reason : string
       ; raw : string
       }
+  | Stream_ndjson_parse_failed of
+      { reason : string
+      ; raw : string
+      }
+  (** The NDJSON parser failed. This remains distinct from an SSE parse
+      failure so the HTTP boundary can preserve the declared wire format. *)
+  | Stream_incomplete of { reason : string }
+  (** The stream ended without its protocol terminal marker.  This is not a
+      malformed payload and must remain distinct at the transport boundary. *)
   | Stream_unknown_event of
       { event_type : string
       ; raw : string

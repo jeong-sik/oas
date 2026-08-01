@@ -29,137 +29,6 @@ let record_streaming_metrics (metrics : Metrics.t) = function
   | Wire_observer_failure _ -> ()
 ;;
 
-(* Scrub-then-bound the offending payload echoed into a parse-failure message.
-   Tool arguments can carry credentials (Bearer tokens, API keys, URL userinfo),
-   so the buffer passes through the [Secret_redactor] SSOT -- the same boundary
-   [complete_common] already applies to provider error bodies -- before it
-   reaches the operator-facing message. Redaction runs first so truncation
-   cannot split a token past the redactor and leak a partial; the bound then
-   keeps a large buffer from bloating the operator-facing diagnostic log. [%S] at
-   the call site escapes embedded quotes/newlines. *)
-let max_parse_error_raw_excerpt = 256
-
-let parse_error_raw_excerpt raw =
-  let redacted = Secret_redactor.redact_string raw in
-  if String.length redacted <= max_parse_error_raw_excerpt
-  then redacted
-  else String.sub redacted 0 max_parse_error_raw_excerpt ^ "...(truncated)"
-;;
-
-(* Internal: HTTP-specific streaming implementation. *)
-(* A generic stream boundary cannot infer transport semantics from an open
-   provider-owned string. Provider-specific parsers may emit a typed failure;
-   otherwise preserve the exact discriminator as diagnostic data. *)
-let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_error =
-  match serr with
-  | Types.Stream_provider_error { message; error_type; raw } ->
-    Http_client.ProviderFailure
-      { kind = Http_client.Unknown_provider_failure { reason = error_type }
-      ; message =
-          Printf.sprintf
-            "SSE stream error: %s raw=%S"
-            message
-            (parse_error_raw_excerpt raw)
-      }
-  | Types.Stream_parse_failed { reason; raw } ->
-    Http_client.ProviderFailure
-      { kind = Http_client.Provider_parse_error { parser = Some "sse" }
-      ; message =
-          (match raw with
-           | "" -> Printf.sprintf "SSE parse failed: %s" reason
-           | raw ->
-             (* Echo the offending buffer (bounded) so a rare, provider-specific
-                malformed wire is diagnosable from the operator-facing
-                diagnostic log instead of discarded at the carrier boundary. *)
-             Printf.sprintf
-               "SSE parse failed: %s raw=%S"
-               reason
-               (parse_error_raw_excerpt raw))
-      }
-  | Types.Stream_unknown_event { event_type; _ } ->
-    Http_client.ProviderFailure
-      { kind = Http_client.Provider_parse_error { parser = Some "sse" }
-      ; message = Printf.sprintf "SSE unknown event type: %s" event_type
-      }
-;;
-
-let%test "generic stream provider type stays diagnostic" =
-  match
-    http_error_of_stream_error
-      (Types.Stream_provider_error
-         { message = "provider refused"
-         ; error_type = Some "provider_owned_type"
-         ; raw = "{}"
-         })
-  with
-  | Http_client.ProviderFailure
-      { kind =
-          Http_client.Unknown_provider_failure { reason = Some "provider_owned_type" }
-      ; _
-      } -> true
-  | _ -> false
-;;
-
-let maps_to_sse_parse_failure stream_error =
-  match http_error_of_stream_error stream_error with
-  | Http_client.ProviderFailure
-      { kind = Http_client.Provider_parse_error { parser = Some "sse" }; _ } -> true
-  | Http_client.HttpError _
-  | Http_client.NetworkError _
-  | Http_client.TimeoutError _
-  | Http_client.AcceptRejected _
-  | Http_client.ProviderTerminal _
-  | Http_client.ProviderFailure _ -> false
-;;
-
-let%test "stream parse failure stays provider parse failure" =
-  maps_to_sse_parse_failure (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
-;;
-
-let%test "parse failure echoes the offending raw buffer for diagnosis" =
-  (* The malformed tool-arg buffer must reach the operator-facing message so a
-     rare, provider-specific malformed wire is debuggable instead of discarded
-     at the carrier boundary. *)
-  let reason = "malformed_tool_use_arguments:index:1:bad" in
-  let raw = {|{"location":"Tokyo"}{}|} in
-  match http_error_of_stream_error (Types.Stream_parse_failed { reason; raw }) with
-  | Http_client.ProviderFailure { message; _ } ->
-    message = Printf.sprintf "SSE parse failed: %s raw=%S" reason raw
-  | _ -> false
-;;
-
-let%test "parse failure raw excerpt is bounded" =
-  (* A large argument buffer must not bloat the log line: the echoed excerpt is
-     bounded well below the full buffer length. *)
-  let reason = "malformed_tool_use_arguments:index:0:bad" in
-  let raw = String.make 1000 'x' in
-  match http_error_of_stream_error (Types.Stream_parse_failed { reason; raw }) with
-  | Http_client.ProviderFailure { message; _ } ->
-    String.length message < String.length raw
-  | _ -> false
-;;
-
-let%test "parse failure redacts authorization values in the echoed raw buffer" =
-  (* Tool arguments can carry credentials; the operator-visible message must
-     scrub values in explicit credential contexts through the
-     [Secret_redactor] SSOT rather than infer provider-specific token formats. *)
-  let reason = "malformed_tool_use_arguments:index:0:bad" in
-  let raw = {|{"auth":"Bearer opaque-token"}{}|} in
-  match http_error_of_stream_error (Types.Stream_parse_failed { reason; raw }) with
-  | Http_client.ProviderFailure { message; _ } ->
-    message
-    = Printf.sprintf
-        "SSE parse failed: %s raw=%S"
-        reason
-        {|{"auth":"Bearer [REDACTED]"}{}|}
-  | _ -> false
-;;
-
-let%test "stream unknown event stays provider parse failure" =
-  maps_to_sse_parse_failure
-    (Types.Stream_unknown_event { event_type = "surprise"; raw = "event: surprise" })
-;;
-
 let%test "OpenAI-compatible parser preserves a typed provider error" =
   match
     Streaming.parse_openai_sse_chunk
@@ -349,6 +218,7 @@ let complete_stream_http
       ?capture_id
       ?request_wire_observer
       ?admitted_body
+      ?on_http_status
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ?(metrics = Metrics.get_global ())
       ?(connection_cache : Http_client.cache option)
@@ -451,6 +321,19 @@ let complete_stream_http
      them. We trap them here and patch the finalised response below. *)
       let provider = Provider_config.string_of_provider_kind config.kind in
       let model = config.model_id in
+      let active_wire_format =
+        match http_codec with
+        | Provider_http_codec.Ollama_chat -> Http_client.Ndjson
+        | Anthropic_messages
+        | Openai_chat
+        | Openai_responses
+        | Gemini_generate_content
+        | Glm_chat -> Http_client.Sse
+      in
+      let on_response_status =
+        let observe = Option.value ~default:metrics.on_http_status on_http_status in
+        fun status -> observe ~provider ~model_id:model ~status
+      in
       let emit_telemetry evt =
         record_streaming_metrics metrics evt;
         match on_telemetry with
@@ -496,10 +379,21 @@ let complete_stream_http
         | Types.MessageDelta _ -> `Skip
         | Types.MessageStop -> `Done
         | Types.Ping -> `Heartbeat
-        | Types.SSEError _ | Types.SSEParseFailed _ | Types.SSEUnknownEventType _ ->
-          `Wire_error
+        (* A provider-owned error envelope is NOT a wire failure: the response
+           satisfied its contract and the provider reported a problem inside
+           it. Classifying it as a wire error made the summary contradict the
+           [Provider_reported_error] this stream actually returns. *)
+        | Types.SSEError _ -> `Provider_reported_error
+        (* [SSEParseFailed] is emitted by format-agnostic producers — the
+           Ollama (NDJSON) tool-routing path raises it via
+           [Streaming.reject_tool_block ~protocol:"ollama"] — so the format
+           comes from the stream, not from the variant's legacy name. *)
+        | Types.SSEParseFailed _ -> `Wire_error active_wire_format
+        (* Event types exist only in SSE; NDJSON has no event field. *)
+        | Types.SSEUnknownEventType _ -> `Wire_error Http_client.Sse
+        | Types.NDJSONParseFailed _ -> `Wire_error Http_client.Ndjson
         | Types.Connected -> `Skip
-        | Types.Timeout _ -> `Wire_error
+        | Types.Timeout _ -> `Wire_error active_wire_format
         | Types.StreamIncomplete _ -> `Skip
       in
       let percentiles () =
@@ -565,6 +459,10 @@ let complete_stream_http
           ?cache:connection_cache
           ?clock
           ?connect_timeout_s:config.connect_timeout_s
+          ~on_response_status
+          ~reuse_connection:(function
+            | Ok _ -> true
+            | Error _ -> false)
           ~net
           ~url
           ~headers:(config.headers @ Provider_config.auth_headers_for_config config)
@@ -650,9 +548,16 @@ let complete_stream_http
                      | `Done ->
                        stream_idle_state := Http_client.Streaming_done;
                        incr n_done
-                     | `Wire_error ->
+                     | `Wire_error format ->
                        stream_idle_state := Http_client.Streaming_unknown;
-                       terminal_state := Telemetry_event.Terminal_error "sse_wire_error")
+                       terminal_state
+                       := Telemetry_event.Terminal_error
+                            (Complete_stream_error.wire_error_terminal_label format)
+                     | `Provider_reported_error ->
+                       stream_idle_state := Http_client.Streaming_unknown;
+                       terminal_state
+                       := Telemetry_event.Terminal_error
+                            Complete_stream_error.provider_reported_terminal_label)
                   events;
                 (* No thinking-only wall-clock cutoff: active reasoning
                      deltas ARE stream liveness. [stream_idle_timeout_s]
@@ -720,7 +625,7 @@ let complete_stream_http
                            match Streaming.parse_ollama_ndjson_chunk line with
                            | None ->
                              dispatch
-                               ( [ Types.SSEParseFailed
+                               ( [ Types.NDJSONParseFailed
                                      { raw = line
                                      ; reason = "ollama_ndjson_chunk_parse_failure"
                                      }
@@ -784,6 +689,35 @@ let complete_stream_http
                        ());
                   Ok ()
                 with
+                (* Typed at the boundary rather than routed through
+                   [SSEParseFailed]: an oversized payload is not malformed
+                   syntax, and encoding the sizes into a [reason] string would
+                   hand downstream a classification it has to re-parse. *)
+                | Http_client.Sse_event_too_large { actual_bytes; limit_bytes } ->
+                  terminal_state
+                  := Telemetry_event.Terminal_error
+                       (Http_client.provider_wire_format_to_string active_wire_format
+                        ^ "_wire_error");
+                  Error
+                    (Complete_stream_error.http_error_of_oversized_payload
+                       ~wire_format:active_wire_format
+                       ~actual_bytes:(Some actual_bytes)
+                       ~limit_bytes)
+                (* The same policy one level down: a single line larger than
+                   the buffered reader's [max_size]. Both formats reach here —
+                   [read_ndjson] has no accumulator, so an oversized NDJSON
+                   line can only surface this way, and it used to escape
+                   unclassified. *)
+                | Eio.Buf_read.Buffer_limit_exceeded ->
+                  terminal_state
+                  := Telemetry_event.Terminal_error
+                       (Http_client.provider_wire_format_to_string active_wire_format
+                        ^ "_wire_error");
+                  Error
+                    (Complete_stream_error.http_error_of_oversized_payload
+                       ~wire_format:active_wire_format
+                       ~actual_bytes:None
+                       ~limit_bytes:Api_common.max_response_body)
                 | Eio.Time.Timeout when Complete_stream_acc.stream_failed acc -> Ok ()
                 | Eio.Time.Timeout ->
                   let phase =
@@ -832,12 +766,31 @@ let complete_stream_http
                 let result =
                   match Complete_stream_acc.finalize_stream_acc acc with
                   | Ok _ as ok -> ok
-                  | Error serr -> Error (http_error_of_stream_error serr)
+                  | Error serr ->
+                    (match !terminal_state with
+                     | Telemetry_event.Terminal_done ->
+                       terminal_state
+                       := Telemetry_event.Terminal_error
+                            (match serr with
+                             | Types.Stream_provider_error _ ->
+                               Complete_stream_error.provider_reported_terminal_label
+                             | Types.Stream_parse_failed _
+                             | Types.Stream_ndjson_parse_failed _
+                             | Types.Stream_unknown_event _
+                             | Types.Stream_incomplete _ ->
+                               Complete_stream_error.wire_error_terminal_label
+                                 active_wire_format)
+                     | Telemetry_event.Terminal_error _
+                     | Telemetry_event.Terminal_cancelled -> ());
+                    Error
+                      (Complete_stream_error.http_error_of_stream_error
+                         ~wire_format:active_wire_format
+                         serr)
                 in
                 (* RFC-OAS-019: emit one [Streaming_summary] at stream
-                   finalize on the normal path. terminal_state defaults to
-                   [Terminal_done]; wire errors during dispatch upgrade it
-                   in place. *)
+                   finalize on the normal path. [terminal_state] defaults to
+                   [Terminal_done]; dispatch and finalize errors upgrade it
+                   before publication. *)
                 publish_summary ~terminal:!terminal_state ();
                 result
             in
@@ -894,18 +847,23 @@ let complete_stream_http
         publish_summary ~terminal:(Telemetry_event.Terminal_error "timeout_error") ();
         Error err
       | Ok (Error err) ->
-        publish_summary
-          ~terminal:
-            (Telemetry_event.Terminal_error
-               (Printf.sprintf
-                  "sse_stream_error: %s"
-                  (match err with
-                   | Http_client.NetworkError { message; _ }
-                   | Http_client.TimeoutError { message; _ } -> message
-                   | Http_client.HttpError { code; _ } -> Printf.sprintf "HTTP %d" code
-                   | Http_client.AcceptRejected { reason } -> reason
-                   | Http_client.ProviderTerminal { message; _ } -> message
-                   | Http_client.ProviderFailure { kind; message } -> message)))
-          ();
+        let terminal =
+          match !terminal_state with
+          | (Telemetry_event.Terminal_error _ | Telemetry_event.Terminal_cancelled) as
+            terminal -> terminal
+          | Telemetry_event.Terminal_done ->
+            Telemetry_event.Terminal_error
+              (Printf.sprintf
+                 "%s_stream_error: %s"
+                 (Http_client.provider_wire_format_to_string active_wire_format)
+                 (match err with
+                  | Http_client.NetworkError { message; _ }
+                  | Http_client.TimeoutError { message; _ } -> message
+                  | Http_client.HttpError { code; _ } -> Printf.sprintf "HTTP %d" code
+                  | Http_client.AcceptRejected { reason } -> reason
+                  | Http_client.ProviderTerminal { message; _ } -> message
+                  | Http_client.ProviderFailure { message; _ } -> message))
+        in
+        publish_summary ~terminal ();
         Error err)
 ;;

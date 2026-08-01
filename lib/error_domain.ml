@@ -17,6 +17,12 @@ type provider_error =
   | `Context_overflow of string * int option
   | `Input_capacity of
       Retry.input_capacity_reason * Llm_provider.Serving_constraint.t * string
+  | `Provider_wire_error of
+      string
+      * Http_client.provider_wire_format
+      * Http_client.provider_wire_error_kind
+      * string
+  | `Provider_reported_error of string * string option * string
   | `Payment_required of string
   ]
 
@@ -121,6 +127,10 @@ let of_provider_error (err : Llm_provider.Error.provider_error) : provider_error
     `Invalid_request (Retry.Unknown_invalid_request, r.detail)
   | Llm_provider.Error.ParseError r ->
     `Invalid_request (Retry.Unknown_invalid_request, r.detail)
+  | Llm_provider.Error.ProviderWireError r ->
+    `Provider_wire_error (r.provider, r.format, r.kind, r.detail)
+  | Llm_provider.Error.ProviderReportedError r ->
+    `Provider_reported_error (r.provider, r.error_type, r.detail)
   | Llm_provider.Error.UnknownVariant r ->
     `Invalid_request
       ( Retry.Unknown_invalid_request
@@ -185,6 +195,12 @@ let provider_to_sdk : provider_error -> Error.sdk_error = function
     Error.Api (Retry.ContextOverflow { message = msg; limit })
   | `Input_capacity (reason, constraint_, message) ->
     Error.Api (Retry.InputCapacity { message; constraint_; reason })
+  | `Provider_wire_error (provider, format, kind, detail) ->
+    Error.Provider
+      (Llm_provider.Error.ProviderWireError { provider; format; kind; detail })
+  | `Provider_reported_error (provider, error_type, detail) ->
+    Error.Provider
+      (Llm_provider.Error.ProviderReportedError { provider; error_type; detail })
   | `Payment_required msg -> Error.Api (Retry.PaymentRequired { message = msg })
 ;;
 
@@ -272,6 +288,8 @@ let is_retryable (err : [< sdk_error_poly ]) : bool =
   | `Not_found _
   | `Context_overflow _
   | `Input_capacity _
+  | `Provider_wire_error _
+  | `Provider_reported_error _
   | `Payment_required _
   | `Tool_exec_failed _
   | `Tool_timeout _
