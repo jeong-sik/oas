@@ -1880,21 +1880,13 @@ let test_complete_ollama_malformed_ndjson_is_wire_error () =
     Eio.Switch.run
     @@ fun sw ->
     let url =
-      start_sse_server
-        ~sw
-        ~net:env#net
-        ~content_type:"application/x-ndjson"
-        "{not-json\n"
+      start_sse_server ~sw ~net:env#net ~content_type:"application/x-ndjson" "{not-json\n"
     in
     (match
        Complete.complete_stream
          ~sw
          ~net:env#net
-         ~config:
-           (make_config
-              ~kind:Provider_config.Ollama
-              ~request_path:"/api/chat"
-              url)
+         ~config:(make_config ~kind:Provider_config.Ollama ~request_path:"/api/chat" url)
          ~messages
          ~on_event:(fun _ -> ())
          ()

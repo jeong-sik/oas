@@ -154,8 +154,7 @@ let%test "NDJSON parse failure preserves its wire format" =
           Http_client.Provider_wire_error
             { format = Http_client.Ndjson; kind = Http_client.Malformed_payload }
       ; message
-      } ->
-    message = "NDJSON parse failed: bad json raw=\"x\""
+      } -> message = "NDJSON parse failed: bad json raw=\"x\""
   | _ -> false
 ;;
 
@@ -577,11 +576,10 @@ let complete_stream_http
         | Types.MessageDelta _ -> `Skip
         | Types.MessageStop -> `Done
         | Types.Ping -> `Heartbeat
-        | ( Types.SSEError _
-          | Types.SSEParseFailed _
-          | Types.NDJSONParseFailed _
-          | Types.SSEUnknownEventType _ ) ->
-          `Wire_error
+        | Types.SSEError _
+        | Types.SSEParseFailed _
+        | Types.NDJSONParseFailed _
+        | Types.SSEUnknownEventType _ -> `Wire_error
         | Types.Connected -> `Skip
         | Types.Timeout _ -> `Wire_error
         | Types.StreamIncomplete _ -> `Skip
@@ -807,7 +805,7 @@ let complete_stream_http
                              dispatch
                                ( [ Types.NDJSONParseFailed
                                      { raw = line
-                                       ; reason = "ollama_ndjson_chunk_parse_failure"
+                                     ; reason = "ollama_ndjson_chunk_parse_failure"
                                      }
                                  ]
                                , None )
