@@ -531,15 +531,14 @@ val post_stream
     [Stream_idle]); callers that let it propagate get
     [TimeoutError { phase = Unknown_timeout; _ }] as a safe default.
 
-    [reuse_connection] is evaluated on [f]'s successful return value before a
-    cached connection is parked. Callers that stop before consuming the full
-    body must return [false], which closes the connection instead. *)
+    A cached connection is parked only when the response body source itself
+    reports end-of-file while [f] is consuming it. If [f] returns before that,
+    the connection is closed regardless of [f]'s return value. *)
 val with_post_stream
   :  ?cache:cache
   -> ?clock:_ Eio.Time.clock
   -> ?connect_timeout_s:float
   -> ?on_response_status:(int -> unit)
-  -> ?reuse_connection:('a -> bool)
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> url:string
   -> headers:(string * string) list

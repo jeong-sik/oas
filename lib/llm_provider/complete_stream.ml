@@ -460,9 +460,6 @@ let complete_stream_http
           ?clock
           ?connect_timeout_s:config.connect_timeout_s
           ~on_response_status
-          ~reuse_connection:(function
-            | Ok _ -> true
-            | Error _ -> false)
           ~net
           ~url
           ~headers:(config.headers @ Provider_config.auth_headers_for_config config)

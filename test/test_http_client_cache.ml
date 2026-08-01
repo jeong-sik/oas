@@ -504,9 +504,6 @@ let test_stream_typed_error_closes_unconsumed_connection () =
          ~url
          ~headers:[]
          ~body:""
-         ~reuse_connection:(function
-           | Ok _ -> true
-           | Error _ -> false)
          ~f:(fun _reader -> Error `Stop)
          ()
      with
