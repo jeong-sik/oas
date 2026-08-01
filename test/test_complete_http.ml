@@ -1095,6 +1095,45 @@ let test_complete_error_metrics () =
   | Exit -> ()
 ;;
 
+let test_complete_stream_http_error_metrics_uses_fallback () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_mock_server ~sw ~net:env#net ~status:`Bad_request "bad stream" in
+    let config = make_config url in
+    let status_calls = ref [] in
+    let metrics : Metrics.t =
+      { Metrics.noop with
+        on_http_status =
+          (fun ~provider ~model_id ~status ->
+            status_calls := (provider, model_id, status) :: !status_calls)
+      }
+    in
+    (match
+       Complete_stream.complete_stream_http
+         ~sw
+         ~net:env#net
+         ~metrics
+         ~config
+         ~messages
+         ~tools:[]
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Error (Http_client.HttpError { code = 400; _ }) -> ()
+     | Error _ -> fail "expected streaming HTTP 400"
+     | Ok _ -> fail "expected streaming HTTP error");
+    (match !status_calls with
+     | [ ("anthropic", "test-model", 400) ] -> ()
+     | [ (_, _, status) ] -> fail (Printf.sprintf "expected 400, got %d" status)
+     | _ -> fail "expected exactly one direct streaming status call");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let test_complete_transport_http_metrics_ok () =
   Eio_main.run
   @@ fun env ->
@@ -3312,6 +3351,10 @@ let () =
       , [ test_case "callbacks" `Quick test_complete_metrics
         ; test_case "tool call callback" `Quick test_complete_tool_call_metrics
         ; test_case "error callback" `Quick test_complete_error_metrics
+        ; test_case
+            "direct streaming HTTP error uses metrics fallback"
+            `Quick
+            test_complete_stream_http_error_metrics_uses_fallback
         ; test_case "transport http ok" `Quick test_complete_transport_http_metrics_ok
         ; test_case
             "transport http error"
