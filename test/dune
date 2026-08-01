@@ -547,6 +547,13 @@
     --allow-callback-in
     http_client.mli
     "with_post_stream|?on_response_status|arrow(_,constr(int),constr(unit))"
+    ; Same shape as ~f above: the predicate is applied to ~f's own return, so
+    ; its 'a is the one the signature already binds. Only the caller knows
+    ; whether it drained the body, and that is what decides whether the
+    ; connection may be parked.
+    --allow-callback-in
+    http_client.mli
+    "with_post_stream|?reuse_connection|arrow(_,var(a),constr(bool))"
     --allow-callback-in
     http_client.mli
     "read_sse|~on_data|arrow(~event_type,constr(option,constr(string)),arrow(_,constr(string),constr(unit)))"
