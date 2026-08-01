@@ -531,9 +531,13 @@ val post_stream
     [Stream_idle]); callers that let it propagate get
     [TimeoutError { phase = Unknown_timeout; _ }] as a safe default.
 
-    A cached connection is parked only when the response body source itself
-    reports end-of-file while [f] is consuming it. If [f] returns before that,
-    the connection is closed regardless of [f]'s return value. *)
+    A cached connection is parked only when BOTH hold: the response body
+    source itself reported end-of-file while [f] was consuming it, and the
+    response says the connection may persist (HTTP version, [Connection],
+    upgrade, and self-delimiting framing). EOF alone is not enough — a
+    response with neither content-length nor chunked framing is delimited by
+    the close itself, so its EOF means the peer went away. If [f] returns
+    before EOF, the connection is closed regardless of [f]'s return value. *)
 val with_post_stream
   :  ?cache:cache
   -> ?clock:_ Eio.Time.clock

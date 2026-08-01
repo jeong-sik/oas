@@ -1119,7 +1119,7 @@ let valid_single_content_length = function
   | [] | _ :: _ :: _ -> false
 ;;
 
-let sync_response_connection_is_reusable ~request_headers response =
+let response_connection_is_reusable ~request_headers response =
   let response_headers = Cohttp.Response.headers response in
   let status = Cohttp.Response.status response |> Cohttp.Code.code_of_status in
   let response_allows_persistence =
@@ -1982,7 +1982,7 @@ let post_sync_once_after_validation
      | Ok response_body ->
        let release_result =
          match
-           cache, sync_response_connection_is_reusable ~request_headers:header response
+           cache, response_connection_is_reusable ~request_headers:header response
          with
          | Some cache, true ->
            (try
@@ -2227,9 +2227,16 @@ let with_post_stream
         match status with
         | `OK ->
           let tracked_body, body_eof_seen = track_source_eof resp_body in
+          (* EOF proves the body was drained; it does not prove the connection
+             may be reused. A response with neither content-length nor chunked
+             framing is delimited BY the close, so its EOF arrives precisely
+             because the peer went away. The same predicate the synchronous
+             path uses answers the second question. *)
+          let reusable = response_connection_is_reusable ~request_headers:hdr resp in
           Ok
             ( uri
             , conn
+            , reusable
             , body_eof_seen
             , Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body tracked_body )
         | status ->
@@ -2262,7 +2269,7 @@ let with_post_stream
 
      The connection is parked back into the cache only after [f] returns
      successfully, ensuring the reader is no longer using the flow. *)
-  let* uri, conn, body_eof_seen, reader = post_result in
+  let* uri, conn, response_is_reusable, body_eof_seen, reader = post_result in
   let body_result =
     try Ok (f reader) with
     | Eio.Time.Timeout ->
@@ -2288,7 +2295,7 @@ let with_post_stream
          raise exn)
   in
   (match body_result, cache with
-   | Ok _, Some cache when !body_eof_seen ->
+   | Ok _, Some cache when response_is_reusable && !body_eof_seen ->
      cache_return cache uri { connection = conn; last_used_at = 0.0 }
    | Ok _, Some _ | Ok _, None -> Eio.Resource.close conn
    | Error _, _ -> Eio.Resource.close conn);
