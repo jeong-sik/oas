@@ -2602,14 +2602,15 @@ let read_sse
       | None, _ -> inner ()
     in
     (* P3a (RFC-OAS-037 review): the transition to the inter-token idle budget
-       must fire on GENUINE first output — a data/event field — NOT on a bare
-       blank dispatch delimiter. A provider that emits a leading blank line
-       before real prefill would otherwise switch to the short idle budget
-       prematurely and re-introduce the very bug this RFC fixes for it.
+       must fire on GENUINE first output — a data field — NOT on a bare event
+       type, blank dispatch delimiter, or other metadata. An [event] field
+       selects the dispatch type but carries no payload; counting it as the
+       first event would replace the caller's first-event bound with the
+       shorter inter-token bound before any provider data arrived.
        [Sse_comment] is already filtered inside [inner]; the only non-field
        line [inner] can return is [Sse_blank]. *)
     (match parsed with
-     | (Sse_event_type _ | Sse_data _) when not !first_event_seen ->
+     | Sse_data _ when not !first_event_seen ->
        first_event_seen := true;
        budget_anchor := None
      | Sse_data _ -> budget_anchor := None
