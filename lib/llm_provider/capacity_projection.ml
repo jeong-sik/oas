@@ -47,8 +47,13 @@ let valid_pressure = function
 ;;
 
 let valid_measurement { serialized_body_bytes; input_tokens } =
-  Option.for_all (fun value -> value >= 0) serialized_body_bytes
-  && Option.for_all (fun value -> value >= 0) input_tokens
+  (match serialized_body_bytes with
+   | None -> true
+   | Some value -> value >= 0)
+  &&
+  match input_tokens with
+  | None -> true
+  | Some value -> value >= 0
 ;;
 
 let measured_metric pressure measurement =
@@ -85,30 +90,33 @@ let project ~pressure ~current ~candidates ~measure =
     | Ok current_measurement ->
       if not (valid_measurement current_measurement)
       then Error (Invalid_measurement current_measurement)
-      else if not (pressure_matches pressure current_measurement)
-      then
-        Error (Pressure_mismatch { expected = pressure; measured = current_measurement })
       else (
-        let initial_metric = pressure_metric pressure in
-        let rec loop previous_metric = function
-          | [] -> Ok (Exhausted pressure)
-          | value :: rest ->
-            (match measure value with
-             | Error error -> Error (Measurement_failed error)
-             | Ok measurement ->
-               if not (valid_measurement measurement)
-               then Error (Invalid_measurement measurement)
-               else (
-                 match measured_metric pressure measurement with
-                 | None -> Error (Missing_measurement pressure)
-                 | Some candidate_metric when candidate_metric >= previous_metric ->
-                   Error
-                     (Candidate_not_smaller
-                        { previous = previous_metric; candidate = candidate_metric })
-                 | Some candidate_metric ->
-                   if fits pressure measurement
-                   then Ok (Candidate { value; measurement })
-                   else loop candidate_metric rest))
-        in
-        loop initial_metric candidates))
+        match measured_metric pressure current_measurement with
+        | None -> Error (Missing_measurement pressure)
+        | Some _ when not (pressure_matches pressure current_measurement) ->
+          Error
+            (Pressure_mismatch { expected = pressure; measured = current_measurement })
+        | Some _ ->
+          let initial_metric = pressure_metric pressure in
+          let rec loop previous_metric = function
+            | [] -> Ok (Exhausted pressure)
+            | value :: rest ->
+              (match measure value with
+               | Error error -> Error (Measurement_failed error)
+               | Ok measurement ->
+                 if not (valid_measurement measurement)
+                 then Error (Invalid_measurement measurement)
+                 else (
+                   match measured_metric pressure measurement with
+                   | None -> Error (Missing_measurement pressure)
+                   | Some candidate_metric when candidate_metric >= previous_metric ->
+                     Error
+                       (Candidate_not_smaller
+                          { previous = previous_metric; candidate = candidate_metric })
+                   | Some candidate_metric ->
+                     if fits pressure measurement
+                     then Ok (Candidate { value; measurement })
+                     else loop candidate_metric rest))
+          in
+          loop initial_metric candidates))
 ;;
