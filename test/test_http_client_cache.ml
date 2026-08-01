@@ -711,6 +711,63 @@ let exercise_raw_one_dispatch_cache
   first, second, Http_client.cache_stats cache
 ;;
 
+let exercise_raw_stream_cache ?http_version ?response_headers ?(response_body = "ok") () =
+  with_raw_one_dispatch_server ?http_version ?response_headers ~response_body
+  @@ fun ~sw ~net ~clock:_ ~url ->
+  let cache = Http_client.create_cache ~sw () in
+  let post () =
+    Http_client.with_post_stream
+      ~cache
+      ~net
+      ~url
+      ~headers:[]
+      ~body:"{}"
+      ~f:Eio.Buf_read.take_all
+      ()
+  in
+  let first = post () in
+  let second = post () in
+  first, second, Http_client.cache_stats cache
+;;
+
+let expect_stream_ok label = function
+  | Ok body -> Alcotest.(check string) (label ^ " body") "ok" body
+  | Error _ -> Alcotest.fail (label ^ " expected streamed 200 response")
+;;
+
+let test_stream_response_persistence_gates_reuse () =
+  let close_headers length =
+    [ Printf.sprintf "Content-Length: %d" length; "Connection: close" ]
+  in
+  let (close_first, close_second, close_stats), close_posts =
+    exercise_raw_stream_cache ~response_headers:close_headers ()
+  in
+  expect_stream_ok "connection-close first" close_first;
+  expect_stream_ok "connection-close second" close_second;
+  Alcotest.(check int) "connection-close POSTs" 2 close_posts;
+  Alcotest.(check int) "connection-close creates fresh" 2 close_stats.create_count_total;
+  Alcotest.(check int) "connection-close never reuses" 0 close_stats.reuse_count_total;
+  Alcotest.(check int) "connection-close never parks" 0 close_stats.total_idle;
+  let (unframed_first, unframed_second, unframed_stats), unframed_posts =
+    exercise_raw_stream_cache ~response_headers:(fun _ -> []) ()
+  in
+  expect_stream_ok "unframed first" unframed_first;
+  expect_stream_ok "unframed second" unframed_second;
+  Alcotest.(check int) "unframed POSTs" 2 unframed_posts;
+  Alcotest.(check int) "unframed creates fresh" 2 unframed_stats.create_count_total;
+  Alcotest.(check int) "unframed never reuses" 0 unframed_stats.reuse_count_total;
+  Alcotest.(check int) "unframed never parks" 0 unframed_stats.total_idle;
+  let (http10_first, http10_second, http10_stats), http10_posts =
+    exercise_raw_stream_cache ~http_version:"HTTP/1.0" ()
+  in
+  expect_stream_ok "HTTP/1.0 first" http10_first;
+  expect_stream_ok "HTTP/1.0 second" http10_second;
+  Alcotest.(check int) "HTTP/1.0 POSTs" 2 http10_posts;
+  Alcotest.(check int) "HTTP/1.0 creates fresh" 2 http10_stats.create_count_total;
+  Alcotest.(check int) "HTTP/1.0 never reuses" 0 http10_stats.reuse_count_total;
+  Alcotest.(check int) "HTTP/1.0 never parks" 0 http10_stats.total_idle
+;;
+
 let expect_raw_ok label = function
   | Ok response ->
     Alcotest.(check int) (label ^ " status") 200 response.Http_client.status;
@@ -992,6 +1049,10 @@ let () =
             "connection-close stream is not parked"
             `Quick
             test_stream_connection_close_does_not_park
+        ; Alcotest.test_case
+            "response persistence gates reuse"
+            `Quick
+            test_stream_response_persistence_gates_reuse
         ] )
     ; ( "validation"
       , [ Alcotest.test_case

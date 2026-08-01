@@ -2134,6 +2134,8 @@ let track_source_eof source =
   let module Source = struct
     type t = unit
 
+    (* Must stay empty: an optimized read method could let [Buf_read] bypass
+       [single_read], so the EOF observation below would never fire. *)
     let read_methods = []
 
     let single_read () buffer =
