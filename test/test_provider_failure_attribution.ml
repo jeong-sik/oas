@@ -299,6 +299,14 @@ let test_closed_ownership_matrix () =
        ; message = "parse detail"
        });
   check_ownership
+    "provider-reported envelope is not attributed locally"
+    Attribution.Unclassified
+    with_credential
+    (Http.ProviderFailure
+       { kind = Http.Provider_reported_error { error_type = Some "rate_limit_exceeded" }
+       ; message = "provider-reported detail"
+       });
+  check_ownership
     "terminal is session local"
     Attribution.Session_local
     with_credential

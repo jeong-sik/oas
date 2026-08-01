@@ -211,12 +211,11 @@ let ownership_of_provider_failure ~binding = function
   | Http.Cli_policy_invalid _
   | Http.Provider_parse_error _
   | Http.Provider_wire_error _
-  | Http.Provider_reported_error _
   | Http.Request_body_too_large _
   | Http.Response_body_too_large _
   | Http.Empty_completion _ -> Attempt_local
   | Http.Cli_startup_failed { reason } -> ownership_of_cli_startup ~binding reason
-  | Http.Unknown_provider_failure _ -> Unclassified
+  | Http.Provider_reported_error _ | Http.Unknown_provider_failure _ -> Unclassified
 ;;
 
 let attribution_of_http_error ~binding = function
