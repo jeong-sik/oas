@@ -22,13 +22,17 @@ let http_error_of_stream_error
       (serr : Types.stream_error)
   : Http_client.http_error
   =
+  let wire_label =
+    Http_client.provider_wire_format_to_string wire_format |> String.uppercase_ascii
+  in
   match serr with
   | Types.Stream_provider_error { message; error_type; raw } ->
     Http_client.ProviderFailure
       { kind = Http_client.Provider_reported_error { error_type }
       ; message =
           Printf.sprintf
-            "SSE stream error: %s raw=%S"
+            "%s stream error: %s raw=%S"
+            wire_label
             message
             (parse_error_raw_excerpt raw)
       }
@@ -36,13 +40,14 @@ let http_error_of_stream_error
     Http_client.ProviderFailure
       { kind =
           Http_client.Provider_wire_error
-            { format = Http_client.Sse; kind = Http_client.Malformed_payload }
+            { format = wire_format; kind = Http_client.Malformed_payload }
       ; message =
           (match raw with
-           | "" -> Printf.sprintf "SSE parse failed: %s" reason
+           | "" -> Printf.sprintf "%s parse failed: %s" wire_label reason
            | raw ->
              Printf.sprintf
-               "SSE parse failed: %s raw=%S"
+               "%s parse failed: %s raw=%S"
+               wire_label
                reason
                (parse_error_raw_excerpt raw))
       }
@@ -97,6 +102,18 @@ let%test "generic stream provider type stays diagnostic" =
   | _ -> false
 ;;
 
+let%test "provider error diagnostic uses the active wire format" =
+  match
+    http_error_of_stream_error
+      ~wire_format:Http_client.Ndjson
+      (Types.Stream_provider_error
+         { message = "provider refused"; error_type = None; raw = "{}" })
+  with
+  | Http_client.ProviderFailure { message; _ } ->
+    message = "NDJSON stream error: provider refused raw=\"{}\""
+  | _ -> false
+;;
+
 let maps_to_sse_wire_failure ~expected_kind stream_error =
   match http_error_of_stream_error stream_error with
   | Http_client.ProviderFailure
@@ -114,6 +131,21 @@ let%test "stream parse failure is malformed wire evidence" =
   maps_to_sse_wire_failure
     ~expected_kind:Http_client.Malformed_payload
     (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
+;;
+
+let%test "semantic parse failure uses the active NDJSON wire format" =
+  match
+    http_error_of_stream_error
+      ~wire_format:Http_client.Ndjson
+      (Types.Stream_parse_failed { reason = "bad shape"; raw = "{}" })
+  with
+  | Http_client.ProviderFailure
+      { kind =
+          Http_client.Provider_wire_error
+            { format = Http_client.Ndjson; kind = Http_client.Malformed_payload }
+      ; message
+      } -> message = "NDJSON parse failed: bad shape raw=\"{}\""
+  | _ -> false
 ;;
 
 let%test "stream incompleteness remains distinct from malformed payload" =
