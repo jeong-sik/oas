@@ -98,6 +98,15 @@ let test_blank_delimiters_do_not_renew_first_event_budget () =
   |> check_timed_out "bare dispatch delimiters"
 ;;
 
+let test_event_fields_do_not_end_first_event_budget () =
+  (* An [event] field only selects the dispatch type. Until a [data] field
+     arrives, the EventSource parser has no payload-bearing event to deliver. *)
+  read_sse_over
+    ~budget_kind:`First_event
+    [ "event: message\n"; "\n"; "event: future\n"; "\n" ]
+  |> check_timed_out "event fields without data"
+;;
+
 let test_ignored_fields_do_not_renew_idle_budget () =
   (* Same hole after the stream has produced: the inter-token budget must
      measure from the last payload, not from the last ignorable line. *)
@@ -141,6 +150,10 @@ let () =
             "bare delimiters do not renew"
             `Quick
             test_blank_delimiters_do_not_renew_first_event_budget
+        ; test_case
+            "event fields without data do not end first-event budget"
+            `Quick
+            test_event_fields_do_not_end_first_event_budget
         ] )
     ; ( "idle"
       , [ test_case

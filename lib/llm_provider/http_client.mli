@@ -587,8 +587,12 @@ val with_post_stream
     only AFTER the first meaningful line for inter-token idle. A silent
     prefill on a large context is slow-but-alive, not a hang, so it must not
     be cut by the short [idle_timeout] value. A "meaningful line" here is a
-    genuine data/event field: a bare blank dispatch delimiter does NOT end the
-    first-event wait (it would switch to the short idle budget prematurely).
+    genuine [data] field, and only that. An [event] field selects the dispatch
+    type but carries no payload, and a bare blank line is only a dispatch
+    delimiter: neither ends the first-event wait. Ending it on either would
+    replace the caller's first-event bound with the shorter inter-token one
+    before any provider data arrived — and when only [first_event_timeout] is
+    wired, it would leave the read unarmed entirely.
     The effective bound is resolved from caller-supplied values only, in the
     order [first_event_timeout] > [body_timeout] (the caller's total body
     budget) > [idle_timeout] (the pre-RFC bound, kept so callers that wired
