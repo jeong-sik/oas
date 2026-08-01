@@ -132,6 +132,10 @@ type provider_wire_error_kind =
   | Malformed_payload
   | Unknown_event
   | Incomplete_stream
+  | Oversized_payload
+    (** One payload unit — a joined SSE event, or a single line — exceeded the
+        byte limit this client reads under. Distinct from
+        [Malformed_payload]: the bytes are well-formed, there are too many. *)
 
 val provider_wire_format_to_string : provider_wire_format -> string
 val provider_wire_error_kind_to_string : provider_wire_error_kind -> string
@@ -589,6 +593,17 @@ exception
     ; limit_bytes : int
     }
 (** Raised before an SSE event payload exceeds [max_event_bytes]. *)
+
+(** [max_event_bytes] bounds the JOINED payload of a single event, defaulting
+    to the shared response-body limit. Per-line size is already bounded by the
+    reader's own [max_size]; the multi-line join accumulates outside that
+    bound, so without this a provider that never sends the blank dispatch
+    boundary grows the accumulator without limit.
+
+    The armed deadline is anchored to the last payload-bearing line, not to the
+    last line read: comments, [id]/[retry]/unknown fields and bare delimiters
+    do not renew it, so a provider cannot hold the stream open by emitting one
+    ignorable line per budget. *)
 
 val read_sse
   :  ?clock:_ Eio.Time.clock

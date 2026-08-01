@@ -14,6 +14,38 @@ let parse_error_raw_excerpt raw =
   else String.sub redacted 0 max_parse_error_raw_excerpt ^ "...(truncated)"
 ;;
 
+(* A payload unit larger than the reader's limit is neither malformed syntax
+   nor a truncated stream: the bytes are well-formed and there are too many of
+   them. It gets its own [provider_wire_error_kind] so the classification stays
+   a closed type — encoding the size condition into a [reason] string would
+   push the distinction back into text a consumer has to parse. Kept in this
+   module so every wire error has exactly one construction site. *)
+let http_error_of_oversized_payload ~wire_format ~actual_bytes ~limit_bytes
+  : Http_client.http_error
+  =
+  let wire_label =
+    Http_client.provider_wire_format_to_string wire_format |> String.uppercase_ascii
+  in
+  Http_client.ProviderFailure
+    { kind =
+        Http_client.Provider_wire_error
+          { format = wire_format; kind = Http_client.Oversized_payload }
+    ; message =
+        (match actual_bytes with
+         | Some actual_bytes ->
+           Printf.sprintf
+             "%s payload of %d bytes exceeded the %d byte limit"
+             wire_label
+             actual_bytes
+             limit_bytes
+         (* The buffered reader aborts AT the limit, so the payload's true size
+            is not observable on that path. Report the bound rather than
+            inventing a number. *)
+         | None ->
+           Printf.sprintf "%s payload exceeded the %d byte limit" wire_label limit_bytes)
+    }
+;;
+
 (* Preserve the distinction between a provider-owned error envelope and a
    response that violates the declared wire contract. Retry policy is
    intentionally not inferred here. *)

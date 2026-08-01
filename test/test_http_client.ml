@@ -131,6 +131,25 @@ let test_read_sse_bounds_accumulated_event_payload () =
   | () -> Alcotest.fail "oversized accumulated SSE event must fail closed"
 ;;
 
+(* The bound is a maximum, not an off-by-one: an event landing exactly on it
+   must still dispatch, or the limit would silently reject legal payloads. *)
+let test_read_sse_accepts_event_exactly_at_the_bound () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "data: 12345\ndata: 6789\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~max_event_bytes:10 (* exactly "12345\n6789" *)
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  match List.rev !events with
+  | [ (None, "12345\n6789") ] -> ()
+  | _ -> Alcotest.fail "an event exactly at the bound must still dispatch"
+;;
+
 let test_read_sse_ignored_fields_do_not_extend_first_event_deadline () =
   Eio_main.run
   @@ fun env ->
@@ -540,6 +559,9 @@ let test_provider_failure_string_helpers () =
     ; ( Http_client.Provider_wire_error
           { format = Http_client.Sse; kind = Http_client.Malformed_payload }
       , "provider_wire_error:sse:malformed_payload" )
+    ; ( Http_client.Provider_wire_error
+          { format = Http_client.Ndjson; kind = Http_client.Oversized_payload }
+      , "provider_wire_error:ndjson:oversized_payload" )
     ; ( Http_client.Provider_reported_error { error_type = Some "rate_limit_exceeded" }
       , "provider_reported_error:rate_limit_exceeded" )
     ; ( Http_client.Response_body_too_large { limit_bytes = 1024 }
@@ -743,6 +765,10 @@ let () =
             "accumulated event payload is bounded"
             `Quick
             test_read_sse_bounds_accumulated_event_payload
+        ; Alcotest.test_case
+            "event exactly at the bound dispatches"
+            `Quick
+            test_read_sse_accepts_event_exactly_at_the_bound
         ; Alcotest.test_case
             "ignored fields preserve first-event deadline"
             `Quick

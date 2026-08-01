@@ -75,6 +75,7 @@ type provider_wire_error_kind =
   | Malformed_payload
   | Unknown_event
   | Incomplete_stream
+  | Oversized_payload
 
 let cli_startup_failure_reason_to_string = function
   | Executable_unavailable -> "executable_unavailable"
@@ -93,6 +94,7 @@ let provider_wire_error_kind_to_string = function
   | Malformed_payload -> "malformed_payload"
   | Unknown_event -> "unknown_event"
   | Incomplete_stream -> "incomplete_stream"
+  | Oversized_payload -> "oversized_payload"
 ;;
 
 type provider_failure_kind =
@@ -2282,10 +2284,30 @@ let with_post_stream
    like "data:foo" (no space after the colon) — a provider or proxy
    that omits the optional space would make the whole stream vanish
    without a trace. *)
+(* The field NAME is wire syntax; it is parsed into this closed type at the
+   protocol boundary so no later stage compares strings again. Only [event] and
+   [data] drive the state machine: EventSource also defines [id] and [retry],
+   which this client does not implement (no reconnection), and the spec
+   requires unknown names to be ignored — all three are the same thing to every
+   reader below, so they share one constructor. *)
 type sse_line =
   | Sse_blank
   | Sse_comment
-  | Sse_field of string * string
+  | Sse_event_type of string
+  | Sse_data of string
+  | Sse_ignored_field
+
+(* WHATWG HTML 9.2.6 joins multiple [data] fields of one event with a single
+   LF. Defined once so the size check below charges exactly what the join
+   appends. *)
+let sse_data_join_separator = "\n"
+
+let classify_sse_field ~name ~value =
+  match name with
+  | "event" -> Sse_event_type value
+  | "data" -> Sse_data value
+  | _ -> Sse_ignored_field
+;;
 
 let parse_sse_line line =
   if String.length line = 0
@@ -2293,14 +2315,14 @@ let parse_sse_line line =
   else (
     match String.index_opt line ':' with
     | Some 0 -> Sse_comment
-    | None -> Sse_field (line, "")
+    | None -> classify_sse_field ~name:line ~value:""
     | Some i ->
       let value_start =
         if String.length line > i + 1 && line.[i + 1] = ' ' then i + 2 else i + 1
       in
-      Sse_field
-        ( String.sub line 0 i
-        , String.sub line value_start (String.length line - value_start) ))
+      classify_sse_field
+        ~name:(String.sub line 0 i)
+        ~value:(String.sub line value_start (String.length line - value_start)))
 ;;
 
 (* [Eio.Buf_read.line] accepts LF and CRLF, while EventSource also accepts a
@@ -2490,6 +2512,19 @@ let read_sse
      With nothing wired the wait stays unarmed, as before. Inter-token idle
      still guards once the stream produces. *)
   let first_event_seen = ref false in
+  (* The armed budget is anchored to the last PAYLOAD-bearing line, not to the
+     last line read. Comments are consumed inside one window for exactly this
+     reason; [id]/[retry]/unknown fields and bare dispatch delimiters carry no
+     payload either, and a per-read window lets a provider hold the stream open
+     forever by emitting one ignorable line just under each budget. A blank
+     delimiter cannot simply be swallowed inside the window — it must still
+     reach [loop] to dispatch and to reset the event type — so the anchor, not
+     the filter, is what closes that shape. An [event] field selects a type but
+     carries nothing, so it re-anchors only where it ends the first-event wait:
+     there the governing budget itself switches from the first-event window to
+     inter-token idle, and an anchor left at stream start would fire a spurious
+     timeout. *)
+  let budget_anchor = ref None in
   let first_line = ref true in
   let read_protocol_line () =
     let line = read_sse_line reader in
@@ -2503,9 +2538,8 @@ let read_sse
     let rec inner () =
       match parse_sse_line (read_protocol_line ()) with
       | Sse_comment -> inner ()
-      | Sse_field (name, _)
-        when not (String.equal name "event" || String.equal name "data") -> inner ()
-      | (Sse_blank | Sse_field _) as parsed -> parsed
+      | (Sse_blank | Sse_event_type _ | Sse_data _ | Sse_ignored_field) as parsed ->
+        parsed
     in
     let active_timeout =
       if !first_event_seen
@@ -2514,7 +2548,22 @@ let read_sse
     in
     let parsed =
       match clock, active_timeout with
-      | Some c, Some t -> Eio.Time.with_timeout_exn c t inner
+      | Some c, Some budget ->
+        let anchored_at =
+          match !budget_anchor with
+          | Some t -> t
+          | None ->
+            let t = Eio.Time.now c in
+            budget_anchor := Some t;
+            t
+        in
+        let remaining = anchored_at +. budget -. Eio.Time.now c in
+        (* Already past the deadline: raise what [with_timeout_exn] would,
+           rather than arming a non-positive duration and depending on a
+           scheduler race to produce it. *)
+        if Float.compare remaining 0. <= 0
+        then raise Eio.Time.Timeout
+        else Eio.Time.with_timeout_exn c remaining inner
       | Some _, None -> inner ()
       (* No clock: nothing can be armed. Misconfiguration (an explicit
          deadline without a clock) already failed loud at entry, so this is
@@ -2530,10 +2579,11 @@ let read_sse
        [Sse_comment] is already filtered inside [inner]; the only non-field
        line [inner] can return is [Sse_blank]. *)
     (match parsed with
-     | Sse_field (name, _) ->
-       if String.equal name "event" || String.equal name "data"
-       then first_event_seen := true
-     | Sse_blank -> ()
+     | (Sse_event_type _ | Sse_data _) when not !first_event_seen ->
+       first_event_seen := true;
+       budget_anchor := None
+     | Sse_data _ -> budget_anchor := None
+     | Sse_event_type _ | Sse_blank | Sse_ignored_field -> ()
      | Sse_comment -> () (* unreachable: filtered in [inner] *));
     parsed
   in
@@ -2560,27 +2610,32 @@ let read_sse
     | Sse_comment ->
       (* Filtered inside [read_meaningful_line]. *)
       loop ()
-    | Sse_field ("event", value) ->
+    | Sse_event_type value ->
       (* An empty event field restores the default "message" event type. The
          callback represents that default as [None], matching a missing field. *)
       current_event_type := if String.equal value "" then None else Some value;
       loop ()
-    | Sse_field ("data", value) ->
-      let added_bytes = String.length value + if !data_seen then 1 else 0 in
+    | Sse_data value ->
+      (* Charge the join separator too: the bound must cover exactly what
+         [dispatch_event] will hand out, and it is checked BEFORE the append so
+         the accumulator never holds an over-limit payload. *)
+      let added_bytes =
+        String.length value
+        + if !data_seen then String.length sse_data_join_separator else 0
+      in
       let actual_bytes = Buffer.length data_buffer + added_bytes in
       if actual_bytes > max_event_bytes
       then raise (Sse_event_too_large { actual_bytes; limit_bytes = max_event_bytes });
-      if !data_seen then Buffer.add_char data_buffer '\n';
+      if !data_seen then Buffer.add_string data_buffer sse_data_join_separator;
       Buffer.add_string data_buffer value;
       (* Empty data is still observed: [data:] sets the data flag even when
          its value is empty, so the blank boundary dispatches an empty
          payload instead of making protocol garbage invisible. *)
       data_seen := true;
       loop ()
-    | Sse_field (_, _) ->
-      (* "id" / "retry" are valid EventSource fields this client
-         deliberately does not use (no reconnect support); unknown
-         field names are ignored per spec. *)
+    | Sse_ignored_field ->
+      (* [id] / [retry] / unknown names, already classified at the parse
+         boundary. They do not re-anchor the armed budget. *)
       loop ()
     | exception End_of_file ->
       (* An event without its blank dispatch boundary is incomplete. The

@@ -672,19 +672,35 @@ let complete_stream_http
                        ());
                   Ok ()
                 with
+                (* Typed at the boundary rather than routed through
+                   [SSEParseFailed]: an oversized payload is not malformed
+                   syntax, and encoding the sizes into a [reason] string would
+                   hand downstream a classification it has to re-parse. *)
                 | Http_client.Sse_event_too_large { actual_bytes; limit_bytes } ->
-                  dispatch
-                    ( [ Types.SSEParseFailed
-                          { raw = ""
-                          ; reason =
-                              Printf.sprintf
-                                "sse_event_too_large:actual_bytes=%d:limit_bytes=%d"
-                                actual_bytes
-                                limit_bytes
-                          }
-                      ]
-                    , None );
-                  Ok ()
+                  terminal_state
+                  := Telemetry_event.Terminal_error
+                       (Http_client.provider_wire_format_to_string active_wire_format
+                        ^ "_wire_error");
+                  Error
+                    (Complete_stream_error.http_error_of_oversized_payload
+                       ~wire_format:active_wire_format
+                       ~actual_bytes:(Some actual_bytes)
+                       ~limit_bytes)
+                (* The same policy one level down: a single line larger than
+                   the buffered reader's [max_size]. Both formats reach here —
+                   [read_ndjson] has no accumulator, so an oversized NDJSON
+                   line can only surface this way, and it used to escape
+                   unclassified. *)
+                | Eio.Buf_read.Buffer_limit_exceeded ->
+                  terminal_state
+                  := Telemetry_event.Terminal_error
+                       (Http_client.provider_wire_format_to_string active_wire_format
+                        ^ "_wire_error");
+                  Error
+                    (Complete_stream_error.http_error_of_oversized_payload
+                       ~wire_format:active_wire_format
+                       ~actual_bytes:None
+                       ~limit_bytes:Api_common.max_response_body)
                 | Eio.Time.Timeout when Complete_stream_acc.stream_failed acc -> Ok ()
                 | Eio.Time.Timeout ->
                   let phase =

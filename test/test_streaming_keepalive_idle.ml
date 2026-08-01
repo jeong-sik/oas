@@ -9,10 +9,11 @@
     stream would only terminate on the upstream consumer's hard cap.
 
     This test pins the [on_data] skip invariant via in-memory
-    payloads.  The deadline-preservation invariant is guaranteed by
-    the structural fact that keepalive skipping happens inside the
-    same [Eio.Time.with_timeout_exn] window (a single inner recursion
-    in [read_sse], not a fresh timeout per line). *)
+    payloads.  The deadline-preservation invariant is asserted
+    directly in [test_sse_budget_anchor.ml], which drives a mock clock
+    from inside the read and covers the other non-payload line shapes
+    ([id]/[retry], unknown fields, bare dispatch delimiters) that must
+    not renew the armed budget either. *)
 
 open Alcotest
 open Agent_sdk

@@ -677,6 +677,13 @@
  (modules test_http_client_cache)
  (libraries agent_sdk llm_provider alcotest eio_main eio.mock))
 
+; Own stanza: needs the mock clock/flow to drive deadline arithmetic without
+; wall-clock sleeping, and runs entirely on Eio_mock.Backend (no real IO).
+(test
+ (name test_sse_budget_anchor)
+ (modules test_sse_budget_anchor)
+ (libraries agent_sdk llm_provider alcotest eio.mock))
+
 (test
  (name test_tls_config_cache)
  (modules test_tls_config_cache)
