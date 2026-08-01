@@ -715,10 +715,16 @@ let exercise_raw_stream_cache
       ?http_version
       ?response_headers
       ?encode_body
+      ?keep_connection
       ?(response_body = "ok")
       ()
   =
-  with_raw_one_dispatch_server ?http_version ?response_headers ?encode_body ~response_body
+  with_raw_one_dispatch_server
+    ?http_version
+    ?response_headers
+    ?encode_body
+    ?keep_connection
+    ~response_body
   @@ fun ~sw ~net ~clock:_ ~url ->
   let cache = Http_client.create_cache ~sw () in
   let post () =
@@ -739,6 +745,11 @@ let exercise_raw_stream_cache
 let expect_stream_ok label = function
   | Ok body -> Alcotest.(check string) (label ^ " body") "ok" body
   | Error _ -> Alcotest.fail (label ^ " expected streamed 200 response")
+;;
+
+let expect_stream_truncated label = function
+  | Error (Http_client.NetworkError { kind = Http_client.End_of_file; _ }) -> ()
+  | Ok _ | Error _ -> Alcotest.fail (label ^ " expected typed truncated response")
 ;;
 
 let test_stream_response_persistence_gates_reuse () =
@@ -772,14 +783,29 @@ let test_stream_response_persistence_gates_reuse () =
   Alcotest.(check int) "HTTP/1.0 creates fresh" 2 http10_stats.create_count_total;
   Alcotest.(check int) "HTTP/1.0 never reuses" 0 http10_stats.reuse_count_total;
   Alcotest.(check int) "HTTP/1.0 never parks" 0 http10_stats.total_idle;
+  let upgrade_headers length =
+    [ Printf.sprintf "Content-Length: %d" length
+    ; "Connection: upgrade"
+    ; "Upgrade: websocket"
+    ]
+  in
+  let (upgrade_first, upgrade_second, upgrade_stats), upgrade_posts =
+    exercise_raw_stream_cache ~response_headers:upgrade_headers ()
+  in
+  expect_stream_ok "Upgrade first" upgrade_first;
+  expect_stream_ok "Upgrade second" upgrade_second;
+  Alcotest.(check int) "Upgrade POSTs" 2 upgrade_posts;
+  Alcotest.(check int) "Upgrade creates fresh" 2 upgrade_stats.create_count_total;
+  Alcotest.(check int) "Upgrade never reuses" 0 upgrade_stats.reuse_count_total;
+  Alcotest.(check int) "Upgrade never parks" 0 upgrade_stats.total_idle;
   let truncated_length_headers length =
     [ Printf.sprintf "Content-Length: %d" (length + 3) ]
   in
   let (fixed_first, fixed_second, fixed_stats), fixed_posts =
     exercise_raw_stream_cache ~response_headers:truncated_length_headers ()
   in
-  expect_stream_ok "truncated content-length first" fixed_first;
-  expect_stream_ok "truncated content-length second" fixed_second;
+  expect_stream_truncated "truncated content-length first" fixed_first;
+  expect_stream_truncated "truncated content-length second" fixed_second;
   Alcotest.(check int) "truncated content-length POSTs" 2 fixed_posts;
   Alcotest.(check int)
     "truncated content-length creates fresh"
@@ -798,15 +824,32 @@ let test_stream_response_persistence_gates_reuse () =
       ~encode_body:encode_truncated_chunk
       ()
   in
-  expect_stream_ok "truncated chunked first" chunked_first;
-  expect_stream_ok "truncated chunked second" chunked_second;
+  expect_stream_truncated "truncated chunked first" chunked_first;
+  expect_stream_truncated "truncated chunked second" chunked_second;
   Alcotest.(check int) "truncated chunked POSTs" 2 chunked_posts;
   Alcotest.(check int)
     "truncated chunked creates fresh"
     2
     chunked_stats.create_count_total;
   Alcotest.(check int) "truncated chunked never reuses" 0 chunked_stats.reuse_count_total;
-  Alcotest.(check int) "truncated chunked never parks" 0 chunked_stats.total_idle
+  Alcotest.(check int) "truncated chunked never parks" 0 chunked_stats.total_idle;
+  let final_chunked_headers _ = [ "Transfer-Encoding: chunked" ] in
+  let encode_final_chunk body =
+    Printf.sprintf "%x\r\n%s\r\n0\r\n\r\n" (String.length body) body
+  in
+  let (final_first, final_second, final_stats), final_posts =
+    exercise_raw_stream_cache
+      ~response_headers:final_chunked_headers
+      ~encode_body:encode_final_chunk
+      ~keep_connection:true
+      ()
+  in
+  expect_stream_ok "final chunked first" final_first;
+  expect_stream_ok "final chunked second" final_second;
+  Alcotest.(check int) "final chunked POSTs" 2 final_posts;
+  Alcotest.(check int) "final chunked creates once" 1 final_stats.create_count_total;
+  Alcotest.(check int) "final chunked reuses once" 1 final_stats.reuse_count_total;
+  Alcotest.(check int) "final chunked remains parked" 1 final_stats.total_idle
 ;;
 
 let expect_raw_ok label = function

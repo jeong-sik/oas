@@ -1119,7 +1119,12 @@ let valid_single_content_length = function
   | [] | _ :: _ :: _ -> false
 ;;
 
-let response_connection_is_reusable ~request_headers response =
+type response_connection_evidence =
+  { body_is_self_delimited : bool
+  ; connection_is_reusable : bool
+  }
+
+let response_connection_evidence ~request_headers response =
   let response_headers = Cohttp.Response.headers response in
   let status = Cohttp.Response.status response |> Cohttp.Code.code_of_status in
   let response_allows_persistence =
@@ -1156,11 +1161,18 @@ let response_connection_is_reusable ~request_headers response =
     | `Absent -> response_has_no_body
     | `Invalid -> false
   in
-  (not is_upgrade)
-  && response_allows_persistence
-  && response_is_self_delimited
-  && (not (header_has_token request_headers "connection" "close"))
-  && not (header_has_token response_headers "connection" "close")
+  { body_is_self_delimited = response_is_self_delimited
+  ; connection_is_reusable =
+      (not is_upgrade)
+      && response_allows_persistence
+      && response_is_self_delimited
+      && (not (header_has_token request_headers "connection" "close"))
+      && not (header_has_token response_headers "connection" "close")
+  }
+;;
+
+let response_connection_is_reusable ~request_headers response =
+  (response_connection_evidence ~request_headers response).connection_is_reusable
 ;;
 
 (* ── Public API ────────────────────────────────────────────── *)
@@ -2129,33 +2141,13 @@ let post_stream ?cache ?clock ?connect_timeout_s ~sw ~net ~url ~headers ~body ()
       Error (HttpError { code; body = body_str; retry_after_header }))
 ;;
 
-let track_source_eof source =
-  let eof_seen = ref false in
-  let module Source = struct
-    type t = unit
-
-    (* Must stay empty: an optimized read method could let [Buf_read] bypass
-       [single_read], so the EOF observation below would never fire. *)
-    let read_methods = []
-
-    let single_read () buffer =
-      match Eio.Flow.single_read source buffer with
-      | count -> count
-      | exception End_of_file ->
-        eof_seen := true;
-        raise End_of_file
-    ;;
-  end
-  in
-  let operations = Eio.Flow.Pi.source (module Source) in
-  Eio.Resource.T ((), operations), eof_seen
-;;
-
 let track_connection_eof connection =
   let eof_seen = ref false in
   let module Flow = struct
     type t = unit
 
+    (* Expose no alternate read path: every transport read must pass through
+       [single_read] below so raw EOF cannot bypass the observation. *)
     let read_methods = []
 
     let single_read () buffer =
@@ -2255,20 +2247,18 @@ let with_post_stream
           on_response_status;
         match status with
         | `OK ->
-          let tracked_body, body_eof_seen = track_source_eof resp_body in
           (* EOF proves the body was drained; it does not prove the connection
              may be reused. A response with neither content-length nor chunked
              framing is delimited BY the close, so its EOF arrives precisely
              because the peer went away. The same predicate the synchronous
              path uses answers the second question. *)
-          let reusable = response_connection_is_reusable ~request_headers:hdr resp in
-          Ok
-            ( uri
-            , conn
-            , reusable
-            , body_eof_seen
-            , transport_eof_seen
-            , Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body tracked_body )
+          let response_evidence =
+            response_connection_evidence ~request_headers:hdr resp
+          in
+          let reader =
+            Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body
+          in
+          Ok (uri, conn, response_evidence, transport_eof_seen, reader)
         | status ->
           let code = Cohttp.Code.code_of_status status in
           let resp_headers = Cohttp.Response.headers resp in
@@ -2299,9 +2289,7 @@ let with_post_stream
 
      The connection is parked back into the cache only after [f] returns
      successfully, ensuring the reader is no longer using the flow. *)
-  let* uri, conn, response_is_reusable, body_eof_seen, transport_eof_seen, reader =
-    post_result
-  in
+  let* uri, conn, response_evidence, transport_eof_seen, reader = post_result in
   let body_result =
     try Ok (f reader) with
     | Eio.Time.Timeout ->
@@ -2326,9 +2314,21 @@ let with_post_stream
          Eio.Cancel.protect (fun () -> Eio.Resource.close conn);
          raise exn)
   in
+  let body_result =
+    if response_evidence.body_is_self_delimited && !transport_eof_seen
+    then
+      Error
+        (NetworkError
+           { message = "stream response ended before its declared framing completed"
+           ; kind = End_of_file
+           })
+    else body_result
+  in
   (match body_result, cache with
    | Ok _, Some cache
-     when response_is_reusable && !body_eof_seen && not !transport_eof_seen ->
+     when response_evidence.connection_is_reusable
+          && Eio.Buf_read.eof_seen reader
+          && not !transport_eof_seen ->
      cache_return cache uri { connection = conn; last_used_at = 0.0 }
    | Ok _, Some _ | Ok _, None -> Eio.Resource.close conn
    | Error _, _ -> Eio.Resource.close conn);
