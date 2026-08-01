@@ -147,12 +147,16 @@ let start_header_capture_server ~sw ~net ~seen response_body =
 
 (* ── Helper: make Provider_config ────────────────────── *)
 
-let make_config ?(kind = Provider_config.Anthropic) base_url =
+let make_config
+      ?(kind = Provider_config.Anthropic)
+      ?(request_path = "/v1/messages")
+      base_url
+  =
   Provider_config.make
     ~kind
     ~model_id:"test-model"
     ~base_url
-    ~request_path:"/v1/messages"
+    ~request_path
     ~temperature:0.0
     ~max_tokens:100
     ()
@@ -1512,7 +1516,14 @@ let start_clock_jump_stream_server ~sw ~net ~release_body ~content_type body =
   Printf.sprintf "http://127.0.0.1:%d" port
 ;;
 
-let start_sse_server ~sw ~net ?capture_body ?capture_path response_body =
+let start_sse_server
+      ~sw
+      ~net
+      ?capture_body
+      ?capture_path
+      ?(content_type = "text/event-stream")
+      response_body
+  =
   let port = fresh_port () in
   let handler _conn req body =
     let request_body = Eio.Buf_read.(of_flow ~max_size:max_int body |> take_all) in
@@ -1522,7 +1533,7 @@ let start_sse_server ~sw ~net ?capture_body ?capture_path response_body =
     (match capture_path with
      | Some seen -> seen := Some (Cohttp.Request.uri req |> Uri.path)
      | None -> ());
-    let headers = Cohttp.Header.of_list [ "content-type", "text/event-stream" ] in
+    let headers = Cohttp.Header.of_list [ "content-type", content_type ] in
     Cohttp_eio.Server.respond_string ~status:`OK ~headers ~body:response_body ()
   in
   let socket =
@@ -1857,6 +1868,46 @@ let test_complete_stream_malformed_payload_is_wire_error () =
      | [ ("anthropic", "test-model", 200) ] -> ()
      | [ (_, _, status) ] -> fail (Printf.sprintf "expected 200, got %d" status)
      | _ -> fail "expected exactly one status call for malformed SSE");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
+let test_complete_ollama_malformed_ndjson_is_wire_error () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server
+        ~sw
+        ~net:env#net
+        ~content_type:"application/x-ndjson"
+        "{not-json\n"
+    in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:
+           (make_config
+              ~kind:Provider_config.Ollama
+              ~request_path:"/api/chat"
+              url)
+         ~messages
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind =
+                Http_client.Provider_wire_error
+                  { format = Http_client.Ndjson; kind = Http_client.Malformed_payload }
+            ; _
+            }) -> ()
+     | Error _ -> fail "expected typed malformed NDJSON payload"
+     | Ok _ -> fail "malformed NDJSON payload must not complete successfully");
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()
@@ -3241,6 +3292,10 @@ let () =
             "malformed SSE payload is a typed wire error"
             `Quick
             test_complete_stream_malformed_payload_is_wire_error
+        ; test_case
+            "malformed Ollama NDJSON preserves its wire format"
+            `Quick
+            test_complete_ollama_malformed_ndjson_is_wire_error
         ; test_case
             "Kimi Anthropic Messages SSE codec"
             `Quick

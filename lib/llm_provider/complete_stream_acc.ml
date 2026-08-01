@@ -171,6 +171,8 @@ let accumulate_event (acc : stream_acc) = function
     acc.sse_error := Some (Types.Stream_provider_error { message; error_type; raw })
   | Types.SSEParseFailed { raw; reason } ->
     acc.sse_error := Some (Types.Stream_parse_failed { reason; raw })
+  | Types.NDJSONParseFailed { raw; reason } ->
+    acc.sse_error := Some (Types.Stream_ndjson_parse_failed { reason; raw })
   | Types.SSEUnknownEventType { event_type; raw } ->
     acc.sse_error := Some (Types.Stream_unknown_event { event_type; raw })
   | Types.StreamIncomplete _ -> acc.terminal_incomplete := true
@@ -933,7 +935,8 @@ let%test "finalize_stream_acc fails closed on InputJsonDelta multi-object args (
   | Error
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 
@@ -976,7 +979,8 @@ let%test "finalize_stream_acc fails closed on live multi-object tool args" =
   | Error
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 
@@ -1018,7 +1022,8 @@ let%test "accumulate_event SSEError records typed provider error" =
   | Some
       ( Types.Stream_parse_failed _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | None -> false
 ;;
 
@@ -1039,7 +1044,8 @@ let%test "accumulate_event SSEParseFailed marks typed parse failure with reason"
   | Some
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | None -> false
 ;;
 
@@ -1054,6 +1060,23 @@ let%test "accumulate_event SSEUnknownEventType marks typed unknown event with ty
   | Some
       ( Types.Stream_provider_error _
       | Types.Stream_parse_failed _
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
+  | None -> false
+;;
+
+let%test "accumulate_event NDJSONParseFailed preserves wire-specific error" =
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.NDJSONParseFailed { raw = "{not json"; reason = "bad_json" });
+  match !(acc.sse_error) with
+  | Some (Types.Stream_ndjson_parse_failed { reason; raw }) ->
+    reason = "bad_json" && raw = "{not json"
+  | Some
+      ( Types.Stream_provider_error _
+      | Types.Stream_parse_failed _
+      | Types.Stream_unknown_event _
       | Types.Stream_incomplete _ )
   | None -> false
 ;;
@@ -1071,7 +1094,8 @@ let%test
   | Some
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | None -> false
 ;;
 
@@ -1108,7 +1132,8 @@ let%test "finalize_stream_acc fails closed for unknown block kind with text" =
   | Error
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 
@@ -1129,7 +1154,8 @@ let%test "finalize_stream_acc fails closed for empty unknown block kind" =
   | Error
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 
@@ -1224,7 +1250,8 @@ let%test "finalize_stream_acc fails closed for media payload without metadata" =
   | Error
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 
@@ -1253,7 +1280,8 @@ let%test "finalize_stream_acc fails closed on malformed tool_use arguments" =
   | Error
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 
@@ -1376,7 +1404,8 @@ let%test "finalize_stream_acc tool_use missing id fails closed" =
   | Error
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 
@@ -1397,7 +1426,8 @@ let%test "finalize_stream_acc tool_use blank id fails closed" =
   | Error
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 
@@ -1440,7 +1470,8 @@ let%test "finalize_stream_acc tool_result missing id fails closed" =
   | Error
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 
@@ -1524,7 +1555,8 @@ let%test "finalize_stream_acc fails closed for media payload without metadata" =
   | Error
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 
@@ -1579,7 +1611,8 @@ let%test "finalize_stream_acc returns Error when sse_error is set" =
   | Error
       ( Types.Stream_parse_failed _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_ndjson_parse_failed _ )
   | Ok _ -> false
 ;;
 

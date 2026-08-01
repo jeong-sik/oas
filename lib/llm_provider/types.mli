@@ -573,6 +573,13 @@ type sse_event =
             Emit this event so the accumulator can mark the stream as
             corrupted and the caller can route to a different
             provider instead of presenting a phantom completion. *)
+  | NDJSONParseFailed of
+      { raw : string
+      ; reason : string
+      }
+  (** An NDJSON line could not be parsed. This is separate from
+      [SSEParseFailed] because the wire format is a transport fact consumed
+      by the HTTP boundary; it must not be relabeled as SSE. *)
   | SSEUnknownEventType of
       { event_type : string
       ; raw : string
@@ -607,6 +614,12 @@ type stream_error =
       { reason : string
       ; raw : string
       }
+  | Stream_ndjson_parse_failed of
+      { reason : string
+      ; raw : string
+      }
+  (** The NDJSON parser failed. This remains distinct from an SSE parse
+      failure so the HTTP boundary can preserve the declared wire format. *)
   | Stream_incomplete of { reason : string }
   (** The stream ended without its protocol terminal marker.  This is not a
       malformed payload and must remain distinct at the transport boundary. *)

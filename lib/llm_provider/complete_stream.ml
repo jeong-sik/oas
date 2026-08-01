@@ -78,6 +78,20 @@ let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_er
                reason
                (parse_error_raw_excerpt raw))
       }
+  | Types.Stream_ndjson_parse_failed { reason; raw } ->
+    Http_client.ProviderFailure
+      { kind =
+          Http_client.Provider_wire_error
+            { format = Http_client.Ndjson; kind = Http_client.Malformed_payload }
+      ; message =
+          (match raw with
+           | "" -> Printf.sprintf "NDJSON parse failed: %s" reason
+           | raw ->
+             Printf.sprintf
+               "NDJSON parse failed: %s raw=%S"
+               reason
+               (parse_error_raw_excerpt raw))
+      }
   | Types.Stream_incomplete { reason } ->
     Http_client.ProviderFailure
       { kind =
@@ -128,6 +142,21 @@ let%test "stream parse failure is malformed wire evidence" =
   maps_to_sse_wire_failure
     ~expected_kind:Http_client.Malformed_payload
     (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
+;;
+
+let%test "NDJSON parse failure preserves its wire format" =
+  match
+    http_error_of_stream_error
+      (Types.Stream_ndjson_parse_failed { reason = "bad json"; raw = "x" })
+  with
+  | Http_client.ProviderFailure
+      { kind =
+          Http_client.Provider_wire_error
+            { format = Http_client.Ndjson; kind = Http_client.Malformed_payload }
+      ; message
+      } ->
+    message = "NDJSON parse failed: bad json raw=\"x\""
+  | _ -> false
 ;;
 
 let%test "stream provider error remains provider-owned evidence" =
@@ -548,7 +577,10 @@ let complete_stream_http
         | Types.MessageDelta _ -> `Skip
         | Types.MessageStop -> `Done
         | Types.Ping -> `Heartbeat
-        | Types.SSEError _ | Types.SSEParseFailed _ | Types.SSEUnknownEventType _ ->
+        | ( Types.SSEError _
+          | Types.SSEParseFailed _
+          | Types.NDJSONParseFailed _
+          | Types.SSEUnknownEventType _ ) ->
           `Wire_error
         | Types.Connected -> `Skip
         | Types.Timeout _ -> `Wire_error
@@ -773,9 +805,9 @@ let complete_stream_http
                            match Streaming.parse_ollama_ndjson_chunk line with
                            | None ->
                              dispatch
-                               ( [ Types.SSEParseFailed
+                               ( [ Types.NDJSONParseFailed
                                      { raw = line
-                                     ; reason = "ollama_ndjson_chunk_parse_failure"
+                                       ; reason = "ollama_ndjson_chunk_parse_failure"
                                      }
                                  ]
                                , None )

@@ -174,6 +174,7 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
   | Ping
   | SSEError _
   | SSEParseFailed _
+  | NDJSONParseFailed _
   | SSEUnknownEventType _
   | Connected
   | Timeout _
@@ -198,6 +199,7 @@ let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
   | Ping
   | SSEError _
   | SSEParseFailed _
+  | NDJSONParseFailed _
   | SSEUnknownEventType _
   | Connected
   | Timeout _
@@ -1258,6 +1260,7 @@ let test_tool_use_start_with_name = function
   | Ping
   | SSEError _
   | SSEParseFailed _
+  | NDJSONParseFailed _
   | SSEUnknownEventType _
   | Connected
   | Timeout _
@@ -1275,6 +1278,7 @@ let test_tool_use_start = function
   | Ping
   | SSEError _
   | SSEParseFailed _
+  | NDJSONParseFailed _
   | SSEUnknownEventType _
   | Connected
   | Timeout _
@@ -1292,6 +1296,7 @@ let test_input_json_delta = function
   | Ping
   | SSEError _
   | SSEParseFailed _
+  | NDJSONParseFailed _
   | SSEUnknownEventType _
   | Connected
   | Timeout _

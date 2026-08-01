@@ -921,6 +921,10 @@ type sse_event =
       { raw : string
       ; reason : string
       }
+  | NDJSONParseFailed of
+      { raw : string
+      ; reason : string
+      }
   | SSEUnknownEventType of
       { event_type : string
       ; raw : string
@@ -943,6 +947,10 @@ type stream_error =
       ; raw : string
       }
   | Stream_parse_failed of
+      { reason : string
+      ; raw : string
+      }
+  | Stream_ndjson_parse_failed of
       { reason : string
       ; raw : string
       }
