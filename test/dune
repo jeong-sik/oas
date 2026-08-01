@@ -404,6 +404,11 @@
  (libraries llm_provider alcotest))
 
 (test
+ (name test_capacity_projection)
+ (modules test_capacity_projection)
+ (libraries llm_provider alcotest))
+
+(test
  (name test_input_token_count)
  (modules test_input_token_count)
  (libraries llm_provider alcotest))
