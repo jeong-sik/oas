@@ -65,13 +65,13 @@ let measured_metric pressure measurement =
 let fits pressure measurement =
   match pressure with
   | Request_body { limit_bytes; _ } ->
-    Option.exists
-      (fun actual_bytes -> actual_bytes <= limit_bytes)
-      measurement.serialized_body_bytes
+    (match measurement.serialized_body_bytes with
+     | Some actual_bytes -> actual_bytes <= limit_bytes
+     | None -> false)
   | Context_window { reserved_output_tokens; max_context_tokens; _ } ->
-    Option.exists
-      (fun input_tokens -> input_tokens + reserved_output_tokens <= max_context_tokens)
-      measurement.input_tokens
+    (match measurement.input_tokens with
+     | Some input_tokens -> input_tokens + reserved_output_tokens <= max_context_tokens
+     | None -> false)
 ;;
 
 let pressure_matches pressure measurement =
