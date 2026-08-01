@@ -933,7 +933,7 @@ type sse_event =
   | Timeout of string
   | StreamIncomplete of { reason : string }
 
-(** Terminal error captured while accumulating an SSE stream.
+(** Terminal error captured while accumulating a streaming response.
 
     The accumulator stores this typed value (not a flattened string). Provider
     envelopes, malformed payloads, unknown events, and incomplete streams are

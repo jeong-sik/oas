@@ -600,7 +600,7 @@ type sse_event =
       covers incomplete reasons beyond [max_output_tokens], which the
       [stop_reason = MaxTokens] check alone misses. *)
 
-(** Terminal error captured while accumulating an SSE stream. The accumulator
+(** Terminal error captured while accumulating a streaming response. The accumulator
     stores this typed value (not a flattened string). Provider-owned error
     envelopes, malformed payloads, unknown events, and incomplete streams stay
     distinct at the transport boundary; retry policy is decided above OAS. *)
