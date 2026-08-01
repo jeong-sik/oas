@@ -2151,6 +2151,34 @@ let track_source_eof source =
   Eio.Resource.T ((), operations), eof_seen
 ;;
 
+let track_connection_eof connection =
+  let eof_seen = ref false in
+  let module Flow = struct
+    type t = unit
+
+    let read_methods = []
+
+    let single_read () buffer =
+      match Eio.Flow.single_read connection buffer with
+      | count -> count
+      | exception End_of_file ->
+        eof_seen := true;
+        raise End_of_file
+    ;;
+
+    let single_write () buffers = Eio.Flow.single_write connection buffers
+    let copy () ~src = Eio.Flow.copy src connection
+    let shutdown () command = Eio.Flow.shutdown connection command
+  end
+  in
+  let operations =
+    Eio.Resource.handler
+      (Eio.Resource.H (Eio.Resource.Close, fun () -> Eio.Resource.close connection)
+       :: Eio.Resource.bindings (Eio.Flow.Pi.two_way (module Flow)))
+  in
+  Eio.Resource.T ((), operations), eof_seen
+;;
+
 let with_post_stream
       ?cache
       ?clock
@@ -2203,9 +2231,8 @@ let with_post_stream
              Atomic.incr cache.create_count_total;
              conn)
       in
-      let client =
-        Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> (conn :> _ Eio.Flow.two_way))
-      in
+      let tracked_conn, transport_eof_seen = track_connection_eof conn in
+      let client = Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> tracked_conn) in
       let headers_with_length =
         ("content-length", string_of_int (String.length body))
         :: maybe_add_connection_close ?cache headers
@@ -2240,6 +2267,7 @@ let with_post_stream
             , conn
             , reusable
             , body_eof_seen
+            , transport_eof_seen
             , Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body tracked_body )
         | status ->
           let code = Cohttp.Code.code_of_status status in
@@ -2271,7 +2299,9 @@ let with_post_stream
 
      The connection is parked back into the cache only after [f] returns
      successfully, ensuring the reader is no longer using the flow. *)
-  let* uri, conn, response_is_reusable, body_eof_seen, reader = post_result in
+  let* uri, conn, response_is_reusable, body_eof_seen, transport_eof_seen, reader =
+    post_result
+  in
   let body_result =
     try Ok (f reader) with
     | Eio.Time.Timeout ->
@@ -2297,7 +2327,8 @@ let with_post_stream
          raise exn)
   in
   (match body_result, cache with
-   | Ok _, Some cache when response_is_reusable && !body_eof_seen ->
+   | Ok _, Some cache
+     when response_is_reusable && !body_eof_seen && not !transport_eof_seen ->
      cache_return cache uri { connection = conn; last_used_at = 0.0 }
    | Ok _, Some _ | Ok _, None -> Eio.Resource.close conn
    | Error _, _ -> Eio.Resource.close conn);
