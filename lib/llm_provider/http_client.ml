@@ -2315,14 +2315,14 @@ let with_post_stream
          raise exn)
   in
   let body_result =
-    if response_evidence.body_is_self_delimited && !transport_eof_seen
-    then
+    match body_result with
+    | Ok _ when response_evidence.body_is_self_delimited && !transport_eof_seen ->
       Error
         (NetworkError
            { message = "stream response ended before its declared framing completed"
            ; kind = End_of_file
            })
-    else body_result
+    | (Ok _ | Error _) as result -> result
   in
   (match body_result, cache with
    | Ok _, Some cache
