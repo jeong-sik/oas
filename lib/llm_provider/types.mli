@@ -562,6 +562,14 @@ type sse_event =
             ["rate_limit_exceeded"]) and [raw] the original error JSON, so the
             consumer can converge onto the same classification path as an
             initial HTTP error instead of collapsing to [NetworkError {Unknown}]. *)
+  | NDJSONError of
+      { message : string
+      ; error_type : string option
+      ; raw : string
+      }
+  (** A provider-reported error envelope delivered in an NDJSON stream.
+      This is deliberately distinct from [SSEError]: the wire format is a
+      transport fact and must not be relabelled at the event boundary. *)
   | SSEParseFailed of
       { raw : string
       ; reason : string

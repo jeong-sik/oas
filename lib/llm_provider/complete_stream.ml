@@ -194,7 +194,8 @@ let%test
   | Error _ -> false
 ;;
 
-(* A provider error remains [SSEError], never [MessageStop] or an empty result. *)
+(* A provider error remains a typed provider-error event, never [MessageStop]
+   or an empty result. The concrete constructor preserves the wire format. *)
 let%test "OpenAI-compatible provider error result finalizes Error" =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
@@ -385,6 +386,7 @@ let complete_stream_http
            it. Classifying it as a wire error made the summary contradict the
            [Provider_reported_error] this stream actually returns. *)
         | Types.SSEError _ -> `Provider_reported_error
+        | Types.NDJSONError _ -> `Provider_reported_error
         (* [SSEParseFailed] is emitted by format-agnostic producers — the
            Ollama (NDJSON) tool-routing path raises it via
            [Streaming.reject_tool_block ~protocol:"ollama"] — so the format
@@ -626,7 +628,7 @@ let complete_stream_http
                            | Streaming.Ollama_provider_error { message; error_type; raw }
                              ->
                              dispatch
-                               ([ Types.SSEError { message; error_type; raw } ], None)
+                               ([ Types.NDJSONError { message; error_type; raw } ], None)
                            | Streaming.Ollama_chunk chunk ->
                              (match chunk.oll_timings with
                               | Some _ as t -> ollama_timings := t

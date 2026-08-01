@@ -2061,13 +2061,14 @@ let test_complete_ollama_provider_error_is_not_wire_error () =
 |}
     in
     let telemetry = ref [] in
+    let events = ref [] in
     (match
        Complete.complete_stream
          ~sw
          ~net:env#net
          ~config:(make_config ~kind:Provider_config.Ollama ~request_path:"/api/chat" url)
          ~messages
-         ~on_event:(fun _ -> ())
+         ~on_event:(fun event -> events := event :: !events)
          ~on_telemetry:(fun event -> telemetry := event :: !telemetry)
          ()
      with
@@ -2076,6 +2077,29 @@ let test_complete_ollama_provider_error_is_not_wire_error () =
             { kind = Http_client.Provider_reported_error { error_type = None }; _ }) -> ()
      | Error _ -> fail "expected a typed provider-reported error"
      | Ok _ -> fail "a provider error envelope must not complete successfully");
+    let ndjson_errors =
+      List.filter_map
+        (function
+          | Types.NDJSONError { message; error_type = None; raw } -> Some (message, raw)
+          | Types.NDJSONError { error_type = Some _; _ } -> None
+          | _ -> None)
+        !events
+    in
+    check
+      bool
+      "Ollama provider error is not relabelled as SSE"
+      true
+      (not
+         (List.exists
+            (function
+              | Types.SSEError _ -> true
+              | _ -> false)
+            !events));
+    (match ndjson_errors with
+     | [ (message, raw) ] ->
+       check string "NDJSON provider error message" "model failed" message;
+       check string "NDJSON provider error raw" {|{"error":"model failed"}|} raw
+     | _ -> fail "Ollama provider error must remain exactly one NDJSON event");
     let terminal =
       List.find_map
         (function

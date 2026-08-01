@@ -173,6 +173,7 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
   | MessageStop
   | Ping
   | SSEError _
+  | NDJSONError _
   | SSEParseFailed _
   | NDJSONParseFailed _
   | SSEUnknownEventType _
@@ -198,6 +199,7 @@ let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
   | MessageStop
   | Ping
   | SSEError _
+  | NDJSONError _
   | SSEParseFailed _
   | NDJSONParseFailed _
   | SSEUnknownEventType _
@@ -1259,6 +1261,7 @@ let test_tool_use_start_with_name = function
   | MessageStop
   | Ping
   | SSEError _
+  | NDJSONError _
   | SSEParseFailed _
   | NDJSONParseFailed _
   | SSEUnknownEventType _
@@ -1277,6 +1280,7 @@ let test_tool_use_start = function
   | MessageStop
   | Ping
   | SSEError _
+  | NDJSONError _
   | SSEParseFailed _
   | NDJSONParseFailed _
   | SSEUnknownEventType _
@@ -1295,6 +1299,7 @@ let test_input_json_delta = function
   | MessageStop
   | Ping
   | SSEError _
+  | NDJSONError _
   | SSEParseFailed _
   | NDJSONParseFailed _
   | SSEUnknownEventType _

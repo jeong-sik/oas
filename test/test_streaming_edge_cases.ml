@@ -145,6 +145,7 @@ let test_first_token_classifier_edges () =
     ; MessageDelta { stop_reason = None; usage = None }
     ; MessageStop
     ; SSEError { message = "boom"; error_type = None; raw = "boom" }
+    ; NDJSONError { message = "boom"; error_type = None; raw = "boom" }
     ; SSEParseFailed { raw = "x"; reason = "bad" }
     ; SSEUnknownEventType { event_type = "future"; raw = "{}" }
     ]
