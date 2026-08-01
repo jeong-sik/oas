@@ -46,6 +46,22 @@ let http_error_of_oversized_payload ~wire_format ~actual_bytes ~limit_bytes
     }
 ;;
 
+let%test "oversized payload remains a typed wire fact" =
+  match
+    http_error_of_oversized_payload
+      ~wire_format:Http_client.Ndjson
+      ~actual_bytes:(Some 11)
+      ~limit_bytes:10
+  with
+  | Http_client.ProviderFailure
+      { kind =
+          Http_client.Provider_wire_error
+            { format = Http_client.Ndjson; kind = Http_client.Oversized_payload }
+      ; message = "NDJSON payload of 11 bytes exceeded the 10 byte limit"
+      } -> true
+  | _ -> false
+;;
+
 (* Preserve the distinction between a provider-owned error envelope and a
    response that violates the declared wire contract. Retry policy is
    intentionally not inferred here. *)

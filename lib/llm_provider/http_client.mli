@@ -133,7 +133,7 @@ type provider_wire_error_kind =
   | Unknown_event
   | Incomplete_stream
   | Oversized_payload
-    (** One payload unit — a joined SSE event, or a single line — exceeded the
+  (** One payload unit — a joined SSE event, or a single line — exceeded the
         byte limit this client reads under. Distinct from
         [Malformed_payload]: the bytes are well-formed, there are too many. *)
 

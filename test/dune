@@ -679,6 +679,7 @@
 
 ; Own stanza: needs the mock clock/flow to drive deadline arithmetic without
 ; wall-clock sleeping, and runs entirely on Eio_mock.Backend (no real IO).
+
 (test
  (name test_sse_budget_anchor)
  (modules test_sse_budget_anchor)

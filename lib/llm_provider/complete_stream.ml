@@ -830,18 +830,23 @@ let complete_stream_http
         publish_summary ~terminal:(Telemetry_event.Terminal_error "timeout_error") ();
         Error err
       | Ok (Error err) ->
-        publish_summary
-          ~terminal:
-            (Telemetry_event.Terminal_error
-               (Printf.sprintf
-                  "sse_stream_error: %s"
-                  (match err with
-                   | Http_client.NetworkError { message; _ }
-                   | Http_client.TimeoutError { message; _ } -> message
-                   | Http_client.HttpError { code; _ } -> Printf.sprintf "HTTP %d" code
-                   | Http_client.AcceptRejected { reason } -> reason
-                   | Http_client.ProviderTerminal { message; _ } -> message
-                   | Http_client.ProviderFailure { kind; message } -> message)))
-          ();
+        let terminal =
+          match !terminal_state with
+          | (Telemetry_event.Terminal_error _ | Telemetry_event.Terminal_cancelled) as
+            terminal -> terminal
+          | Telemetry_event.Terminal_done ->
+            Telemetry_event.Terminal_error
+              (Printf.sprintf
+                 "%s_stream_error: %s"
+                 (Http_client.provider_wire_format_to_string active_wire_format)
+                 (match err with
+                  | Http_client.NetworkError { message; _ }
+                  | Http_client.TimeoutError { message; _ } -> message
+                  | Http_client.HttpError { code; _ } -> Printf.sprintf "HTTP %d" code
+                  | Http_client.AcceptRejected { reason } -> reason
+                  | Http_client.ProviderTerminal { message; _ } -> message
+                  | Http_client.ProviderFailure { message; _ } -> message))
+        in
+        publish_summary ~terminal ();
         Error err)
 ;;
