@@ -70,11 +70,7 @@ let http_error_of_stream_error
       { kind =
           Http_client.Provider_wire_error
             { format = wire_format; kind = Http_client.Incomplete_stream }
-      ; message =
-          Printf.sprintf
-            "%s stream incomplete: %s"
-            (Http_client.provider_wire_format_to_string wire_format)
-            reason
+      ; message = Printf.sprintf "%s stream incomplete: %s" wire_label reason
       }
   | Types.Stream_unknown_event { event_type; _ } ->
     Http_client.ProviderFailure
@@ -157,8 +153,8 @@ let%test "stream incompleteness remains distinct from malformed payload" =
       { kind =
           Http_client.Provider_wire_error
             { format = Http_client.Sse; kind = Http_client.Incomplete_stream }
-      ; _
-      } -> true
+      ; message
+      } -> message = "SSE stream incomplete: terminal marker missing"
   | _ -> false
 ;;
 

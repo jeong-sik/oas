@@ -583,11 +583,19 @@ val with_post_stream
     idle still guards once the stream produces. Supplying
     [first_event_timeout] or [body_timeout] WITHOUT [clock] raises
     [Invalid_argument] (same silent-disarm guard as [idle_timeout]). *)
+exception
+  Sse_event_too_large of
+    { actual_bytes : int
+    ; limit_bytes : int
+    }
+(** Raised before an SSE event payload exceeds [max_event_bytes]. *)
+
 val read_sse
   :  ?clock:_ Eio.Time.clock
   -> ?idle_timeout:float
   -> ?first_event_timeout:float
   -> ?body_timeout:float
+  -> ?max_event_bytes:int
   -> reader:Eio.Buf_read.t
   -> on_data:(event_type:string option -> string -> unit)
   -> unit

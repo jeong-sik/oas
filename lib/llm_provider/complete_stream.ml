@@ -672,6 +672,19 @@ let complete_stream_http
                        ());
                   Ok ()
                 with
+                | Http_client.Sse_event_too_large { actual_bytes; limit_bytes } ->
+                  dispatch
+                    ( [ Types.SSEParseFailed
+                          { raw = ""
+                          ; reason =
+                              Printf.sprintf
+                                "sse_event_too_large:actual_bytes=%d:limit_bytes=%d"
+                                actual_bytes
+                                limit_bytes
+                          }
+                      ]
+                    , None );
+                  Ok ()
                 | Eio.Time.Timeout when Complete_stream_acc.stream_failed acc -> Ok ()
                 | Eio.Time.Timeout ->
                   let phase =
@@ -721,15 +734,30 @@ let complete_stream_http
                   match Complete_stream_acc.finalize_stream_acc acc with
                   | Ok _ as ok -> ok
                   | Error serr ->
+                    (match !terminal_state with
+                     | Telemetry_event.Terminal_done ->
+                       terminal_state
+                       := Telemetry_event.Terminal_error
+                            (match serr with
+                             | Types.Stream_provider_error _ -> "provider_stream_error"
+                             | Types.Stream_parse_failed _
+                             | Types.Stream_ndjson_parse_failed _
+                             | Types.Stream_unknown_event _
+                             | Types.Stream_incomplete _ ->
+                               Http_client.provider_wire_format_to_string
+                                 active_wire_format
+                               ^ "_wire_error")
+                     | Telemetry_event.Terminal_error _
+                     | Telemetry_event.Terminal_cancelled -> ());
                     Error
                       (Complete_stream_error.http_error_of_stream_error
                          ~wire_format:active_wire_format
                          serr)
                 in
                 (* RFC-OAS-019: emit one [Streaming_summary] at stream
-                   finalize on the normal path. terminal_state defaults to
-                   [Terminal_done]; wire errors during dispatch upgrade it
-                   in place. *)
+                   finalize on the normal path. [terminal_state] defaults to
+                   [Terminal_done]; dispatch and finalize errors upgrade it
+                   before publication. *)
                 publish_summary ~terminal:!terminal_state ();
                 result
             in

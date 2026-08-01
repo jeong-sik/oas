@@ -1972,6 +1972,7 @@ let test_complete_ollama_incomplete_ndjson_preserves_wire_format () =
         {|{"model":"test-model","message":{"role":"assistant","content":"partial"},"done":false}
 |}
     in
+    let telemetry = ref [] in
     (match
        Complete.complete_stream
          ~sw
@@ -1979,6 +1980,7 @@ let test_complete_ollama_incomplete_ndjson_preserves_wire_format () =
          ~config:(make_config ~kind:Provider_config.Ollama ~request_path:"/api/chat" url)
          ~messages
          ~on_event:(fun _ -> ())
+         ~on_telemetry:(fun event -> telemetry := event :: !telemetry)
          ()
      with
      | Error
@@ -1990,6 +1992,18 @@ let test_complete_ollama_incomplete_ndjson_preserves_wire_format () =
             }) -> ()
      | Error _ -> fail "expected typed incomplete NDJSON stream"
      | Ok _ -> fail "unterminated NDJSON stream must not complete successfully");
+    let terminal =
+      List.find_map
+        (function
+          | Telemetry_event.Streaming_summary { terminal; _ } -> Some terminal
+          | _ -> None)
+        !telemetry
+    in
+    check
+      (option (testable Telemetry_event.pp_streaming_terminal ( = )))
+      "incomplete NDJSON telemetry is not successful"
+      (Some (Telemetry_event.Terminal_error "ndjson_wire_error"))
+      terminal;
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()

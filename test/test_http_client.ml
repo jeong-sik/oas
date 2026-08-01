@@ -111,6 +111,57 @@ let test_read_sse_joins_multiple_data_fields () =
   | _ -> Alcotest.fail "SSE data fields must join at the blank event boundary"
 ;;
 
+let test_read_sse_bounds_accumulated_event_payload () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "data: 12345\ndata: 67890\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  match
+    Http_client.read_sse
+      ~max_event_bytes:10
+      ~reader
+      ~on_data:(fun ~event_type:_ _ -> ())
+      ()
+  with
+  | exception Http_client.Sse_event_too_large { actual_bytes = 11; limit_bytes = 10 } ->
+    ()
+  | exception Http_client.Sse_event_too_large _ ->
+    Alcotest.fail "unexpected SSE event size evidence"
+  | () -> Alcotest.fail "oversized accumulated SSE event must fail closed"
+;;
+
+let test_read_sse_ignored_fields_do_not_extend_first_event_deadline () =
+  Eio_main.run
+  @@ fun env ->
+  let clock = Eio.Stdenv.clock env in
+  Eio.Switch.run
+  @@ fun sw ->
+  let source, sink = Eio_unix.pipe sw in
+  let reader = Eio.Buf_read.of_flow ~max_size:1024 source in
+  try
+    Eio.Fiber.both
+      (fun () ->
+         List.iter
+           (fun field ->
+              Eio.Flow.copy_string field sink;
+              Eio.Time.sleep clock 0.03)
+           [ "id: 1\n"; "retry: 1000\n"; "ignored: value\n" ];
+         Eio.Flow.copy_string "data: too-late\n\n" sink;
+         Eio.Flow.close sink)
+      (fun () ->
+         Http_client.read_sse
+           ~clock
+           ~idle_timeout:1.0
+           ~first_event_timeout:0.05
+           ~reader
+           ~on_data:(fun ~event_type:_ _ -> ())
+           ());
+    Alcotest.fail "ignored SSE fields must not refresh the first-event deadline"
+  with
+  | Eio.Time.Timeout -> ()
+;;
+
 let test_read_sse_empty_lines () =
   Eio_main.run
   @@ fun _env ->
@@ -688,6 +739,14 @@ let () =
             "multiple data fields join"
             `Quick
             test_read_sse_joins_multiple_data_fields
+        ; Alcotest.test_case
+            "accumulated event payload is bounded"
+            `Quick
+            test_read_sse_bounds_accumulated_event_payload
+        ; Alcotest.test_case
+            "ignored fields preserve first-event deadline"
+            `Quick
+            test_read_sse_ignored_fields_do_not_extend_first_event_deadline
         ; Alcotest.test_case "empty lines" `Quick test_read_sse_empty_lines
         ; Alcotest.test_case "DONE marker" `Quick test_read_sse_done_marker
         ; Alcotest.test_case

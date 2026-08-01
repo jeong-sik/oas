@@ -2453,8 +2453,24 @@ let governing_timeout_knob ~state ~first_event_timeout ~body_timeout ~idle_timeo
   | Streaming_unknown -> Stream_idle_timeout
 ;;
 
-let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on_data () =
+exception
+  Sse_event_too_large of
+    { actual_bytes : int
+    ; limit_bytes : int
+    }
+
+let read_sse
+      ?clock
+      ?idle_timeout
+      ?first_event_timeout
+      ?body_timeout
+      ?(max_event_bytes = Api_common.max_response_body)
+      ~reader
+      ~on_data
+      ()
+  =
   let site = "read_sse" in
+  if max_event_bytes <= 0 then invalid_arg "read_sse: max_event_bytes must be positive";
   require_clock_when_idle ~site ~clock ~idle_timeout;
   require_clock_when_first_event ~site ~clock ~first_event_timeout ~body_timeout;
   (* SSE keepalive comments carry no payload. Skipping them inside the
@@ -2487,6 +2503,8 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
     let rec inner () =
       match parse_sse_line (read_protocol_line ()) with
       | Sse_comment -> inner ()
+      | Sse_field (name, _)
+        when not (String.equal name "event" || String.equal name "data") -> inner ()
       | (Sse_blank | Sse_field _) as parsed -> parsed
     in
     let active_timeout =
@@ -2548,6 +2566,10 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
       current_event_type := if String.equal value "" then None else Some value;
       loop ()
     | Sse_field ("data", value) ->
+      let added_bytes = String.length value + if !data_seen then 1 else 0 in
+      let actual_bytes = Buffer.length data_buffer + added_bytes in
+      if actual_bytes > max_event_bytes
+      then raise (Sse_event_too_large { actual_bytes; limit_bytes = max_event_bytes });
       if !data_seen then Buffer.add_char data_buffer '\n';
       Buffer.add_string data_buffer value;
       (* Empty data is still observed: [data:] sets the data flag even when
