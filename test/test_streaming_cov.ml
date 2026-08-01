@@ -20,6 +20,7 @@ end
 let stream_error_to_string = function
   | Types.Stream_provider_error { message; _ } -> message
   | Types.Stream_parse_failed { reason; _ } -> reason
+  | Types.Stream_incomplete { reason } -> reason
   | Types.Stream_unknown_event { event_type; _ } -> "unknown_event:" ^ event_type
 ;;
 

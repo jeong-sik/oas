@@ -27,6 +27,7 @@ let check_bool = Alcotest.(check bool)
 let stream_error_to_string = function
   | Stream_provider_error { message; _ } -> message
   | Stream_parse_failed { reason; _ } -> reason
+  | Stream_incomplete { reason } -> reason
   | Stream_unknown_event { event_type; _ } -> "unknown_event:" ^ event_type
 ;;
 

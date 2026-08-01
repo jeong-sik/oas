@@ -594,10 +594,9 @@ type sse_event =
       [stop_reason = MaxTokens] check alone misses. *)
 
 (** Terminal error captured while accumulating an SSE stream. The accumulator
-    stores this typed value (not a flattened string) so a provider-reported
-    error routes through the same [Http_client.HttpError {code; body}] ->
-    [Retry.classify_error] path the non-streaming boundary uses, while a wire /
-    parse failure stays an unclassifiable network error. *)
+    stores this typed value (not a flattened string). Provider-owned error
+    envelopes, malformed payloads, unknown events, and incomplete streams stay
+    distinct at the transport boundary; retry policy is decided above OAS. *)
 type stream_error =
   | Stream_provider_error of
       { message : string
@@ -608,6 +607,9 @@ type stream_error =
       { reason : string
       ; raw : string
       }
+  | Stream_incomplete of { reason : string }
+  (** The stream ended without its protocol terminal marker.  This is not a
+      malformed payload and must remain distinct at the transport boundary. *)
   | Stream_unknown_event of
       { event_type : string
       ; raw : string

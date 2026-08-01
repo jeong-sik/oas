@@ -95,6 +95,22 @@ let test_read_sse_basic () =
   Alcotest.(check string) "second data" "second" (snd ev2)
 ;;
 
+let test_read_sse_joins_multiple_data_fields () =
+  Eio_main.run
+  @@ fun _env ->
+  let input = "event: message\ndata: first\ndata: second\n\ndata: next\n\n" in
+  let flow = Eio.Flow.string_source input in
+  let reader = Eio.Buf_read.of_flow ~max_size:(1024 * 1024) flow in
+  let events = ref [] in
+  Http_client.read_sse
+    ~reader
+    ~on_data:(fun ~event_type data -> events := (event_type, data) :: !events)
+    ();
+  match List.rev !events with
+  | [ (Some "message", "first\nsecond"); (None, "next") ] -> ()
+  | _ -> Alcotest.fail "SSE data fields must join at the blank event boundary"
+;;
+
 let test_read_sse_empty_lines () =
   Eio_main.run
   @@ fun _env ->
@@ -424,6 +440,11 @@ let test_provider_failure_string_helpers () =
       , "cli_startup_failed:executable_unavailable" )
     ; Http_client.Provider_parse_error { parser = Some "glm" }, "provider_parse_error:glm"
     ; Http_client.Provider_parse_error { parser = None }, "provider_parse_error"
+    ; ( Http_client.Provider_wire_error
+          { format = Http_client.Sse; kind = Http_client.Malformed_payload }
+      , "provider_wire_error:sse:malformed_payload" )
+    ; ( Http_client.Provider_reported_error { error_type = Some "rate_limit_exceeded" }
+      , "provider_reported_error:rate_limit_exceeded" )
     ; ( Http_client.Response_body_too_large { limit_bytes = 1024 }
       , "response_body_too_large:1024" )
     ; ( Http_client.Empty_completion { stop_reason = Types.EndTurn }
@@ -617,6 +638,10 @@ let () =
         ] )
     ; ( "read_sse"
       , [ Alcotest.test_case "basic events" `Quick test_read_sse_basic
+        ; Alcotest.test_case
+            "multiple data fields join"
+            `Quick
+            test_read_sse_joins_multiple_data_fields
         ; Alcotest.test_case "empty lines" `Quick test_read_sse_empty_lines
         ; Alcotest.test_case "DONE marker" `Quick test_read_sse_done_marker
         ; Alcotest.test_case

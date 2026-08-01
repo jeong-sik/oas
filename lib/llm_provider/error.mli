@@ -12,6 +12,23 @@ type provider_error =
       ; detail : string
       }
   | ParseError of { detail : string }
+  | ProviderWireError of
+      { provider : string
+      ; format : Http_client.provider_wire_format
+      ; kind : Http_client.provider_wire_error_kind
+      ; detail : string
+      }
+  (** The accepted provider response violated its declared wire contract.
+      This is deliberately distinct from [ParseError], HTTP [RateLimit], and
+      provider-owned error envelopes. *)
+  | ProviderReportedError of
+      { provider : string
+      ; error_type : string option
+      ; detail : string
+      }
+  (** A provider-owned error envelope arrived in an otherwise accepted
+      response.  Its subtype is diagnostic evidence only; retry policy is
+      owned by the caller above OAS. *)
   | UnknownVariant of
       { type_name : string
       ; value : string

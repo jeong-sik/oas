@@ -1819,6 +1819,49 @@ let test_complete_stream_preserves_thinking_signature () =
   | Exit -> ()
 ;;
 
+let test_complete_stream_malformed_payload_is_wire_error () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url = start_sse_server ~sw ~net:env#net "data: {not-json\n\n" in
+    let status_calls = ref [] in
+    let metrics : Metrics.t =
+      { Metrics.noop with
+        on_http_status =
+          (fun ~provider ~model_id ~status ->
+            status_calls := (provider, model_id, status) :: !status_calls)
+      }
+    in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:(make_config url)
+         ~messages
+         ~metrics
+         ~on_event:(fun _ -> ())
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind =
+                Http_client.Provider_wire_error
+                  { format = Http_client.Sse; kind = Http_client.Malformed_payload }
+            ; _
+            }) -> ()
+     | Error _ -> fail "expected typed malformed SSE payload"
+     | Ok _ -> fail "malformed SSE payload must not complete successfully");
+    (match !status_calls with
+     | [ ("anthropic", "test-model", 200) ] -> ()
+     | [ (_, _, status) ] -> fail (Printf.sprintf "expected 200, got %d" status)
+     | _ -> fail "expected exactly one status call for malformed SSE");
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let test_complete_stream_on_event_exception_is_nonfatal () =
   Eio_main.run
   @@ fun env ->
@@ -2365,6 +2408,7 @@ let test_complete_stream_unknown_latency_stays_unknown () =
     let telemetry_events = ref [] in
     let first_chunk_metrics = ref 0 in
     let inter_chunk_metrics = ref 0 in
+    let status_calls = ref [] in
     let metrics : Metrics.t =
       { Metrics.noop with
         on_streaming_first_chunk =
@@ -2372,6 +2416,9 @@ let test_complete_stream_unknown_latency_stays_unknown () =
       ; on_streaming_chunk =
           (fun ~provider:_ ~model_id:_ ~chunk_index:_ ~inter_chunk_ms:_ ->
             incr inter_chunk_metrics)
+      ; on_http_status =
+          (fun ~provider ~model_id ~status ->
+            status_calls := (provider, model_id, status) :: !status_calls)
       }
     in
     let result =
@@ -2380,6 +2427,7 @@ let test_complete_stream_unknown_latency_stays_unknown () =
         ~net:env#net
         ~latency_counter:Complete_common.Unknown_latency
         ~on_telemetry:(fun evt -> telemetry_events := evt :: !telemetry_events)
+        ~on_http_status:metrics.on_http_status
         ~metrics
         ~config
         ~messages
@@ -2425,6 +2473,10 @@ let test_complete_stream_unknown_latency_stays_unknown () =
      | None -> fail "expected streaming summary");
     check int "first chunk metrics skipped" 0 !first_chunk_metrics;
     check int "inter chunk metrics skipped" 0 !inter_chunk_metrics;
+    (match !status_calls with
+     | [ ("anthropic", "test-model", 200) ] -> ()
+     | [ (_, _, status) ] -> fail (Printf.sprintf "expected 200, got %d" status)
+     | _ -> fail "expected exactly one streaming status call");
     Eio.Switch.fail sw Exit
   with
   | Exit -> ()
@@ -3185,6 +3237,10 @@ let () =
         ] )
     ; ( "stream"
       , [ test_case "sse ok" `Quick test_complete_stream_ok
+        ; test_case
+            "malformed SSE payload is a typed wire error"
+            `Quick
+            test_complete_stream_malformed_payload_is_wire_error
         ; test_case
             "Kimi Anthropic Messages SSE codec"
             `Quick

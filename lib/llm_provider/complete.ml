@@ -426,6 +426,7 @@ let complete_prepared_stream
           ?capture_id:request.capture_id
           ?request_wire_observer:request.request_wire_observer
           ?admitted_body
+          ~on_http_status:metrics.on_http_status
           ~latency_counter
           ?on_telemetry
           ~metrics

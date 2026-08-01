@@ -118,6 +118,24 @@ type cli_startup_failure_reason =
 
 val cli_startup_failure_reason_to_string : cli_startup_failure_reason -> string
 
+(** Transport-independent wire format observed after the HTTP response was
+    accepted.  The format is evidence about the provider response, not a
+    retry decision. *)
+type provider_wire_format =
+  | Sse
+  | Ndjson
+
+(** Closed classification of a provider wire failure.  The diagnostic
+    message retains the parser's detail; control flow branches on this type,
+    never on that message. *)
+type provider_wire_error_kind =
+  | Malformed_payload
+  | Unknown_event
+  | Incomplete_stream
+
+val provider_wire_format_to_string : provider_wire_format -> string
+val provider_wire_error_kind_to_string : provider_wire_error_kind -> string
+
 (** Provider/runtime failure surfaced by a transport after it has parsed
     provider-specific HTTP/CLI details at the edge.
 
@@ -137,6 +155,17 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
+  | Provider_wire_error of
+      { format : provider_wire_format
+      ; kind : provider_wire_error_kind
+      }
+  (** The HTTP response was accepted, but its provider-owned stream did not
+      satisfy the declared wire contract.  This is distinct from an HTTP
+      status such as 429 and from a provider-reported error envelope. *)
+  | Provider_reported_error of { error_type : string option }
+  (** The provider sent a structurally valid error envelope inside an
+      otherwise accepted response.  [error_type] is provider-owned diagnostic
+      data; OAS does not infer rate-limit or retry semantics from it. *)
   | Request_body_too_large of
       { actual_bytes : int
       ; limit_bytes : int
@@ -501,6 +530,7 @@ val with_post_stream
   :  ?cache:cache
   -> ?clock:_ Eio.Time.clock
   -> ?connect_timeout_s:float
+  -> ?on_response_status:(int -> unit)
   -> net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> url:string
   -> headers:(string * string) list

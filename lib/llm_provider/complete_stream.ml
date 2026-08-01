@@ -47,14 +47,14 @@ let parse_error_raw_excerpt raw =
 ;;
 
 (* Internal: HTTP-specific streaming implementation. *)
-(* A generic stream boundary cannot infer transport semantics from an open
-   provider-owned string. Provider-specific parsers may emit a typed failure;
-   otherwise preserve the exact discriminator as diagnostic data. *)
+(* The stream boundary preserves the distinction between a provider-owned
+   error envelope and a response that violates the declared wire contract.
+   Retry policy is intentionally not inferred here. *)
 let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_error =
   match serr with
   | Types.Stream_provider_error { message; error_type; raw } ->
     Http_client.ProviderFailure
-      { kind = Http_client.Unknown_provider_failure { reason = error_type }
+      { kind = Http_client.Provider_reported_error { error_type }
       ; message =
           Printf.sprintf
             "SSE stream error: %s raw=%S"
@@ -63,7 +63,9 @@ let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_er
       }
   | Types.Stream_parse_failed { reason; raw } ->
     Http_client.ProviderFailure
-      { kind = Http_client.Provider_parse_error { parser = Some "sse" }
+      { kind =
+          Http_client.Provider_wire_error
+            { format = Http_client.Sse; kind = Http_client.Malformed_payload }
       ; message =
           (match raw with
            | "" -> Printf.sprintf "SSE parse failed: %s" reason
@@ -76,9 +78,18 @@ let http_error_of_stream_error (serr : Types.stream_error) : Http_client.http_er
                reason
                (parse_error_raw_excerpt raw))
       }
+  | Types.Stream_incomplete { reason } ->
+    Http_client.ProviderFailure
+      { kind =
+          Http_client.Provider_wire_error
+            { format = Http_client.Sse; kind = Http_client.Incomplete_stream }
+      ; message = Printf.sprintf "SSE stream incomplete: %s" reason
+      }
   | Types.Stream_unknown_event { event_type; _ } ->
     Http_client.ProviderFailure
-      { kind = Http_client.Provider_parse_error { parser = Some "sse" }
+      { kind =
+          Http_client.Provider_wire_error
+            { format = Http_client.Sse; kind = Http_client.Unknown_event }
       ; message = Printf.sprintf "SSE unknown event type: %s" event_type
       }
 ;;
@@ -93,8 +104,7 @@ let%test "generic stream provider type stays diagnostic" =
          })
   with
   | Http_client.ProviderFailure
-      { kind =
-          Http_client.Unknown_provider_failure { reason = Some "provider_owned_type" }
+      { kind = Http_client.Provider_reported_error { error_type = Some "provider_owned_type" }
       ; _
       } -> true
   | _ -> false
@@ -103,7 +113,11 @@ let%test "generic stream provider type stays diagnostic" =
 let maps_to_sse_parse_failure stream_error =
   match http_error_of_stream_error stream_error with
   | Http_client.ProviderFailure
-      { kind = Http_client.Provider_parse_error { parser = Some "sse" }; _ } -> true
+      { kind =
+          Http_client.Provider_wire_error
+            { format = Http_client.Sse; kind = Http_client.Malformed_payload }
+      ; _
+      } -> true
   | Http_client.HttpError _
   | Http_client.NetworkError _
   | Http_client.TimeoutError _
@@ -112,8 +126,38 @@ let maps_to_sse_parse_failure stream_error =
   | Http_client.ProviderFailure _ -> false
 ;;
 
-let%test "stream parse failure stays provider parse failure" =
+let%test "stream parse failure is malformed wire evidence" =
   maps_to_sse_parse_failure (Types.Stream_parse_failed { reason = "bad json"; raw = "x" })
+;;
+
+let%test "stream provider error remains provider-owned evidence" =
+  match
+    http_error_of_stream_error
+      (Types.Stream_provider_error
+         { message = "slow down"
+         ; error_type = Some "rate_limit_exceeded"
+         ; raw = {|{"error":{"type":"rate_limit_exceeded"}}|}
+         })
+  with
+  | Http_client.ProviderFailure
+      { kind = Http_client.Provider_reported_error { error_type = Some "rate_limit_exceeded" }
+      ; _
+      } -> true
+  | _ -> false
+;;
+
+let%test "stream incompleteness remains distinct from malformed payload" =
+  match
+    http_error_of_stream_error
+      (Types.Stream_incomplete { reason = "terminal marker missing" })
+  with
+  | Http_client.ProviderFailure
+      { kind =
+          Http_client.Provider_wire_error
+            { format = Http_client.Sse; kind = Http_client.Incomplete_stream }
+      ; _
+      } -> true
+  | _ -> false
 ;;
 
 let%test "parse failure echoes the offending raw buffer for diagnosis" =
@@ -155,7 +199,7 @@ let%test "parse failure redacts authorization values in the echoed raw buffer" =
   | _ -> false
 ;;
 
-let%test "stream unknown event stays provider parse failure" =
+let%test "stream unknown event is wire evidence" =
   maps_to_sse_parse_failure
     (Types.Stream_unknown_event { event_type = "surprise"; raw = "event: surprise" })
 ;;
@@ -349,6 +393,7 @@ let complete_stream_http
       ?capture_id
       ?request_wire_observer
       ?admitted_body
+      ?on_http_status
       ?(on_telemetry : (Telemetry_event.t -> unit) option)
       ?(metrics = Metrics.get_global ())
       ?(connection_cache : Http_client.cache option)
@@ -451,6 +496,11 @@ let complete_stream_http
      them. We trap them here and patch the finalised response below. *)
       let provider = Provider_config.string_of_provider_kind config.kind in
       let model = config.model_id in
+      let on_response_status =
+        Option.map
+          (fun observe status -> observe ~provider ~model_id:model ~status)
+          on_http_status
+      in
       let emit_telemetry evt =
         record_streaming_metrics metrics evt;
         match on_telemetry with
@@ -565,6 +615,7 @@ let complete_stream_http
           ?cache:connection_cache
           ?clock
           ?connect_timeout_s:config.connect_timeout_s
+          ?on_response_status
           ~net
           ~url
           ~headers:(config.headers @ Provider_config.auth_headers_for_config config)

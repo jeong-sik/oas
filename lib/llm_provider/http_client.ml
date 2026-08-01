@@ -67,12 +67,32 @@ type cli_startup_failure_reason =
   | Unknown_cli_startup_failure
 [@@deriving yojson, show]
 
+type provider_wire_format =
+  | Sse
+  | Ndjson
+
+type provider_wire_error_kind =
+  | Malformed_payload
+  | Unknown_event
+  | Incomplete_stream
+
 let cli_startup_failure_reason_to_string = function
   | Executable_unavailable -> "executable_unavailable"
   | Authentication_unavailable -> "authentication_unavailable"
   | Session_conflict_at_startup -> "session_conflict"
   | Configuration_invalid -> "configuration_invalid"
   | Unknown_cli_startup_failure -> "unknown"
+;;
+
+let provider_wire_format_to_string = function
+  | Sse -> "sse"
+  | Ndjson -> "ndjson"
+;;
+
+let provider_wire_error_kind_to_string = function
+  | Malformed_payload -> "malformed_payload"
+  | Unknown_event -> "unknown_event"
+  | Incomplete_stream -> "incomplete_stream"
 ;;
 
 type provider_failure_kind =
@@ -89,6 +109,11 @@ type provider_failure_kind =
       }
   | Cli_startup_failed of { reason : cli_startup_failure_reason }
   | Provider_parse_error of { parser : string option }
+  | Provider_wire_error of
+      { format : provider_wire_format
+      ; kind : provider_wire_error_kind
+      }
+  | Provider_reported_error of { error_type : string option }
   | Request_body_too_large of
       { actual_bytes : int
       ; limit_bytes : int
@@ -160,6 +185,14 @@ let provider_failure_kind_to_string = function
   | Provider_parse_error { parser = Some parser } ->
     Printf.sprintf "provider_parse_error:%s" parser
   | Provider_parse_error { parser = None } -> "provider_parse_error"
+  | Provider_wire_error { format; kind } ->
+    Printf.sprintf
+      "provider_wire_error:%s:%s"
+      (provider_wire_format_to_string format)
+      (provider_wire_error_kind_to_string kind)
+  | Provider_reported_error { error_type = Some error_type } ->
+    Printf.sprintf "provider_reported_error:%s" error_type
+  | Provider_reported_error { error_type = None } -> "provider_reported_error"
   | Request_body_too_large { actual_bytes; limit_bytes } ->
     Printf.sprintf "request_body_too_large:%d:%d" actual_bytes limit_bytes
   | Response_body_too_large { limit_bytes } ->
@@ -2094,7 +2127,18 @@ let post_stream ?cache ?clock ?connect_timeout_s ~sw ~net ~url ~headers ~body ()
       Error (HttpError { code; body = body_str; retry_after_header }))
 ;;
 
-let with_post_stream ?cache ?clock ?connect_timeout_s ~net ~url ~headers ~body ~f () =
+let with_post_stream
+      ?cache
+      ?clock
+      ?connect_timeout_s
+      ?on_response_status
+      ~net
+      ~url
+      ~headers
+      ~body
+      ~f
+      ()
+  =
   let* deadline =
     resolve_explicit_deadline
       ~operation:"with_post_stream"
@@ -2154,7 +2198,11 @@ let with_post_stream ?cache ?clock ?connect_timeout_s ~net ~url ~headers ~body ~
                  ~body:(Cohttp_eio.Body.of_string body)
                  uri))
         in
-        match Cohttp.Response.status resp with
+        let status = Cohttp.Response.status resp in
+        Option.iter
+          (fun observe -> observe (Cohttp.Code.code_of_status status))
+          on_response_status;
+        match status with
         | `OK ->
           Ok
             ( uri
@@ -2434,10 +2482,24 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
     parsed
   in
   let current_event_type = ref None in
+  let data_buffer = Buffer.create 256 in
+  let data_seen = ref false in
+  let dispatch_event () =
+    if !data_seen
+    then (
+      on_data ~event_type:!current_event_type (Buffer.contents data_buffer);
+      Buffer.clear data_buffer;
+      data_seen := false);
+    current_event_type := None
+  in
   let rec loop () =
     match read_meaningful_line () with
     | Sse_blank ->
-      current_event_type := None;
+      (* The blank line is the EventSource dispatch boundary. Multiple data
+         fields in one event are joined with a single LF; dispatching each
+         field independently would hand a JSON-lines fragment to a parser and
+         silently violate the SSE contract. *)
+      dispatch_event ();
       loop ()
     | Sse_comment ->
       (* Filtered inside [read_meaningful_line]. *)
@@ -2446,17 +2508,23 @@ let read_sse ?clock ?idle_timeout ?first_event_timeout ?body_timeout ~reader ~on
       current_event_type := Some value;
       loop ()
     | Sse_field ("data", value) ->
-      (* Empty data is dispatched rather than dropped: the downstream
-         accumulator surfaces unparsable payloads as SSEParseFailed
-         events, which beats making protocol garbage invisible here. *)
-      on_data ~event_type:!current_event_type value;
+      if !data_seen then Buffer.add_char data_buffer '\n';
+      Buffer.add_string data_buffer value;
+      (* Empty data is still observed: [data:] sets the data flag even when
+         its value is empty, so the blank boundary dispatches an empty
+         payload instead of making protocol garbage invisible. *)
+      data_seen := true;
       loop ()
     | Sse_field (_, _) ->
       (* "id" / "retry" are valid EventSource fields this client
          deliberately does not use (no reconnect support); unknown
          field names are ignored per spec. *)
       loop ()
-    | exception End_of_file -> ()
+    | exception End_of_file ->
+      (* An event without its blank dispatch boundary is incomplete. The
+         stream accumulator will fail closed when no terminal marker arrives;
+         do not invent a final event at EOF. *)
+      ()
   in
   loop ()
 ;;
