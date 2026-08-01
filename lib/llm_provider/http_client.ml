@@ -1119,12 +1119,7 @@ let valid_single_content_length = function
   | [] | _ :: _ :: _ -> false
 ;;
 
-type response_connection_evidence =
-  { body_is_self_delimited : bool
-  ; connection_is_reusable : bool
-  }
-
-let response_connection_evidence ~request_headers response =
+let response_connection_is_reusable ~request_headers response =
   let response_headers = Cohttp.Response.headers response in
   let status = Cohttp.Response.status response |> Cohttp.Code.code_of_status in
   let response_allows_persistence =
@@ -1161,18 +1156,11 @@ let response_connection_evidence ~request_headers response =
     | `Absent -> response_has_no_body
     | `Invalid -> false
   in
-  { body_is_self_delimited = response_is_self_delimited
-  ; connection_is_reusable =
-      (not is_upgrade)
-      && response_allows_persistence
-      && response_is_self_delimited
-      && (not (header_has_token request_headers "connection" "close"))
-      && not (header_has_token response_headers "connection" "close")
-  }
-;;
-
-let response_connection_is_reusable ~request_headers response =
-  (response_connection_evidence ~request_headers response).connection_is_reusable
+  (not is_upgrade)
+  && response_allows_persistence
+  && response_is_self_delimited
+  && (not (header_has_token request_headers "connection" "close"))
+  && not (header_has_token response_headers "connection" "close")
 ;;
 
 (* ── Public API ────────────────────────────────────────────── *)
@@ -2252,13 +2240,11 @@ let with_post_stream
              framing is delimited BY the close, so its EOF arrives precisely
              because the peer went away. The same predicate the synchronous
              path uses answers the second question. *)
-          let response_evidence =
-            response_connection_evidence ~request_headers:hdr resp
-          in
+          let reusable = response_connection_is_reusable ~request_headers:hdr resp in
           let reader =
             Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body
           in
-          Ok (uri, conn, response_evidence, transport_eof_seen, reader)
+          Ok (uri, conn, reusable, transport_eof_seen, reader)
         | status ->
           let code = Cohttp.Code.code_of_status status in
           let resp_headers = Cohttp.Response.headers resp in
@@ -2289,7 +2275,7 @@ let with_post_stream
 
      The connection is parked back into the cache only after [f] returns
      successfully, ensuring the reader is no longer using the flow. *)
-  let* uri, conn, response_evidence, transport_eof_seen, reader = post_result in
+  let* uri, conn, response_is_reusable, transport_eof_seen, reader = post_result in
   let body_result =
     try Ok (f reader) with
     | Eio.Time.Timeout ->
@@ -2314,22 +2300,10 @@ let with_post_stream
          Eio.Cancel.protect (fun () -> Eio.Resource.close conn);
          raise exn)
   in
-  let body_result =
-    match body_result with
-    | Ok _ when response_evidence.body_is_self_delimited && !transport_eof_seen ->
-      Error
-        (NetworkError
-           { message = "stream response ended before its declared framing completed"
-           ; kind = End_of_file
-           })
-    | (Ok _ | Error _) as result -> result
-  in
   (match body_result, cache with
    | Ok _, Some cache
-     when response_evidence.connection_is_reusable
-          && Eio.Buf_read.eof_seen reader
-          && not !transport_eof_seen ->
-     cache_return cache uri { connection = conn; last_used_at = 0.0 }
+     when response_is_reusable && Eio.Buf_read.eof_seen reader && not !transport_eof_seen
+     -> cache_return cache uri { connection = conn; last_used_at = 0.0 }
    | Ok _, Some _ | Ok _, None -> Eio.Resource.close conn
    | Error _, _ -> Eio.Resource.close conn);
   body_result

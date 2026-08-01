@@ -747,12 +747,7 @@ let expect_stream_ok label = function
   | Error _ -> Alcotest.fail (label ^ " expected streamed 200 response")
 ;;
 
-let expect_stream_truncated label = function
-  | Error (Http_client.NetworkError { kind = Http_client.End_of_file; _ }) -> ()
-  | Ok _ | Error _ -> Alcotest.fail (label ^ " expected typed truncated response")
-;;
-
-let test_stream_response_persistence_gates_reuse () =
+let test_stream_response_cache_eligibility () =
   let close_headers length =
     [ Printf.sprintf "Content-Length: %d" length; "Connection: close" ]
   in
@@ -804,8 +799,8 @@ let test_stream_response_persistence_gates_reuse () =
   let (fixed_first, fixed_second, fixed_stats), fixed_posts =
     exercise_raw_stream_cache ~response_headers:truncated_length_headers ()
   in
-  expect_stream_truncated "truncated content-length first" fixed_first;
-  expect_stream_truncated "truncated content-length second" fixed_second;
+  expect_stream_ok "truncated content-length first" fixed_first;
+  expect_stream_ok "truncated content-length second" fixed_second;
   Alcotest.(check int) "truncated content-length POSTs" 2 fixed_posts;
   Alcotest.(check int)
     "truncated content-length creates fresh"
@@ -824,8 +819,8 @@ let test_stream_response_persistence_gates_reuse () =
       ~encode_body:encode_truncated_chunk
       ()
   in
-  expect_stream_truncated "truncated chunked first" chunked_first;
-  expect_stream_truncated "truncated chunked second" chunked_second;
+  expect_stream_ok "truncated chunked first" chunked_first;
+  expect_stream_ok "truncated chunked second" chunked_second;
   Alcotest.(check int) "truncated chunked POSTs" 2 chunked_posts;
   Alcotest.(check int)
     "truncated chunked creates fresh"
@@ -1134,9 +1129,9 @@ let () =
             `Quick
             test_stream_connection_close_does_not_park
         ; Alcotest.test_case
-            "response persistence gates reuse"
+            "response cache eligibility"
             `Quick
-            test_stream_response_persistence_gates_reuse
+            test_stream_response_cache_eligibility
         ] )
     ; ( "validation"
       , [ Alcotest.test_case
