@@ -14,6 +14,15 @@ let parse_error_raw_excerpt raw =
   else String.sub redacted 0 max_parse_error_raw_excerpt ^ "...(truncated)"
 ;;
 
+(* Terminal telemetry labels for stream failures. They live beside the typed
+   projection above so a published [Streaming_summary] can never disagree with
+   the error it accompanies: both are derived from the same two functions. *)
+let provider_reported_terminal_label = "provider_stream_error"
+
+let wire_error_terminal_label wire_format =
+  Http_client.provider_wire_format_to_string wire_format ^ "_wire_error"
+;;
+
 (* A payload unit larger than the reader's limit is neither malformed syntax
    nor a truncated stream: the bytes are well-formed and there are too many of
    them. It gets its own [provider_wire_error_kind] so the classification stays
@@ -44,6 +53,16 @@ let http_error_of_oversized_payload ~wire_format ~actual_bytes ~limit_bytes
          | None ->
            Printf.sprintf "%s payload exceeded the %d byte limit" wire_label limit_bytes)
     }
+;;
+
+let%test "terminal labels name the wire format the failure carries" =
+  String.equal (wire_error_terminal_label Http_client.Ndjson) "ndjson_wire_error"
+  && String.equal (wire_error_terminal_label Http_client.Sse) "sse_wire_error"
+;;
+
+let%test "a provider-reported envelope is not labelled a wire failure" =
+  (not (String.equal provider_reported_terminal_label (wire_error_terminal_label Http_client.Sse)))
+  && String.equal provider_reported_terminal_label "provider_stream_error"
 ;;
 
 let%test "oversized payload remains a typed wire fact" =

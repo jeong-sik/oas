@@ -151,6 +151,7 @@ let completion_request config : Llm_transport.completion_request =
   ; messages
   ; tools = [ tool ]
   ; capture_id = Some "request-count-fixture"
+  ; observe_http_status = None
   ; observe_wire_chunk = None
   ; request_wire_observer = None
   ; stream_idle_timeout_s = None

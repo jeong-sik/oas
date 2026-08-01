@@ -1912,6 +1912,54 @@ let test_complete_stream_malformed_payload_is_wire_error () =
   | Exit -> ()
 ;;
 
+(* A structurally valid provider error envelope is NOT a wire failure. The
+   summary used to say [sse_wire_error] while the returned error said
+   [Provider_reported_error] — the two halves of the same stream disagreed. *)
+let test_complete_provider_error_envelope_is_not_a_wire_error () =
+  Eio_main.run
+  @@ fun env ->
+  try
+    Eio.Switch.run
+    @@ fun sw ->
+    let url =
+      start_sse_server
+        ~sw
+        ~net:env#net
+        "data: {\"error\":{\"type\":\"rate_limit_exceeded\",\"message\":\"slow down\"}}\n\n"
+    in
+    let telemetry = ref [] in
+    (match
+       Complete.complete_stream
+         ~sw
+         ~net:env#net
+         ~config:(make_openai_config url)
+         ~messages
+         ~on_event:(fun _ -> ())
+         ~on_telemetry:(fun event -> telemetry := event :: !telemetry)
+         ()
+     with
+     | Error
+         (Http_client.ProviderFailure
+            { kind = Http_client.Provider_reported_error { error_type = Some _ }; _ }) -> ()
+     | Error _ -> fail "expected a typed provider-reported error"
+     | Ok _ -> fail "a provider error envelope must not complete successfully");
+    let terminal =
+      List.find_map
+        (function
+          | Telemetry_event.Streaming_summary { terminal; _ } -> Some terminal
+          | _ -> None)
+        !telemetry
+    in
+    check
+      (option (testable Telemetry_event.pp_streaming_terminal ( = )))
+      "provider-reported envelope is not summarised as a wire failure"
+      (Some (Telemetry_event.Terminal_error "provider_stream_error"))
+      terminal;
+    Eio.Switch.fail sw Exit
+  with
+  | Exit -> ()
+;;
+
 let test_complete_ollama_malformed_ndjson_is_wire_error () =
   Eio_main.run
   @@ fun env ->
@@ -3391,6 +3439,10 @@ let () =
             "malformed SSE payload is a typed wire error"
             `Quick
             test_complete_stream_malformed_payload_is_wire_error
+        ; test_case
+            "provider error envelope is not a wire failure"
+            `Quick
+            test_complete_provider_error_envelope_is_not_a_wire_error
         ; test_case
             "malformed Ollama NDJSON preserves its wire format"
             `Quick

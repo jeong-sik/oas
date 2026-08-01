@@ -16,6 +16,15 @@ type completion_request =
   ; capture_id : string option
     (** Exact caller-owned request/run identity for raw wire observation.
         [None] never triggers identity inference. *)
+  ; observe_http_status :
+      (provider:string -> model_id:string -> status:int -> unit) option
+    (** Optional caller-owned sink for the HTTP status an HTTP-backed
+        transport actually observed. Set by the caller so a transport arm
+        reports the same status the direct arm does, instead of the caller
+        reconstructing one from the result — an accepted 200 that later
+        becomes a typed wire failure is invisible to any such reconstruction.
+        Non-HTTP transports leave it unused: they never saw an HTTP response,
+        and inventing one would be a fabricated metric. *)
   ; observe_wire_chunk : Wire_observer.observe_chunk option
     (** Optional OAS-owned sink for raw provider chunks. A custom streaming
         transport that participates in wire observation calls this sink once

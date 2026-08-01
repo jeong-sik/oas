@@ -411,6 +411,13 @@ let complete_prepared_stream
         in
         { request with observe_wire_chunk = Some observe_wire_chunk }
     in
+    (* The transport arm below never reaches [complete_stream_http]'s own
+       status wiring, so the sink travels with the request — the same way
+       [observe_wire_chunk] does. An HTTP-backed transport reports what it
+       observed; a CLI transport ignores the field and stays silent. *)
+    let request =
+      { request with observe_http_status = Some metrics.on_http_status }
+    in
     let dispatch () =
       match transport with
       | Some t -> t.complete_stream ?on_telemetry:transport_on_telemetry ~on_event request
@@ -574,6 +581,7 @@ let make_http_transport
           ~sw
           ~net
           ?clock
+          ?on_http_status:req.observe_http_status
           ?stream_idle_timeout_s:req.stream_idle_timeout_s
           ?first_event_timeout_s:req.first_event_timeout_s
           ?body_timeout_s:req.body_timeout_s

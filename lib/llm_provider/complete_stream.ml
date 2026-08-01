@@ -379,8 +379,18 @@ let complete_stream_http
         | Types.MessageDelta _ -> `Skip
         | Types.MessageStop -> `Done
         | Types.Ping -> `Heartbeat
-        | Types.SSEError _ | Types.SSEParseFailed _ | Types.SSEUnknownEventType _ ->
-          `Wire_error Http_client.Sse
+        (* A provider-owned error envelope is NOT a wire failure: the response
+           satisfied its contract and the provider reported a problem inside
+           it. Classifying it as a wire error made the summary contradict the
+           [Provider_reported_error] this stream actually returns. *)
+        | Types.SSEError _ -> `Provider_reported_error
+        (* [SSEParseFailed] is emitted by format-agnostic producers — the
+           Ollama (NDJSON) tool-routing path raises it via
+           [Streaming.reject_tool_block ~protocol:"ollama"] — so the format
+           comes from the stream, not from the variant's legacy name. *)
+        | Types.SSEParseFailed _ -> `Wire_error active_wire_format
+        (* Event types exist only in SSE; NDJSON has no event field. *)
+        | Types.SSEUnknownEventType _ -> `Wire_error Http_client.Sse
         | Types.NDJSONParseFailed _ -> `Wire_error Http_client.Ndjson
         | Types.Connected -> `Skip
         | Types.Timeout _ -> `Wire_error active_wire_format
@@ -539,8 +549,12 @@ let complete_stream_http
                        stream_idle_state := Http_client.Streaming_unknown;
                        terminal_state
                        := Telemetry_event.Terminal_error
-                            (Http_client.provider_wire_format_to_string format
-                             ^ "_wire_error"))
+                            (Complete_stream_error.wire_error_terminal_label format)
+                     | `Provider_reported_error ->
+                       stream_idle_state := Http_client.Streaming_unknown;
+                       terminal_state
+                       := Telemetry_event.Terminal_error
+                            Complete_stream_error.provider_reported_terminal_label)
                   events;
                 (* No thinking-only wall-clock cutoff: active reasoning
                      deltas ARE stream liveness. [stream_idle_timeout_s]
@@ -755,14 +769,14 @@ let complete_stream_http
                        terminal_state
                        := Telemetry_event.Terminal_error
                             (match serr with
-                             | Types.Stream_provider_error _ -> "provider_stream_error"
+                             | Types.Stream_provider_error _ ->
+                               Complete_stream_error.provider_reported_terminal_label
                              | Types.Stream_parse_failed _
                              | Types.Stream_ndjson_parse_failed _
                              | Types.Stream_unknown_event _
                              | Types.Stream_incomplete _ ->
-                               Http_client.provider_wire_format_to_string
-                                 active_wire_format
-                               ^ "_wire_error")
+                               Complete_stream_error.wire_error_terminal_label
+                                 active_wire_format)
                      | Telemetry_event.Terminal_error _
                      | Telemetry_event.Terminal_cancelled -> ());
                     Error
