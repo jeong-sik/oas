@@ -1341,7 +1341,7 @@ let%test
     }
   in
   let state = create_openai_stream_state () in
-  let chunk =
+  let chunk : ollama_chunk =
     { chunk_id = "c"
     ; chunk_model = "minimax-m3"
     ; delta_content = None
