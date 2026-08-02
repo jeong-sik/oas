@@ -87,6 +87,13 @@ The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical
 `Llm_provider.Provider_config.t` values.
 
+## [0.231.12](https://github.com/jeong-sik/oas/compare/v0.231.11...v0.231.12) (2026-08-02)
+
+
+### Bug Fixes
+
+* preserve Ollama NDJSON outcome kinds ([#2916](https://github.com/jeong-sik/oas/issues/2916)) ([b66e2e5](https://github.com/jeong-sik/oas/commit/b66e2e5df62e77e5f414509aa8b039bd6bbae63a))
+
 ## [0.231.11](https://github.com/jeong-sik/oas/compare/v0.231.10...v0.231.11) (2026-08-01)
 
 
