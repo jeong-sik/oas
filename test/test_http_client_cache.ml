@@ -711,6 +711,142 @@ let exercise_raw_one_dispatch_cache
   first, second, Http_client.cache_stats cache
 ;;
 
+let exercise_raw_stream_cache
+      ?http_version
+      ?response_headers
+      ?encode_body
+      ?keep_connection
+      ?(response_body = "ok")
+      ()
+  =
+  with_raw_one_dispatch_server
+    ?http_version
+    ?response_headers
+    ?encode_body
+    ?keep_connection
+    ~response_body
+  @@ fun ~sw ~net ~clock:_ ~url ->
+  let cache = Http_client.create_cache ~sw () in
+  let post () =
+    Http_client.with_post_stream
+      ~cache
+      ~net
+      ~url
+      ~headers:[]
+      ~body:"{}"
+      ~f:Eio.Buf_read.take_all
+      ()
+  in
+  let first = post () in
+  let second = post () in
+  first, second, Http_client.cache_stats cache
+;;
+
+let expect_stream_ok label = function
+  | Ok body -> Alcotest.(check string) (label ^ " body") "ok" body
+  | Error _ -> Alcotest.fail (label ^ " expected streamed 200 response")
+;;
+
+let test_stream_response_cache_eligibility () =
+  let close_headers length =
+    [ Printf.sprintf "Content-Length: %d" length; "Connection: close" ]
+  in
+  let (close_first, close_second, close_stats), close_posts =
+    exercise_raw_stream_cache ~response_headers:close_headers ()
+  in
+  expect_stream_ok "connection-close first" close_first;
+  expect_stream_ok "connection-close second" close_second;
+  Alcotest.(check int) "connection-close POSTs" 2 close_posts;
+  Alcotest.(check int) "connection-close creates fresh" 2 close_stats.create_count_total;
+  Alcotest.(check int) "connection-close never reuses" 0 close_stats.reuse_count_total;
+  Alcotest.(check int) "connection-close never parks" 0 close_stats.total_idle;
+  let (unframed_first, unframed_second, unframed_stats), unframed_posts =
+    exercise_raw_stream_cache ~response_headers:(fun _ -> []) ()
+  in
+  expect_stream_ok "unframed first" unframed_first;
+  expect_stream_ok "unframed second" unframed_second;
+  Alcotest.(check int) "unframed POSTs" 2 unframed_posts;
+  Alcotest.(check int) "unframed creates fresh" 2 unframed_stats.create_count_total;
+  Alcotest.(check int) "unframed never reuses" 0 unframed_stats.reuse_count_total;
+  Alcotest.(check int) "unframed never parks" 0 unframed_stats.total_idle;
+  let (http10_first, http10_second, http10_stats), http10_posts =
+    exercise_raw_stream_cache ~http_version:"HTTP/1.0" ()
+  in
+  expect_stream_ok "HTTP/1.0 first" http10_first;
+  expect_stream_ok "HTTP/1.0 second" http10_second;
+  Alcotest.(check int) "HTTP/1.0 POSTs" 2 http10_posts;
+  Alcotest.(check int) "HTTP/1.0 creates fresh" 2 http10_stats.create_count_total;
+  Alcotest.(check int) "HTTP/1.0 never reuses" 0 http10_stats.reuse_count_total;
+  Alcotest.(check int) "HTTP/1.0 never parks" 0 http10_stats.total_idle;
+  let upgrade_headers length =
+    [ Printf.sprintf "Content-Length: %d" length
+    ; "Connection: upgrade"
+    ; "Upgrade: websocket"
+    ]
+  in
+  let (upgrade_first, upgrade_second, upgrade_stats), upgrade_posts =
+    exercise_raw_stream_cache ~response_headers:upgrade_headers ()
+  in
+  expect_stream_ok "Upgrade first" upgrade_first;
+  expect_stream_ok "Upgrade second" upgrade_second;
+  Alcotest.(check int) "Upgrade POSTs" 2 upgrade_posts;
+  Alcotest.(check int) "Upgrade creates fresh" 2 upgrade_stats.create_count_total;
+  Alcotest.(check int) "Upgrade never reuses" 0 upgrade_stats.reuse_count_total;
+  Alcotest.(check int) "Upgrade never parks" 0 upgrade_stats.total_idle;
+  let truncated_length_headers length =
+    [ Printf.sprintf "Content-Length: %d" (length + 3) ]
+  in
+  let (fixed_first, fixed_second, fixed_stats), fixed_posts =
+    exercise_raw_stream_cache ~response_headers:truncated_length_headers ()
+  in
+  expect_stream_ok "truncated content-length first" fixed_first;
+  expect_stream_ok "truncated content-length second" fixed_second;
+  Alcotest.(check int) "truncated content-length POSTs" 2 fixed_posts;
+  Alcotest.(check int)
+    "truncated content-length creates fresh"
+    2
+    fixed_stats.create_count_total;
+  Alcotest.(check int)
+    "truncated content-length never reuses"
+    0
+    fixed_stats.reuse_count_total;
+  Alcotest.(check int) "truncated content-length never parks" 0 fixed_stats.total_idle;
+  let truncated_chunked_headers _ = [ "Transfer-Encoding: chunked" ] in
+  let encode_truncated_chunk body = Printf.sprintf "5\r\n%s" body in
+  let (chunked_first, chunked_second, chunked_stats), chunked_posts =
+    exercise_raw_stream_cache
+      ~response_headers:truncated_chunked_headers
+      ~encode_body:encode_truncated_chunk
+      ()
+  in
+  expect_stream_ok "truncated chunked first" chunked_first;
+  expect_stream_ok "truncated chunked second" chunked_second;
+  Alcotest.(check int) "truncated chunked POSTs" 2 chunked_posts;
+  Alcotest.(check int)
+    "truncated chunked creates fresh"
+    2
+    chunked_stats.create_count_total;
+  Alcotest.(check int) "truncated chunked never reuses" 0 chunked_stats.reuse_count_total;
+  Alcotest.(check int) "truncated chunked never parks" 0 chunked_stats.total_idle;
+  let final_chunked_headers _ = [ "Transfer-Encoding: chunked" ] in
+  let encode_final_chunk body =
+    Printf.sprintf "%x\r\n%s\r\n0\r\n\r\n" (String.length body) body
+  in
+  let (final_first, final_second, final_stats), final_posts =
+    exercise_raw_stream_cache
+      ~response_headers:final_chunked_headers
+      ~encode_body:encode_final_chunk
+      ~keep_connection:true
+      ()
+  in
+  expect_stream_ok "final chunked first" final_first;
+  expect_stream_ok "final chunked second" final_second;
+  Alcotest.(check int) "final chunked POSTs" 2 final_posts;
+  Alcotest.(check int) "final chunked creates once" 1 final_stats.create_count_total;
+  Alcotest.(check int) "final chunked reuses once" 1 final_stats.reuse_count_total;
+  Alcotest.(check int) "final chunked remains parked" 1 final_stats.total_idle
+;;
+
 let expect_raw_ok label = function
   | Ok response ->
     Alcotest.(check int) (label ^ " status") 200 response.Http_client.status;
@@ -992,6 +1128,10 @@ let () =
             "connection-close stream is not parked"
             `Quick
             test_stream_connection_close_does_not_park
+        ; Alcotest.test_case
+            "response cache eligibility"
+            `Quick
+            test_stream_response_cache_eligibility
         ] )
     ; ( "validation"
       , [ Alcotest.test_case

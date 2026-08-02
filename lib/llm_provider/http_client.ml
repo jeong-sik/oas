@@ -2129,23 +2129,33 @@ let post_stream ?cache ?clock ?connect_timeout_s ~sw ~net ~url ~headers ~body ()
       Error (HttpError { code; body = body_str; retry_after_header }))
 ;;
 
-let track_source_eof source =
+let track_connection_eof connection =
   let eof_seen = ref false in
-  let module Source = struct
+  let module Flow = struct
     type t = unit
 
+    (* Expose no alternate read path: every transport read must pass through
+       [single_read] below so raw EOF cannot bypass the observation. *)
     let read_methods = []
 
     let single_read () buffer =
-      match Eio.Flow.single_read source buffer with
+      match Eio.Flow.single_read connection buffer with
       | count -> count
       | exception End_of_file ->
         eof_seen := true;
         raise End_of_file
     ;;
+
+    let single_write () buffers = Eio.Flow.single_write connection buffers
+    let copy () ~src = Eio.Flow.copy src connection
+    let shutdown () command = Eio.Flow.shutdown connection command
   end
   in
-  let operations = Eio.Flow.Pi.source (module Source) in
+  let operations =
+    Eio.Resource.handler
+      (Eio.Resource.H (Eio.Resource.Close, fun () -> Eio.Resource.close connection)
+       :: Eio.Resource.bindings (Eio.Flow.Pi.two_way (module Flow)))
+  in
   Eio.Resource.T ((), operations), eof_seen
 ;;
 
@@ -2201,9 +2211,8 @@ let with_post_stream
              Atomic.incr cache.create_count_total;
              conn)
       in
-      let client =
-        Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> (conn :> _ Eio.Flow.two_way))
-      in
+      let tracked_conn, transport_eof_seen = track_connection_eof conn in
+      let client = Cohttp_eio.Client.make_generic (fun ~sw:_ _uri -> tracked_conn) in
       let headers_with_length =
         ("content-length", string_of_int (String.length body))
         :: maybe_add_connection_close ?cache headers
@@ -2226,19 +2235,16 @@ let with_post_stream
           on_response_status;
         match status with
         | `OK ->
-          let tracked_body, body_eof_seen = track_source_eof resp_body in
           (* EOF proves the body was drained; it does not prove the connection
              may be reused. A response with neither content-length nor chunked
              framing is delimited BY the close, so its EOF arrives precisely
              because the peer went away. The same predicate the synchronous
              path uses answers the second question. *)
           let reusable = response_connection_is_reusable ~request_headers:hdr resp in
-          Ok
-            ( uri
-            , conn
-            , reusable
-            , body_eof_seen
-            , Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body tracked_body )
+          let reader =
+            Eio.Buf_read.of_flow ~max_size:Api_common.max_response_body resp_body
+          in
+          Ok (uri, conn, reusable, transport_eof_seen, reader)
         | status ->
           let code = Cohttp.Code.code_of_status status in
           let resp_headers = Cohttp.Response.headers resp in
@@ -2269,7 +2275,7 @@ let with_post_stream
 
      The connection is parked back into the cache only after [f] returns
      successfully, ensuring the reader is no longer using the flow. *)
-  let* uri, conn, response_is_reusable, body_eof_seen, reader = post_result in
+  let* uri, conn, response_is_reusable, transport_eof_seen, reader = post_result in
   let body_result =
     try Ok (f reader) with
     | Eio.Time.Timeout ->
@@ -2295,8 +2301,9 @@ let with_post_stream
          raise exn)
   in
   (match body_result, cache with
-   | Ok _, Some cache when response_is_reusable && !body_eof_seen ->
-     cache_return cache uri { connection = conn; last_used_at = 0.0 }
+   | Ok _, Some cache
+     when response_is_reusable && Eio.Buf_read.eof_seen reader && not !transport_eof_seen
+     -> cache_return cache uri { connection = conn; last_used_at = 0.0 }
    | Ok _, Some _ | Ok _, None -> Eio.Resource.close conn
    | Error _, _ -> Eio.Resource.close conn);
   body_result

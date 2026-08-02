@@ -537,7 +537,8 @@ val post_stream
     upgrade, and self-delimiting framing). EOF alone is not enough — a
     response with neither content-length nor chunked framing is delimited by
     the close itself, so its EOF means the peer went away. If [f] returns
-    before EOF, the connection is closed regardless of [f]'s return value. *)
+    before EOF, or the underlying transport reaches EOF, the connection is
+    closed regardless of [f]'s return value. *)
 val with_post_stream
   :  ?cache:cache
   -> ?clock:_ Eio.Time.clock
