@@ -1341,7 +1341,7 @@ let%test
     }
   in
   let state = create_openai_stream_state () in
-  let chunk : ollama_chunk =
+  let chunk =
     { chunk_id = "c"
     ; chunk_model = "minimax-m3"
     ; delta_content = None
@@ -2645,7 +2645,7 @@ let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
 
 let%test "ollama_chunk_to_events: overflow reason stays typed" =
   let state = create_openai_stream_state () in
-  let chunk =
+  let chunk : ollama_chunk =
     { oll_content = ""
     ; oll_thinking = None
     ; oll_tool_calls = []
