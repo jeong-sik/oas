@@ -341,12 +341,9 @@ let parse_ollama_response json_str =
       json |> member "done_reason" |> to_string_option |> Option.value ~default:"stop"
     in
     let stop_reason =
-      match String.lowercase_ascii done_reason with
-      | "tool_calls" when tool_blocks <> [] -> StopToolUse
-      | "length" -> MaxTokens
-      | "stop" -> EndTurn
-      | _other when tool_blocks <> [] -> StopToolUse
-      | other -> Unknown other
+      Stop_reason_wire.of_finish
+        (Stop_reason_wire.wire_finish_of_string done_reason)
+        ~has_tool_blocks:(tool_blocks <> [])
     in
     let input_tokens = Cli_common_json.member_int "prompt_eval_count" json in
     let output_tokens = Cli_common_json.member_int "eval_count" json in
@@ -752,6 +749,15 @@ let%test "parse_ollama_response maps done_reason=tool_calls to StopToolUse" =
       (match resp.content with
       | [ Types.ToolUse { name = "get_weather"; _ } ] -> true
       | _ -> false)
+;;
+
+let%test "parse_ollama_response maps overflow done_reason to ContextWindowExceeded" =
+  match
+    parse_ollama_response
+      {|{"model":"dashscope-3:8b","done":true,"done_reason":"model_context_window_exceeded","message":{"role":"assistant","content":""}}|}
+  with
+  | Ok response -> response.stop_reason = Types.ContextWindowExceeded
+  | Error _ -> false
 ;;
 
 let%test "parse_ollama_response returns Error on error field" =

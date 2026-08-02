@@ -8,7 +8,10 @@ let incomplete_stop_reason incomplete_reason =
   match incomplete_reason with
   | Some "max_output_tokens" -> Types.MaxTokens
   | Some "content_filter" -> Types.ContentFilter
-  | Some reason -> Types.Unknown reason
+  | Some reason ->
+    (match Types.stop_reason_of_string (String.lowercase_ascii reason) with
+     | Types.ContextWindowExceeded -> Types.ContextWindowExceeded
+     | _ -> Types.Unknown reason)
   | None -> Types.Unknown "incomplete"
 ;;
 
@@ -45,6 +48,15 @@ let%test "incomplete content filter is typed" =
     ~failed_message:None
     ~has_tool_calls:true
   = Types.ContentFilter
+;;
+
+let%test "incomplete context overflow is typed" =
+  of_status
+    ~status:(Some "incomplete")
+    ~incomplete_reason:(Some "model_context_window_exceeded")
+    ~failed_message:None
+    ~has_tool_calls:false
+  = Types.ContextWindowExceeded
 ;;
 
 let%test "unknown incomplete reason remains unknown" =
