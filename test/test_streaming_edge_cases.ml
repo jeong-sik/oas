@@ -576,6 +576,18 @@ let test_gemini_parse_edge_shapes () =
    | S.Gemini_unsupported_part _ -> fail "empty modelVersion is not a Part kind"
    | S.Gemini_unsupported_response _ -> fail "empty modelVersion is not a response kind");
   (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"text":"partial"}]},"finishReason":""}]}|}
+   with
+   | S.Gemini_chunk chunk ->
+     (match chunk.gem_finish_reason with
+      | None -> ()
+      | Some _ -> fail "empty finishReason became a terminal reason")
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "empty finishReason was rejected: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "empty finishReason is not a Part kind"
+   | S.Gemini_unsupported_response _ -> fail "empty finishReason is not a response kind");
+  (match
      parse_gemini_chunk {|{"modelVersion":"gem","candidates":[],"usageMetadata":null}|}
    with
    | None -> ()

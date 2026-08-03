@@ -2385,6 +2385,11 @@ let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
   let gemini_optional_string ~path key json =
     malformed (gemini_optional_string ~path key json)
   in
+  let gemini_optional_finish_reason ~path json =
+    match gemini_optional_string ~path "finishReason" json with
+    | Ok (Some "") -> Ok None
+    | result -> result
+  in
   let gemini_required_string ~path key json =
     malformed (gemini_required_string ~path key json)
   in
@@ -2416,7 +2421,7 @@ let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
     | [ candidate ] ->
       let* candidate = gemini_object ~path:"gemini.candidates[0]" candidate in
       let* finish_reason =
-        gemini_optional_string ~path:"gemini.candidates[0]" "finishReason" candidate
+        gemini_optional_finish_reason ~path:"gemini.candidates[0]" candidate
       in
       Ok
         ( candidate
