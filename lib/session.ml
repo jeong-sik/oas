@@ -14,7 +14,7 @@ type t =
 exception Entropy_unavailable of string
 
 let generate_id () =
-  match Random_id.create () with
+  match Llm_provider.Random_id.create () with
   | Ok value -> "session-" ^ value
   | Error message -> raise (Entropy_unavailable message)
 ;;
