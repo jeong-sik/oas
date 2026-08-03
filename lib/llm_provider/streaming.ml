@@ -2435,7 +2435,7 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
   then (
     let stop_reason =
       match chunk.oll_done_reason with
-      | None -> Some EndTurn
+      | None -> Some (Unknown "missing_done_reason")
       | Some reason ->
         Some
           (Stop_reason_wire.of_finish

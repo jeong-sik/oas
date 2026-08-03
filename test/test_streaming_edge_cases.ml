@@ -739,8 +739,8 @@ let test_ollama_event_edge_branches () =
       (ollama_chunk ~is_done:true ())
   in
   (match done_none_events with
-   | [ MessageDelta { stop_reason = Some EndTurn; _ } ] -> ()
-   | _ -> fail "done without reason should be EndTurn");
+   | [ MessageDelta { stop_reason = Some (Unknown "missing_done_reason"); _ } ] -> ()
+   | _ -> fail "done without reason should remain non-executable");
   let done_length_events, _ =
     S.ollama_chunk_to_events
       (S.create_openai_stream_state ())

@@ -1,9 +1,5 @@
 (** OpenAI Responses terminal status -> stop_reason SSOT. *)
 
-let normalized_status status =
-  status |> Option.value ~default:"" |> String.lowercase_ascii
-;;
-
 let incomplete_stop_reason incomplete_reason =
   match incomplete_reason with
   | Some "max_output_tokens" -> Types.MaxTokens
@@ -22,12 +18,15 @@ let failed_stop_reason failed_message =
 ;;
 
 let of_status ~status ~incomplete_reason ~failed_message ~has_tool_calls =
-  match normalized_status status with
-  | "incomplete" -> incomplete_stop_reason incomplete_reason
-  | "failed" -> failed_stop_reason failed_message
-  | _ when has_tool_calls -> Types.StopToolUse
-  | "completed" | "" -> Types.EndTurn
-  | other -> Types.Unknown other
+  match status with
+  | None -> Types.Unknown "missing_status"
+  | Some status ->
+    (match String.lowercase_ascii status with
+     | "incomplete" -> incomplete_stop_reason incomplete_reason
+     | "failed" -> failed_stop_reason failed_message
+     | "completed" when has_tool_calls -> Types.StopToolUse
+     | "completed" -> Types.EndTurn
+     | other -> Types.Unknown other)
 ;;
 
 [@@@coverage off]
@@ -93,4 +92,22 @@ let%test "unknown status without tools is preserved" =
     ~failed_message:None
     ~has_tool_calls:false
   = Types.Unknown "queued"
+;;
+
+let%test "unknown status with tools remains non-executable" =
+  of_status
+    ~status:(Some "queued")
+    ~incomplete_reason:None
+    ~failed_message:None
+    ~has_tool_calls:true
+  = Types.Unknown "queued"
+;;
+
+let%test "missing status with tools remains non-executable" =
+  of_status
+    ~status:None
+    ~incomplete_reason:None
+    ~failed_message:None
+    ~has_tool_calls:true
+  = Types.Unknown "missing_status"
 ;;

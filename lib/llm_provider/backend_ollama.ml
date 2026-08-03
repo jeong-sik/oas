@@ -337,8 +337,10 @@ let parse_ollama_response json_str =
       | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
         Error "malformed_ollama_response:message_not_object"
     in
-    let done_reason =
-      json |> member "done_reason" |> to_string_option |> Option.value ~default:"stop"
+    let* done_reason =
+      match json |> member "done_reason" |> to_string_option with
+      | Some done_reason -> Ok done_reason
+      | None -> Error "malformed_ollama_response:missing_done_reason"
     in
     let stop_reason =
       Stop_reason_wire.of_finish
@@ -801,6 +803,15 @@ let%test "parse_ollama_response returns Error on error field" =
 let%test "parse_ollama_response rejects a missing message" =
   match parse_ollama_response {|{"model":"dashscope-3:8b","done":true}|} with
   | Error "malformed_ollama_response:missing_message" -> true
+  | Error _ | Ok _ -> false
+;;
+
+let%test "parse_ollama_response rejects a missing done reason" =
+  match
+    parse_ollama_response
+      {|{"model":"dashscope-3:8b","done":true,"message":{"role":"assistant","content":"ok"}}|}
+  with
+  | Error "malformed_ollama_response:missing_done_reason" -> true
   | Error _ | Ok _ -> false
 ;;
 
