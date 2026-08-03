@@ -121,6 +121,7 @@ let%test "clean stream finalizes Ok: Gemini finishReason" =
      (match Streaming.gemini_chunk_to_events st chunk with
       | Ok (events, _telemetry) -> accumulate_events acc events
       | Error _ -> ())
+   | Streaming.Gemini_unsupported_part _ -> ()
    | Streaming.Gemini_parse_failed _ -> ());
   match Complete_stream_acc.finalize_stream_acc acc with
   | Ok _ -> true
@@ -713,7 +714,17 @@ let complete_stream_http
                                    | Error { reason } ->
                                      [ Types.SSEParseFailed { raw = data; reason } ], None)
                                 | Streaming.Gemini_parse_failed { reason; raw } ->
-                                  [ Types.SSEParseFailed { raw; reason } ], None)
+                                  [ Types.SSEParseFailed { raw; reason } ], None
+                                | Streaming.Gemini_unsupported_part { part; raw } ->
+                                  ( [ Types.SSEUnknownEventType
+                                        { event_type =
+                                            "gemini.part."
+                                            ^ Streaming.gemini_unsupported_part_wire_name
+                                                part
+                                        ; raw
+                                        }
+                                    ]
+                                  , None ))
                              | Provider_http_codec.Glm_chat ->
                                Backend_glm.parse_stream_chunk ~streaming_reasoning data
                                |> Streaming.openai_sse_parse_result_to_events

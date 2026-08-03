@@ -159,18 +159,33 @@ type gemini_chunk =
   ; gem_usage : api_usage option
   }
 
+type gemini_unsupported_part =
+  | Gemini_executable_code
+  | Gemini_code_execution_result
+  | Gemini_tool_call
+  | Gemini_tool_response
+  | Gemini_function_response
+  | Gemini_file_data
+
 type gemini_sse_parse_result =
   | Gemini_chunk of gemini_chunk
+  | Gemini_unsupported_part of
+      { part : gemini_unsupported_part
+      ; raw : string
+      }
   | Gemini_parse_failed of
       { reason : string
       ; raw : string
       }
 
 (** Parse one Gemini SSE data payload without collapsing malformed JSON or
-    malformed candidate/part shapes into an absent chunk. A caller that
-    receives [Gemini_parse_failed] must surface the raw payload as a wire
-    failure. *)
+    malformed candidate/part shapes into an absent chunk. Official Part kinds
+    that OAS does not project are returned as [Gemini_unsupported_part], not
+    relabelled as malformed bytes. Callers must surface either failure with the
+    raw payload. *)
 val parse_gemini_sse_chunk : string -> gemini_sse_parse_result
+
+val gemini_unsupported_part_wire_name : gemini_unsupported_part -> string
 
 type gemini_chunk_to_events_error = { reason : string }
 

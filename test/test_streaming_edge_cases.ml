@@ -82,6 +82,7 @@ let require_ollama_chunk label = function
 let parse_gemini_chunk data =
   match S.parse_gemini_sse_chunk data with
   | S.Gemini_chunk chunk -> Some chunk
+  | S.Gemini_unsupported_part _ -> None
   | S.Gemini_parse_failed _ -> None
 ;;
 
@@ -574,7 +575,8 @@ let test_gemini_parse_edge_shapes () =
        "multiple candidates reason"
        "gemini.candidates:multiple_candidates_unsupported"
        reason
-   | S.Gemini_chunk _ -> fail "multiple Gemini candidates must not be dropped");
+   | S.Gemini_chunk _ -> fail "multiple Gemini candidates must not be dropped"
+   | S.Gemini_unsupported_part _ -> fail "multiple candidates are not a Part kind");
   (match
      S.parse_gemini_sse_chunk
        {|{"modelVersion":"gem","candidates":[{"content":{"parts":{"bad":true}}}],"usageMetadata":null}|}
@@ -585,12 +587,14 @@ let test_gemini_parse_edge_shapes () =
        "non-list parts reason"
        "gemini.candidates[0].content.parts:not_array(got object)"
        reason
-   | S.Gemini_chunk _ -> fail "non-list parts must be rejected");
+   | S.Gemini_chunk _ -> fail "non-list parts must be rejected"
+   | S.Gemini_unsupported_part _ -> fail "non-list parts are not a Part kind");
   match S.parse_gemini_sse_chunk "{not-json" with
   | S.Gemini_parse_failed { raw; reason } ->
     check string "invalid gemini raw" "{not-json" raw;
     check bool "invalid gemini reason" true (String.length reason > 0)
   | S.Gemini_chunk _ -> fail "invalid gemini json should be rejected"
+  | S.Gemini_unsupported_part _ -> fail "invalid JSON is not a Part kind"
 ;;
 
 let test_gemini_part_shape_failure_is_explicit () =
@@ -606,6 +610,24 @@ let test_gemini_part_shape_failure_is_explicit () =
       "gemini.candidates[0].content.parts[0].unknownPart:unsupported_field"
       reason
   | S.Gemini_chunk _ -> fail "unknown Gemini part must not be accepted"
+  | S.Gemini_unsupported_part _ ->
+    fail "unknown fields must remain malformed, not official unsupported Parts"
+;;
+
+let test_gemini_official_unsupported_part_is_not_malformed () =
+  let raw =
+    {|{"candidates":[{"content":{"parts":[{"executableCode":{"language":"PYTHON","code":"print(1)"}}]}}]}|}
+  in
+  match S.parse_gemini_sse_chunk raw with
+  | S.Gemini_unsupported_part { part; raw = observed_raw } ->
+    check
+      string
+      "typed unsupported Part"
+      "executableCode"
+      (S.gemini_unsupported_part_wire_name part);
+    check string "unsupported Part raw preserved" raw observed_raw
+  | S.Gemini_parse_failed _ -> fail "official unsupported Part must not be malformed"
+  | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted"
 ;;
 
 let gemini_chunk ?(parts = []) ?finish_reason ?usage () : S.gemini_chunk =
@@ -858,6 +880,10 @@ let () =
     ; ( "gemini_sse"
       , [ test_case "parse edge shapes" `Quick test_gemini_parse_edge_shapes
         ; test_case "part shape failure" `Quick test_gemini_part_shape_failure_is_explicit
+        ; test_case
+            "official unsupported Part is typed"
+            `Quick
+            test_gemini_official_unsupported_part_is_not_malformed
         ; test_case "event edge branches" `Quick test_gemini_event_edge_branches
         ] )
     ; ( "ollama_ndjson"

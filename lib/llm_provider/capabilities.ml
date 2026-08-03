@@ -642,7 +642,9 @@ let gemini_capabilities =
   ; supports_caching = true
   ; supports_prompt_caching = false
   ; prompt_cache_alignment = None
-  ; supports_code_execution = true
+  ; (* The Generate Content adapter does not serialize the [codeExecution]
+       tool or project executableCode/codeExecutionResult response Parts. *)
+    supports_code_execution = false
   ; (* Google Gemini's generateContent API documents [topK] as part of
      generationConfig (ai.google.dev/api/generate-content). The
      [backend_gemini.build_request] serializer already emits it at

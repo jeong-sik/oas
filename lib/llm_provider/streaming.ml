@@ -1843,8 +1843,20 @@ type gemini_chunk =
   ; gem_usage : api_usage option
   }
 
+type gemini_unsupported_part =
+  | Gemini_executable_code
+  | Gemini_code_execution_result
+  | Gemini_tool_call
+  | Gemini_tool_response
+  | Gemini_function_response
+  | Gemini_file_data
+
 type gemini_sse_parse_result =
   | Gemini_chunk of gemini_chunk
+  | Gemini_unsupported_part of
+      { part : gemini_unsupported_part
+      ; raw : string
+      }
   | Gemini_parse_failed of
       { reason : string
       ; raw : string
@@ -2014,16 +2026,56 @@ let validate_gemini_part ~position part =
   | _ -> Error (path ^ ":multiple_payloads")
 ;;
 
-let parse_gemini_json json : (gemini_chunk, string) result =
+type gemini_payload_failure =
+  | Gemini_payload_malformed of string
+  | Gemini_payload_unsupported_part of gemini_unsupported_part
+
+let gemini_unsupported_part_wire_name = function
+  | Gemini_executable_code -> "executableCode"
+  | Gemini_code_execution_result -> "codeExecutionResult"
+  | Gemini_tool_call -> "toolCall"
+  | Gemini_tool_response -> "toolResponse"
+  | Gemini_function_response -> "functionResponse"
+  | Gemini_file_data -> "fileData"
+;;
+
+let gemini_unsupported_part_of_json = function
+  | `Assoc fields ->
+    [ Gemini_executable_code
+    ; Gemini_code_execution_result
+    ; Gemini_tool_call
+    ; Gemini_tool_response
+    ; Gemini_function_response
+    ; Gemini_file_data
+    ]
+    |> List.find_opt (fun part ->
+      List.mem_assoc (gemini_unsupported_part_wire_name part) fields)
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
+;;
+
+let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
+  let malformed result =
+    Result.map_error (fun reason -> Gemini_payload_malformed reason) result
+  in
+  let gemini_optional_string ~path key json =
+    malformed (gemini_optional_string ~path key json)
+  in
+  let gemini_field ~path key json = malformed (gemini_field ~path key json) in
+  let gemini_list ~path json = malformed (gemini_list ~path json) in
+  let gemini_object ~path json = malformed (gemini_object ~path json) in
+  let gemini_optional_int_default_zero ~path key json =
+    malformed (gemini_optional_int_default_zero ~path key json)
+  in
   let ( let* ) = Result.bind in
   let* () =
     match json with
     | `Assoc _ -> Ok ()
     | value ->
       Error
-        (Printf.sprintf
-           "gemini_sse_payload:not_object(got %s)"
-           (Json_util.json_type_name value))
+        (Gemini_payload_malformed
+           (Printf.sprintf
+              "gemini_sse_payload:not_object(got %s)"
+              (Json_util.json_type_name value)))
   in
   let* model_version = gemini_optional_string ~path:"gemini" "modelVersion" json in
   let* candidates_value = gemini_field ~path:"gemini" "candidates" json in
@@ -2031,8 +2083,9 @@ let parse_gemini_json json : (gemini_chunk, string) result =
   let* candidate =
     match candidates with
     | [ candidate ] -> Ok candidate
-    | _ :: _ -> Error "gemini.candidates:multiple_candidates_unsupported"
-    | [] -> Error "gemini.candidates:empty"
+    | _ :: _ ->
+      Error (Gemini_payload_malformed "gemini.candidates:multiple_candidates_unsupported")
+    | [] -> Error (Gemini_payload_malformed "gemini.candidates:empty")
   in
   let* candidate = gemini_object ~path:"gemini.candidates[0]" candidate in
   let* content = gemini_field ~path:"gemini.candidates[0]" "content" candidate in
@@ -2042,8 +2095,12 @@ let parse_gemini_json json : (gemini_chunk, string) result =
   let rec validate_parts position = function
     | [] -> Ok ()
     | part :: rest ->
-      let* () = validate_gemini_part ~position part in
-      validate_parts (position + 1) rest
+      (match gemini_unsupported_part_of_json part with
+       | Some part -> Error (Gemini_payload_unsupported_part part)
+       | None ->
+         (match validate_gemini_part ~position part with
+          | Error reason -> Error (Gemini_payload_malformed reason)
+          | Ok () -> validate_parts (position + 1) rest))
   in
   let* () = validate_parts 0 parts in
   let* gem_finish_reason =
@@ -2081,9 +2138,10 @@ let parse_gemini_json json : (gemini_chunk, string) result =
            })
     | Some value ->
       Error
-        (Printf.sprintf
-           "gemini.usageMetadata:not_object(got %s)"
-           (Json_util.json_type_name value))
+        (Gemini_payload_malformed
+           (Printf.sprintf
+              "gemini.usageMetadata:not_object(got %s)"
+              (Json_util.json_type_name value)))
   in
   Ok
     { gem_model = Option.value ~default:"" model_version
@@ -2102,7 +2160,10 @@ let parse_gemini_sse_chunk data_str : gemini_sse_parse_result =
   | json ->
     (match parse_gemini_json json with
      | Ok chunk -> Gemini_chunk chunk
-     | Error reason -> Gemini_parse_failed { raw = data_str; reason })
+     | Error (Gemini_payload_malformed reason) ->
+       Gemini_parse_failed { raw = data_str; reason }
+     | Error (Gemini_payload_unsupported_part part) ->
+       Gemini_unsupported_part { raw = data_str; part })
 ;;
 
 let gemini_chunk_to_events_impl (state : openai_stream_state) (chunk : gemini_chunk)

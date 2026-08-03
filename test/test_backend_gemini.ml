@@ -40,6 +40,7 @@ let to_bool json = Yojson.Safe.Util.to_bool json
 let parse_gemini_chunk data =
   match Streaming.parse_gemini_sse_chunk data with
   | Streaming.Gemini_chunk chunk -> Some chunk
+  | Streaming.Gemini_unsupported_part _ -> None
   | Streaming.Gemini_parse_failed _ -> None
 ;;
 
@@ -1215,7 +1216,7 @@ let test_gemini_capabilities_named () =
   check bool "thinking" true caps.supports_extended_thinking;
   check bool "audio" true caps.supports_audio_input;
   check bool "video" true caps.supports_video_input;
-  check bool "code_execution" true caps.supports_code_execution;
+  check bool "code_execution" false caps.supports_code_execution;
   check bool "caching" true caps.supports_caching;
   match caps.max_context_tokens with
   | Some n -> check int "1M context" 1_000_000 n

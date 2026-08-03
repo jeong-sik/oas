@@ -1218,7 +1218,7 @@ let test_gemini_capabilities () =
   let c = Capabilities.gemini_capabilities in
   Alcotest.(check bool) "audio" true c.supports_audio_input;
   Alcotest.(check bool) "video" true c.supports_video_input;
-  Alcotest.(check bool) "code_execution" true c.supports_code_execution;
+  Alcotest.(check bool) "code_execution" false c.supports_code_execution;
   (* Gemini generationConfig accepts topK — pin so capability-gated
      consumers do not silently drop it for Gemini configs. *)
   Alcotest.(check bool) "top_k" true c.supports_top_k;
@@ -1292,7 +1292,7 @@ let test_for_model_id_gpt4o () =
 
 let test_for_model_id_gemini25 () =
   match Capabilities.for_model_id gemini25_flash_model with
-  | Some c -> Alcotest.(check bool) "code_execution" true c.supports_code_execution
+  | Some c -> Alcotest.(check bool) "code_execution" false c.supports_code_execution
   | None -> Alcotest.fail "expected Some for legacy gemini"
 ;;
 
