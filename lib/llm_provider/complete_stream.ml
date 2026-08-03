@@ -733,11 +733,13 @@ let complete_stream_http
                                         }
                                     ]
                                   , None )
-                                | Streaming.Gemini_unsupported_response { response; raw } ->
+                                | Streaming.Gemini_unsupported_response { response; raw }
+                                  ->
                                   ( [ Types.SSEUnsupportedResponse
                                         { provider_kind = Provider_kind.Gemini
                                         ; response =
-                                            Streaming.gemini_unsupported_response_wire_name
+                                            Streaming
+                                            .gemini_unsupported_response_wire_name
                                               response
                                         ; raw
                                         }
