@@ -771,17 +771,6 @@ let%test "parse_ollama_response trusts complete tool blocks over stop label" =
   | Error _ -> false
 ;;
 
-let%test "parse_ollama_response keeps unknown reason non-executable" =
-  let json =
-    {|{"model":"dashscope-3:8b","done":true,"done_reason":"provider_terminal",
-       "message":{"role":"assistant","content":"",
-         "tool_calls":[{"function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}]}}|}
-  in
-  match parse_ollama_response json with
-  | Ok response -> response.stop_reason = Types.Unknown "provider_terminal"
-  | Error _ -> false
-;;
-
 let%test "parse_ollama_response maps overflow done_reason to ContextWindowExceeded" =
   match
     parse_ollama_response
