@@ -630,6 +630,87 @@ let test_gemini_official_unsupported_part_is_not_malformed () =
   | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted"
 ;;
 
+let test_gemini_unsupported_part_shape_is_explicit () =
+  let result_raw =
+    {|{"candidates":[{"content":{"parts":[{"codeExecutionResult":{"outcome":"OUTCOME_OK","output":"1"}}]}}]}|}
+  in
+  (match S.parse_gemini_sse_chunk result_raw with
+   | S.Gemini_unsupported_part { part; raw } ->
+     check
+       string
+       "typed code execution result Part"
+       "codeExecutionResult"
+       (S.gemini_unsupported_part_wire_name part);
+     check string "code execution result raw preserved" result_raw raw
+   | S.Gemini_parse_failed _ -> fail "official code execution result must be typed"
+   | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted");
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"executableCode":{"language":"PYTHON"}}]}}]}|}
+  with
+  | S.Gemini_parse_failed { reason; _ } ->
+    check
+      string
+      "malformed executable code reason"
+      "gemini.candidates[0].content.parts[0].executableCode.code:missing"
+      reason
+  | S.Gemini_unsupported_part _ -> fail "malformed executableCode must remain malformed"
+  | S.Gemini_chunk _ -> fail "malformed executableCode must not be accepted"
+;;
+
+let test_gemini_builtin_tool_parts_are_typed () =
+  let tool_call_raw =
+    {|{"candidates":[{"content":{"parts":[{"thoughtSignature":"sig","toolCall":{"toolType":"GOOGLE_SEARCH_WEB","args":{"queries":["seoul"]},"id":"call-1"}}]}}]}|}
+  in
+  (match S.parse_gemini_sse_chunk tool_call_raw with
+   | S.Gemini_unsupported_part { part; raw } ->
+     check string "typed toolCall" "toolCall" (S.gemini_unsupported_part_wire_name part);
+     check string "toolCall raw preserved" tool_call_raw raw
+   | S.Gemini_parse_failed _ -> fail "official toolCall must be typed"
+   | S.Gemini_chunk _ -> fail "unsupported toolCall must not be silently accepted");
+  let tool_response_raw =
+    {|{"candidates":[{"content":{"parts":[{"thoughtSignature":"sig","toolResponse":{"toolType":"GOOGLE_SEARCH_WEB","response":{"search_suggestions":"x"},"id":"call-1"}}]}}]}|}
+  in
+  (match S.parse_gemini_sse_chunk tool_response_raw with
+   | S.Gemini_unsupported_part { part; raw } ->
+     check
+       string
+       "typed toolResponse"
+       "toolResponse"
+       (S.gemini_unsupported_part_wire_name part);
+     check string "toolResponse raw preserved" tool_response_raw raw
+   | S.Gemini_parse_failed _ -> fail "official toolResponse must be typed"
+   | S.Gemini_chunk _ -> fail "unsupported toolResponse must not be silently accepted");
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"toolCall":{"toolType":"GOOGLE_SEARCH_WEB"}}]}}]}|}
+  with
+  | S.Gemini_parse_failed { reason; _ } ->
+    check
+      string
+      "malformed toolCall reason"
+      "gemini.candidates[0].content.parts[0].toolCall.id:missing"
+      reason
+  | S.Gemini_unsupported_part _ -> fail "malformed toolCall must remain malformed"
+  | S.Gemini_chunk _ -> fail "malformed toolCall must not be accepted"
+;;
+
+let test_gemini_malformed_part_precedes_unsupported_part () =
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"executableCode":{"language":"PYTHON","code":"print(1)"}},{"unknownPart":{}}]}}]}|}
+  with
+  | S.Gemini_parse_failed { reason; _ } ->
+    check
+      string
+      "malformed sibling reason"
+      "gemini.candidates[0].content.parts[1].unknownPart:unsupported_field"
+      reason
+  | S.Gemini_unsupported_part _ ->
+    fail "malformed sibling must not be hidden by unsupported Part"
+  | S.Gemini_chunk _ -> fail "malformed sibling must not be accepted"
+;;
+
 let gemini_chunk ?(parts = []) ?finish_reason ?usage () : S.gemini_chunk =
   { gem_model = "gemini-test"
   ; gem_parts = parts
@@ -884,6 +965,18 @@ let () =
             "official unsupported Part is typed"
             `Quick
             test_gemini_official_unsupported_part_is_not_malformed
+        ; test_case
+            "unsupported Part shape is explicit"
+            `Quick
+            test_gemini_unsupported_part_shape_is_explicit
+        ; test_case
+            "built-in tool Parts are typed"
+            `Quick
+            test_gemini_builtin_tool_parts_are_typed
+        ; test_case
+            "malformed sibling is not hidden"
+            `Quick
+            test_gemini_malformed_part_precedes_unsupported_part
         ; test_case "event edge branches" `Quick test_gemini_event_edge_branches
         ] )
     ; ( "ollama_ndjson"

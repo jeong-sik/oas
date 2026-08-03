@@ -426,6 +426,7 @@ let complete_stream_http
         | Types.SSEParseFailed _ -> `Wire_error active_wire_format
         (* Event types exist only in SSE; NDJSON has no event field. *)
         | Types.SSEUnknownEventType _ -> `Wire_error Http_client.Sse
+        | Types.SSEUnsupportedPart _ -> `Capability_mismatch
         | Types.NDJSONParseFailed _ -> `Wire_error Http_client.Ndjson
         | Types.Connected -> `Skip
         | Types.Timeout _ -> `Wire_error active_wire_format
@@ -589,7 +590,12 @@ let complete_stream_http
                        stream_idle_state := Http_client.Streaming_unknown;
                        terminal_state
                        := Telemetry_event.Terminal_error
-                            Complete_stream_error.provider_reported_terminal_label)
+                            Complete_stream_error.provider_reported_terminal_label
+                     | `Capability_mismatch ->
+                       stream_idle_state := Http_client.Streaming_unknown;
+                       terminal_state
+                       := Telemetry_event.Terminal_error
+                            Complete_stream_error.capability_mismatch_terminal_label)
                   events;
                 (* No thinking-only wall-clock cutoff: active reasoning
                      deltas ARE stream liveness. [stream_idle_timeout_s]
@@ -716,11 +722,11 @@ let complete_stream_http
                                 | Streaming.Gemini_parse_failed { reason; raw } ->
                                   [ Types.SSEParseFailed { raw; reason } ], None
                                 | Streaming.Gemini_unsupported_part { part; raw } ->
-                                  ( [ Types.SSEUnknownEventType
-                                        { event_type =
-                                            "gemini.part."
-                                            ^ Streaming.gemini_unsupported_part_wire_name
-                                                part
+                                  ( [ Types.SSEUnsupportedPart
+                                        { provider_kind = Provider_kind.Gemini
+                                        ; part =
+                                            Streaming.gemini_unsupported_part_wire_name
+                                              part
                                         ; raw
                                         }
                                     ]
@@ -826,7 +832,9 @@ let complete_stream_http
                              | Types.Stream_unknown_event _
                              | Types.Stream_incomplete _ ->
                                Complete_stream_error.wire_error_terminal_label
-                                 active_wire_format)
+                                 active_wire_format
+                             | Types.Stream_unsupported_part _ ->
+                               Complete_stream_error.capability_mismatch_terminal_label)
                      | Telemetry_event.Terminal_error _
                      | Telemetry_event.Terminal_cancelled -> ());
                     Error
