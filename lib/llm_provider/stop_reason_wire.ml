@@ -48,16 +48,7 @@ let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
   | Content_filter -> Types.ContentFilter
   | Repetition_truncation -> Types.RepetitionTruncation
   | Context_window_exceeded -> Types.ContextWindowExceeded
-  | Other other ->
-    (* [Other] means the token is not representable in the provider finish
-       vocabulary, not that the canonical stop-reason decoder failed. Keep a
-       typed canonical value when one exists. Ollama historically treats any
-       terminal reason accompanied by complete tool blocks as a tool request;
-       preserve that provider contract while retaining [Unknown] for a truly
-       unknown reason without tools. *)
-    if has_tool_blocks
-    then Types.StopToolUse
-    else Types.stop_reason_of_string other
+  | Other other -> Types.Unknown other
 ;;
 
 let provisional_of_string s : Types.stop_reason =
@@ -161,10 +152,6 @@ let%test "reconcile preserves EndTurn without tools" =
 let%test "reconcile preserves Unknown with tools as non-executable" =
   reconcile (Types.Unknown "provider_terminal") ~has_tool_blocks:true
   = Types.Unknown "provider_terminal"
-;;
-
-let%test "of_finish restores canonical reason outside wire vocabulary" =
-  of_finish (Other "stop_sequence") ~has_tool_blocks:false = Types.StopSequence
 ;;
 
 (* Truncation safety: MaxTokens + tool blocks is NOT upgraded, because a

@@ -755,8 +755,9 @@ let test_ollama_event_edge_branches () =
       (ollama_chunk ~is_done:true ~done_reason:"future" ~tool_calls:[ tc_none ] ())
   in
   (match done_unknown_tool_events with
-   | [ ContentBlockStart _; MessageDelta { stop_reason = Some StopToolUse; _ } ] -> ()
-   | _ -> fail "unknown done reason with tools should stop for tool use");
+   | [ ContentBlockStart _; MessageDelta { stop_reason = Some (Unknown "future"); _ } ] ->
+     ()
+   | _ -> fail "unknown done reason with tools should remain non-executable");
   let done_unknown_events, _ =
     S.ollama_chunk_to_events
       (S.create_openai_stream_state ())
