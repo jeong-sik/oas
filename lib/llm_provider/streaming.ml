@@ -2119,6 +2119,16 @@ let gemini_unsupported_payload_kind_wire_name = function
   | Gemini_audio_transcription_payload -> "audioTranscription"
 ;;
 
+let gemini_unsupported_part_of_payload_kind = function
+  | Gemini_executable_code_payload -> Gemini_executable_code
+  | Gemini_code_execution_result_payload -> Gemini_code_execution_result
+  | Gemini_tool_call_payload -> Gemini_tool_call
+  | Gemini_tool_response_payload -> Gemini_tool_response
+  | Gemini_function_response_payload -> Gemini_function_response
+  | Gemini_file_data_payload -> Gemini_file_data
+  | Gemini_audio_transcription_payload -> Gemini_audio_transcription
+;;
+
 let gemini_unsupported_part_wire_name = function
   | Gemini_executable_code ->
     gemini_unsupported_payload_kind_wire_name Gemini_executable_code_payload
@@ -2364,11 +2374,7 @@ let gemini_unsupported_part_of_json ~position part =
                ~path:(path ^ "." ^ gemini_unsupported_payload_kind_wire_name kind)
                value
            in
-           Ok
-             (match kind with
-              | Gemini_function_response_payload -> Gemini_function_response
-              | Gemini_file_data_payload -> Gemini_file_data
-              | Gemini_audio_transcription_payload -> Gemini_audio_transcription)))
+           Ok (gemini_unsupported_part_of_payload_kind kind)))
   | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
 ;;
 
