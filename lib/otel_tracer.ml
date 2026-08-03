@@ -111,18 +111,26 @@ type instance =
 
 exception Entropy_unavailable of string
 
-let rec otel_id ~kind ~bytes =
-  match Llm_provider.Random_id.hex ~bytes with
+let otel_id_of_sample ~kind = function
   | Error detail -> raise (Entropy_unavailable (kind ^ " ID: " ^ detail))
   | Ok value when String.for_all (Char.equal '0') value ->
     (* W3C trace-context forbids the all-zero trace-id and parent-id values.
-       Resample from the same authority instead of introducing a fallback. *)
-    otel_id ~kind ~bytes
+       Retrying here would turn a broken entropy source into an unbounded
+       observability loop, so reject the invalid sample explicitly. *)
+    raise (Entropy_unavailable (kind ^ " ID: entropy source yielded all-zero"))
   | Ok value -> value
 ;;
 
+let otel_id ~kind ~bytes = Llm_provider.Random_id.hex ~bytes |> otel_id_of_sample ~kind
 let gen_trace_id () = otel_id ~kind:"trace" ~bytes:16
 let gen_span_id () = otel_id ~kind:"span" ~bytes:8
+
+let%test "all-zero trace identifier fails explicitly" =
+  match otel_id_of_sample ~kind:"trace" (Ok (String.make 32 '0')) with
+  | exception Entropy_unavailable detail ->
+    String.equal detail "trace ID: entropy source yielded all-zero"
+  | _ -> false
+;;
 
 (* -- Timestamp -------------------------------------------------------- *)
 
@@ -420,6 +428,38 @@ let inst_record_metric inst ~name ~value ~metric_type =
   inst.metrics <- { m_name = name; m_value = value; m_type = metric_type } :: inst.metrics
 ;;
 
+let entropy_failure_metric = "otel.id_entropy_failures"
+
+let run_span_scope ~start_span ~end_span ~on_entropy_unavailable f =
+  match start_span () with
+  | span ->
+    (match f () with
+     | result ->
+       end_span span ~ok:true;
+       result
+     | exception exn ->
+       end_span span ~ok:false;
+       raise exn)
+  | exception Entropy_unavailable detail ->
+    on_entropy_unavailable detail;
+    f ()
+;;
+
+let%test "entropy failure degrades only the observation span" =
+  let degraded = ref None in
+  let body_ran = ref false in
+  let result =
+    run_span_scope
+      ~start_span:(fun () -> raise (Entropy_unavailable "trace ID: unavailable"))
+      ~end_span:(fun (_ : unit) ~ok:_ -> ())
+      ~on_entropy_unavailable:(fun detail -> degraded := Some detail)
+      (fun () ->
+         body_ran := true;
+         42)
+  in
+  result = 42 && !body_ran && !degraded = Some "trace ID: unavailable"
+;;
+
 let inst_get_metrics inst =
   inst_with_lock inst
   @@ fun () -> List.map (fun m -> m.m_name, m.m_value, m.m_type) (List.rev inst.metrics)
@@ -688,6 +728,18 @@ let tracer_of_instance inst : Tracing.t =
     let trace_context_headers () = inst_trace_context_headers inst
 
     let with_span attrs f =
+      let run () =
+        run_span_scope
+          ~start_span:(fun () -> inst_start_span inst attrs)
+          ~end_span:(inst_end_span inst)
+          ~on_entropy_unavailable:(fun _detail ->
+            inst_record_metric
+              inst
+              ~name:entropy_failure_metric
+              ~value:1.0
+              ~metric_type:Counter)
+          f
+      in
       match inst.fiber_key with
       | Some key ->
         let stack_ref =
@@ -695,24 +747,8 @@ let tracer_of_instance inst : Tracing.t =
           | Some ref -> ref
           | None -> ref []
         in
-        Eio.Fiber.with_binding key stack_ref (fun () ->
-          let span = inst_start_span inst attrs in
-          match f () with
-          | result ->
-            inst_end_span inst span ~ok:true;
-            result
-          | exception exn ->
-            inst_end_span inst span ~ok:false;
-            raise exn)
-      | None ->
-        let span = inst_start_span inst attrs in
-        (match f () with
-         | result ->
-           inst_end_span inst span ~ok:true;
-           result
-         | exception exn ->
-           inst_end_span inst span ~ok:false;
-           raise exn)
+        Eio.Fiber.with_binding key stack_ref run
+      | None -> run ()
     ;;
   end)
 ;;
