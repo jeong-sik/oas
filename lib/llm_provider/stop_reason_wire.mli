@@ -26,13 +26,11 @@ type wire_finish =
   | Context_window_exceeded
   | Other of string
 
-(** Case-insensitive OpenAI-compatible vocabulary. ["end_turn"] maps to [Stop].
-    ["model_context_window_exceeded"] maps to [Context_window_exceeded] so the
-    OpenAI/GLM finish-reason decoder recognizes the same overflow token as the
-    canonical {!Types.stop_reason_of_string} decoder (previously only the
-    Anthropic/cache path decoded it; the OpenAI/GLM path surfaced it as
-    [Other _ -> Types.Unknown], which the empty-completion overflow classifier
-    routed to provider-unavailability instead of context overflow). *)
+(** Case-insensitive OpenAI-compatible vocabulary. OpenAI-specific
+    ["tool_calls"] and ["stop"] are handled here; canonical and provider-dialect
+    tokens are owned by {!Types.stop_reason_of_string} and translated from its
+    typed result. Thus an overflow token reaches [Context_window_exceeded]
+    without duplicating its wire spellings in this module. *)
 val wire_finish_of_string : string -> wire_finish
 
 (** Canonical parse-time mapping for backends that know the assembled tool-block
