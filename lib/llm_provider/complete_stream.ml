@@ -122,6 +122,7 @@ let%test "clean stream finalizes Ok: Gemini finishReason" =
       | Ok (events, _telemetry) -> accumulate_events acc events
       | Error _ -> ())
    | Streaming.Gemini_unsupported_part _ -> ()
+   | Streaming.Gemini_unsupported_response _ -> ()
    | Streaming.Gemini_parse_failed _ -> ());
   match Complete_stream_acc.finalize_stream_acc acc with
   | Ok _ -> true
@@ -427,6 +428,7 @@ let complete_stream_http
         (* Event types exist only in SSE; NDJSON has no event field. *)
         | Types.SSEUnknownEventType _ -> `Wire_error Http_client.Sse
         | Types.SSEUnsupportedPart _ -> `Capability_mismatch
+        | Types.SSEUnsupportedResponse _ -> `Capability_mismatch
         | Types.NDJSONParseFailed _ -> `Wire_error Http_client.Ndjson
         | Types.Connected -> `Skip
         | Types.Timeout _ -> `Wire_error active_wire_format
@@ -730,6 +732,16 @@ let complete_stream_http
                                         ; raw
                                         }
                                     ]
+                                  , None )
+                                | Streaming.Gemini_unsupported_response { response; raw } ->
+                                  ( [ Types.SSEUnsupportedResponse
+                                        { provider_kind = Provider_kind.Gemini
+                                        ; response =
+                                            Streaming.gemini_unsupported_response_wire_name
+                                              response
+                                        ; raw
+                                        }
+                                    ]
                                   , None ))
                              | Provider_http_codec.Glm_chat ->
                                Backend_glm.parse_stream_chunk ~streaming_reasoning data
@@ -833,7 +845,8 @@ let complete_stream_http
                              | Types.Stream_incomplete _ ->
                                Complete_stream_error.wire_error_terminal_label
                                  active_wire_format
-                             | Types.Stream_unsupported_part _ ->
+                             | Types.Stream_unsupported_part _
+                             | Types.Stream_unsupported_response _ ->
                                Complete_stream_error.capability_mismatch_terminal_label)
                      | Telemetry_event.Terminal_error _
                      | Telemetry_event.Terminal_cancelled -> ());

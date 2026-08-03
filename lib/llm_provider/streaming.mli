@@ -169,10 +169,17 @@ type gemini_unsupported_part =
   | Gemini_audio_transcription
   | Gemini_streaming_function_call_arguments
 
+type gemini_unsupported_response =
+  | Gemini_multiple_candidates of { count : int }
+
 type gemini_sse_parse_result =
   | Gemini_chunk of gemini_chunk
   | Gemini_unsupported_part of
       { part : gemini_unsupported_part
+      ; raw : string
+      }
+  | Gemini_unsupported_response of
+      { response : gemini_unsupported_response
       ; raw : string
       }
   | Gemini_parse_failed of
@@ -183,11 +190,14 @@ type gemini_sse_parse_result =
 (** Parse one Gemini SSE data payload without collapsing malformed JSON or
     malformed candidate/part shapes into an absent chunk. Official Part kinds
     that OAS does not project are returned as [Gemini_unsupported_part], not
-    relabelled as malformed bytes. Callers must surface either failure with the
-    raw payload. *)
+    relabelled as malformed bytes. Official response shapes that OAS does not
+    project are returned as [Gemini_unsupported_response]. Callers must surface
+    either capability fact with the raw payload. *)
 val parse_gemini_sse_chunk : string -> gemini_sse_parse_result
 
 val gemini_unsupported_part_wire_name : gemini_unsupported_part -> string
+
+val gemini_unsupported_response_wire_name : gemini_unsupported_response -> string
 
 type gemini_chunk_to_events_error = { reason : string }
 

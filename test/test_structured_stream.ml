@@ -120,6 +120,7 @@ let test_on_event_callback_fires () =
       | NDJSONParseFailed _ -> "ndjson_parse_failed"
       | SSEUnknownEventType _ -> "unknown_event_type"
       | SSEUnsupportedPart _ -> "unsupported_part"
+      | SSEUnsupportedResponse _ -> "unsupported_response"
       | Connected -> "connected"
       | Timeout _ -> "timeout"
       | StreamIncomplete _ -> "stream_incomplete"

@@ -196,6 +196,7 @@ let sse_event_is_first_token_signal (e : sse_event) : bool =
   | NDJSONParseFailed _
   | SSEUnknownEventType _
   | SSEUnsupportedPart _
+  | SSEUnsupportedResponse _
   | Connected
   | Timeout _
   | StreamIncomplete _ -> false
@@ -223,6 +224,7 @@ let sse_event_is_deliverable_progress_signal (e : sse_event) : bool =
   | NDJSONParseFailed _
   | SSEUnknownEventType _
   | SSEUnsupportedPart _
+  | SSEUnsupportedResponse _
   | Connected
   | Timeout _
   | StreamIncomplete _ -> false
@@ -1286,6 +1288,7 @@ let test_tool_use_start_with_name = function
   | NDJSONParseFailed _
   | SSEUnknownEventType _
   | SSEUnsupportedPart _
+  | SSEUnsupportedResponse _
   | Connected
   | Timeout _
   | StreamIncomplete _ -> None
@@ -1306,6 +1309,7 @@ let test_tool_use_start = function
   | NDJSONParseFailed _
   | SSEUnknownEventType _
   | SSEUnsupportedPart _
+  | SSEUnsupportedResponse _
   | Connected
   | Timeout _
   | StreamIncomplete _ -> None
@@ -1326,6 +1330,7 @@ let test_input_json_delta = function
   | NDJSONParseFailed _
   | SSEUnknownEventType _
   | SSEUnsupportedPart _
+  | SSEUnsupportedResponse _
   | Connected
   | Timeout _
   | StreamIncomplete _ -> None
@@ -1858,10 +1863,17 @@ type gemini_unsupported_part =
   | Gemini_audio_transcription
   | Gemini_streaming_function_call_arguments
 
+type gemini_unsupported_response =
+  | Gemini_multiple_candidates of { count : int }
+
 type gemini_sse_parse_result =
   | Gemini_chunk of gemini_chunk
   | Gemini_unsupported_part of
       { part : gemini_unsupported_part
+      ; raw : string
+      }
+  | Gemini_unsupported_response of
+      { response : gemini_unsupported_response
       ; raw : string
       }
   | Gemini_parse_failed of
@@ -1942,6 +1954,12 @@ let gemini_optional_int_default_zero ~path key json =
          (Json_util.json_type_name value))
 ;;
 
+let gemini_part_metadata_object_fields = [ "partMetadata"; "mediaResolution"; "videoMetadata" ]
+
+let gemini_part_metadata_fields =
+  [ "thought"; "thoughtSignature" ] @ gemini_part_metadata_object_fields
+;;
+
 let validate_gemini_part_metadata ~path part =
   let ( let* ) = Result.bind in
   let* () =
@@ -1979,11 +1997,7 @@ let validate_gemini_part_metadata ~path part =
               key
               (Json_util.json_type_name value)))
   in
-  validate_objects [ "partMetadata"; "mediaResolution"; "videoMetadata" ]
-;;
-
-let gemini_part_metadata_fields =
-  [ "thought"; "thoughtSignature"; "partMetadata"; "mediaResolution"; "videoMetadata" ]
+  validate_objects gemini_part_metadata_object_fields
 ;;
 
 let gemini_supported_part_payloads = [ "text"; "functionCall"; "inlineData" ]
@@ -2026,17 +2040,9 @@ let validate_gemini_part ~position part =
     Error
       (Printf.sprintf "%s.text:not_string(got %s)" path (Json_util.json_type_name value))
   | [ ("functionCall", (`Assoc function_call_fields as function_call)) ] ->
-    let* () =
-      if
-        List.mem_assoc "partialArgs" function_call_fields
-        || List.mem_assoc "willContinue" function_call_fields
-      then Error (path ^ ".functionCall:streaming_arguments_unsupported")
-      else Ok ()
-    in
     let unsupported_field =
       List.find_opt
-        (fun (key, _) ->
-           not (List.mem key [ "id"; "name"; "args"; "partialArgs"; "willContinue" ]))
+        (fun (key, _) -> not (List.mem key [ "id"; "name"; "args" ]))
         function_call_fields
     in
     let* () =
@@ -2077,31 +2083,60 @@ let validate_gemini_part ~position part =
 type gemini_payload_failure =
   | Gemini_payload_malformed of string
   | Gemini_payload_unsupported_part of gemini_unsupported_part
+  | Gemini_payload_unsupported_response of gemini_unsupported_response
+
+type gemini_unsupported_payload_kind =
+  | Gemini_executable_code_payload
+  | Gemini_code_execution_result_payload
+  | Gemini_tool_call_payload
+  | Gemini_tool_response_payload
+  | Gemini_function_response_payload
+  | Gemini_file_data_payload
+  | Gemini_audio_transcription_payload
+
+let gemini_unsupported_payload_kind_wire_name = function
+  | Gemini_executable_code_payload -> "executableCode"
+  | Gemini_code_execution_result_payload -> "codeExecutionResult"
+  | Gemini_tool_call_payload -> "toolCall"
+  | Gemini_tool_response_payload -> "toolResponse"
+  | Gemini_function_response_payload -> "functionResponse"
+  | Gemini_file_data_payload -> "fileData"
+  | Gemini_audio_transcription_payload -> "audioTranscription"
+;;
 
 let gemini_unsupported_part_wire_name = function
-  | Gemini_executable_code -> "executableCode"
-  | Gemini_code_execution_result -> "codeExecutionResult"
-  | Gemini_tool_call -> "toolCall"
-  | Gemini_tool_response -> "toolResponse"
-  | Gemini_function_response -> "functionResponse"
-  | Gemini_file_data -> "fileData"
-  | Gemini_audio_transcription -> "audioTranscription"
+  | Gemini_executable_code ->
+    gemini_unsupported_payload_kind_wire_name Gemini_executable_code_payload
+  | Gemini_code_execution_result ->
+    gemini_unsupported_payload_kind_wire_name Gemini_code_execution_result_payload
+  | Gemini_tool_call -> gemini_unsupported_payload_kind_wire_name Gemini_tool_call_payload
+  | Gemini_tool_response ->
+    gemini_unsupported_payload_kind_wire_name Gemini_tool_response_payload
+  | Gemini_function_response ->
+    gemini_unsupported_payload_kind_wire_name Gemini_function_response_payload
+  | Gemini_file_data -> gemini_unsupported_payload_kind_wire_name Gemini_file_data_payload
+  | Gemini_audio_transcription ->
+    gemini_unsupported_payload_kind_wire_name Gemini_audio_transcription_payload
   | Gemini_streaming_function_call_arguments -> "functionCall.partialArgs"
 ;;
 
-let gemini_unsupported_part_kinds =
-  [ Gemini_executable_code
-  ; Gemini_code_execution_result
-  ; Gemini_tool_call
-  ; Gemini_tool_response
-  ; Gemini_function_response
-  ; Gemini_file_data
-  ; Gemini_audio_transcription
+let gemini_unsupported_response_wire_name = function
+  | Gemini_multiple_candidates _ -> "candidates"
+;;
+
+let gemini_unsupported_payload_kinds =
+  [ Gemini_executable_code_payload
+  ; Gemini_code_execution_result_payload
+  ; Gemini_tool_call_payload
+  ; Gemini_tool_response_payload
+  ; Gemini_function_response_payload
+  ; Gemini_file_data_payload
+  ; Gemini_audio_transcription_payload
   ]
 ;;
 
 let gemini_unsupported_part_fields =
-  List.map gemini_unsupported_part_wire_name gemini_unsupported_part_kinds
+  List.map gemini_unsupported_payload_kind_wire_name gemini_unsupported_payload_kinds
   @ gemini_part_metadata_fields
 ;;
 
@@ -2202,16 +2237,16 @@ let gemini_unsupported_part_of_json ~position part =
       let payloads =
         List.filter_map
           (fun kind ->
-             let key = gemini_unsupported_part_wire_name kind in
+             let key = gemini_unsupported_payload_kind_wire_name kind in
              match List.assoc_opt key fields with
              | Some value -> Some (kind, value)
              | None -> None)
-          gemini_unsupported_part_kinds
+          gemini_unsupported_payload_kinds
       in
       match payloads with
       | [] -> None
       | _ :: _ :: _ -> Some (Error (path ^ ":multiple_payloads"))
-      | [ (Gemini_executable_code, value) ] ->
+      | [ (Gemini_executable_code_payload, value) ] ->
         let ( let* ) = Result.bind in
         Some
           (let* () = validate_gemini_unsupported_part_envelope ~path fields in
@@ -2233,7 +2268,7 @@ let gemini_unsupported_part_of_json ~position part =
              gemini_required_string ~path:(path ^ ".executableCode") "code" code
            in
            Ok Gemini_executable_code)
-      | [ (Gemini_code_execution_result, value) ] ->
+      | [ (Gemini_code_execution_result_payload, value) ] ->
         let ( let* ) = Result.bind in
         Some
           (let* () = validate_gemini_unsupported_part_envelope ~path fields in
@@ -2257,7 +2292,7 @@ let gemini_unsupported_part_of_json ~position part =
              gemini_optional_string ~path:(path ^ ".codeExecutionResult") "output" result
            in
            Ok Gemini_code_execution_result)
-      | [ (Gemini_tool_call, value) ] ->
+      | [ (Gemini_tool_call_payload, value) ] ->
         let ( let* ) = Result.bind in
         Some
           (let* () = validate_gemini_unsupported_part_envelope ~path fields in
@@ -2276,7 +2311,7 @@ let gemini_unsupported_part_of_json ~position part =
            in
            let* () = gemini_optional_object ~path:tool_call_path "args" tool_call in
            Ok Gemini_tool_call)
-      | [ (Gemini_tool_response, value) ] ->
+      | [ (Gemini_tool_response_payload, value) ] ->
         let ( let* ) = Result.bind in
         Some
           (let* () = validate_gemini_unsupported_part_envelope ~path fields in
@@ -2301,7 +2336,8 @@ let gemini_unsupported_part_of_json ~position part =
              gemini_optional_object ~path:tool_response_path "response" tool_response
            in
            Ok Gemini_tool_response)
-      | [ ( ((Gemini_function_response | Gemini_file_data | Gemini_audio_transcription) as
+      | [ ( ((Gemini_function_response_payload | Gemini_file_data_payload
+             | Gemini_audio_transcription_payload) as
              kind)
           , value )
         ] ->
@@ -2310,11 +2346,14 @@ let gemini_unsupported_part_of_json ~position part =
           (let* () = validate_gemini_unsupported_part_envelope ~path fields in
            let* _ =
              gemini_object_fields
-               ~path:(path ^ "." ^ gemini_unsupported_part_wire_name kind)
+               ~path:(path ^ "." ^ gemini_unsupported_payload_kind_wire_name kind)
                value
            in
-           Ok kind)
-      | [ (Gemini_streaming_function_call_arguments, _) ] -> assert false)
+           Ok
+             (match kind with
+              | Gemini_function_response_payload -> Gemini_function_response
+              | Gemini_file_data_payload -> Gemini_file_data
+              | Gemini_audio_transcription_payload -> Gemini_audio_transcription)))
   | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
 ;;
 
@@ -2352,7 +2391,9 @@ let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
     match candidates with
     | [ candidate ] -> Ok candidate
     | _ :: _ ->
-      Error (Gemini_payload_malformed "gemini.candidates:multiple_candidates_unsupported")
+      Error
+        (Gemini_payload_unsupported_response
+           (Gemini_multiple_candidates { count = List.length candidates }))
     | [] ->
       let* prompt_feedback = gemini_field ~path:"gemini" "promptFeedback" json in
       let* prompt_feedback =
@@ -2463,7 +2504,9 @@ let parse_gemini_sse_chunk data_str : gemini_sse_parse_result =
      | Error (Gemini_payload_malformed reason) ->
        Gemini_parse_failed { raw = data_str; reason }
      | Error (Gemini_payload_unsupported_part part) ->
-       Gemini_unsupported_part { raw = data_str; part })
+       Gemini_unsupported_part { raw = data_str; part }
+     | Error (Gemini_payload_unsupported_response response) ->
+       Gemini_unsupported_response { raw = data_str; response })
 ;;
 
 let gemini_chunk_to_events_impl (state : openai_stream_state) (chunk : gemini_chunk)

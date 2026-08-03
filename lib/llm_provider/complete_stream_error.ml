@@ -165,6 +165,21 @@ let http_error_of_stream_error
     in
     Http_client.ProviderFailure
       { kind = Http_client.Capability_mismatch { capability = Some capability }; message }
+  | Types.Stream_unsupported_response { provider_kind; response; raw } ->
+    let capability =
+      Printf.sprintf "%s.response.%s" (Provider_kind.to_string provider_kind) response
+    in
+    let message =
+      match raw with
+      | "" -> Printf.sprintf "provider emitted an unsupported response: %s" capability
+      | raw ->
+        Printf.sprintf
+          "provider emitted an unsupported response: %s raw=%S"
+          capability
+          (parse_error_raw_excerpt raw)
+    in
+    Http_client.ProviderFailure
+      { kind = Http_client.Capability_mismatch { capability = Some capability }; message }
 ;;
 
 let%test "generic stream provider type stays diagnostic" =
@@ -294,5 +309,20 @@ let%test "unsupported content part is a capability mismatch" =
     && message
        = "provider emitted an unsupported content part: gemini.part.executableCode \
           raw=\"{}\""
+  | _ -> false
+;;
+
+let%test "unsupported response is a capability mismatch" =
+  match
+    http_error_of_stream_error
+      (Types.Stream_unsupported_response
+         { provider_kind = Provider_kind.Gemini; response = "candidates"; raw = "{}" })
+  with
+  | Http_client.ProviderFailure
+      { kind = Http_client.Capability_mismatch { capability = Some capability }; message }
+    ->
+    capability = "gemini.response.candidates"
+    && message
+       = "provider emitted an unsupported response: gemini.response.candidates raw=\"{}\""
   | _ -> false
 ;;

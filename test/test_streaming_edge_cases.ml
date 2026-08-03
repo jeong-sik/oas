@@ -83,6 +83,7 @@ let parse_gemini_chunk data =
   match S.parse_gemini_sse_chunk data with
   | S.Gemini_chunk chunk -> Some chunk
   | S.Gemini_unsupported_part _ -> None
+  | S.Gemini_unsupported_response _ -> None
   | S.Gemini_parse_failed _ -> None
 ;;
 
@@ -569,14 +570,20 @@ let test_gemini_parse_edge_shapes () =
      S.parse_gemini_sse_chunk
        {|{"candidates":[{"content":{"parts":[{"text":"a"}]}},{"content":{"parts":[{"text":"b"}]}}]}|}
    with
-   | S.Gemini_parse_failed { reason; _ } ->
-     check
-       string
-       "multiple candidates reason"
-       "gemini.candidates:multiple_candidates_unsupported"
-       reason
+   | S.Gemini_unsupported_response { response; raw } ->
+     (match response with
+      | S.Gemini_multiple_candidates { count } ->
+        check int "multiple candidates count" 2 count;
+        check
+          string
+          "multiple candidates wire field"
+          "candidates"
+          (S.gemini_unsupported_response_wire_name response);
+        check bool "multiple candidates raw preserved" true (String.length raw > 0))
    | S.Gemini_chunk _ -> fail "multiple Gemini candidates must not be dropped"
-   | S.Gemini_unsupported_part _ -> fail "multiple candidates are not a Part kind");
+   | S.Gemini_unsupported_part _ -> fail "multiple candidates are not a Part kind"
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "multiple candidates were collapsed into malformed: %s" reason);
   (match
      S.parse_gemini_sse_chunk
        {|{"modelVersion":"gem","candidates":[{"content":{"parts":{"bad":true}}}],"usageMetadata":null}|}
@@ -588,13 +595,15 @@ let test_gemini_parse_edge_shapes () =
        "gemini.candidates[0].content.parts:not_array(got object)"
        reason
    | S.Gemini_chunk _ -> fail "non-list parts must be rejected"
-   | S.Gemini_unsupported_part _ -> fail "non-list parts are not a Part kind");
+   | S.Gemini_unsupported_part _ -> fail "non-list parts are not a Part kind"
+   | S.Gemini_unsupported_response _ -> fail "non-list parts are not a response kind");
   match S.parse_gemini_sse_chunk "{not-json" with
   | S.Gemini_parse_failed { raw; reason } ->
     check string "invalid gemini raw" "{not-json" raw;
     check bool "invalid gemini reason" true (String.length reason > 0)
   | S.Gemini_chunk _ -> fail "invalid gemini json should be rejected"
   | S.Gemini_unsupported_part _ -> fail "invalid JSON is not a Part kind"
+  | S.Gemini_unsupported_response _ -> fail "invalid JSON is not a response kind"
 ;;
 
 let check_gemini_refusal label payload =
@@ -608,6 +617,8 @@ let check_gemini_refusal label payload =
     failf "%s: valid policy block was rejected: %s" label reason
   | S.Gemini_unsupported_part _ ->
     failf "%s: policy block is not an unsupported Part" label
+  | S.Gemini_unsupported_response _ ->
+    failf "%s: policy block is not an unsupported response" label
 ;;
 
 let test_gemini_policy_blocks_are_not_wire_failures () =
@@ -627,7 +638,8 @@ let test_gemini_supported_metadata_and_function_call_shapes () =
    | S.Gemini_chunk _ -> ()
    | S.Gemini_parse_failed { reason; _ } ->
      failf "official Part metadata was rejected: %s" reason
-   | S.Gemini_unsupported_part _ -> fail "Part metadata is not a payload kind");
+   | S.Gemini_unsupported_part _ -> fail "Part metadata is not a payload kind"
+   | S.Gemini_unsupported_response _ -> fail "Part metadata is not a response kind");
   (match
      S.parse_gemini_sse_chunk
        {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup"}}]}}]}|}
@@ -650,7 +662,8 @@ let test_gemini_supported_metadata_and_function_call_shapes () =
           events)
    | S.Gemini_parse_failed { reason; _ } ->
      failf "optional functionCall.args was rejected: %s" reason
-   | S.Gemini_unsupported_part _ -> fail "argument-free function call is supported");
+   | S.Gemini_unsupported_part _ -> fail "argument-free function call is supported"
+   | S.Gemini_unsupported_response _ -> fail "argument-free function call is not a response");
   match
     S.parse_gemini_sse_chunk
       {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","partialArgs":[],"willContinue":true}}]}}]}|}
@@ -664,6 +677,8 @@ let test_gemini_supported_metadata_and_function_call_shapes () =
   | S.Gemini_chunk _ -> fail "streaming function args must not be dropped"
   | S.Gemini_parse_failed { reason; _ } ->
     failf "official streaming function args were called malformed: %s" reason
+  | S.Gemini_unsupported_response _ ->
+    fail "streaming function args are not a response kind"
 ;;
 
 let test_gemini_part_shape_failure_is_explicit () =
@@ -681,6 +696,7 @@ let test_gemini_part_shape_failure_is_explicit () =
   | S.Gemini_chunk _ -> fail "unknown Gemini part must not be accepted"
   | S.Gemini_unsupported_part _ ->
     fail "unknown fields must remain malformed, not official unsupported Parts"
+  | S.Gemini_unsupported_response _ -> fail "unknown fields are not a response kind"
 ;;
 
 let test_gemini_official_unsupported_part_is_not_malformed () =
@@ -696,7 +712,8 @@ let test_gemini_official_unsupported_part_is_not_malformed () =
        (S.gemini_unsupported_part_wire_name part);
      check string "unsupported Part raw preserved" raw observed_raw
    | S.Gemini_parse_failed _ -> fail "official unsupported Part must not be malformed"
-   | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted");
+   | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted"
+   | S.Gemini_unsupported_response _ -> fail "unsupported Part is not a response kind");
   match
     S.parse_gemini_sse_chunk
       {|{"candidates":[{"content":{"parts":[{"functionResponse":{"name":"lookup","response":{}}}]}}]}|}
@@ -709,6 +726,7 @@ let test_gemini_official_unsupported_part_is_not_malformed () =
       (S.gemini_unsupported_part_wire_name part)
   | S.Gemini_parse_failed _ -> fail "official functionResponse must not be malformed"
   | S.Gemini_chunk _ -> fail "unsupported functionResponse must not be dropped"
+  | S.Gemini_unsupported_response _ -> fail "functionResponse is not a response kind"
 ;;
 
 let test_gemini_unsupported_part_shape_is_explicit () =
@@ -724,7 +742,8 @@ let test_gemini_unsupported_part_shape_is_explicit () =
        (S.gemini_unsupported_part_wire_name part);
      check string "code execution result raw preserved" result_raw raw
    | S.Gemini_parse_failed _ -> fail "official code execution result must be typed"
-   | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted");
+   | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted"
+   | S.Gemini_unsupported_response _ -> fail "unsupported Part is not a response kind");
   match
     S.parse_gemini_sse_chunk
       {|{"candidates":[{"content":{"parts":[{"executableCode":{"language":"PYTHON"}}]}}]}|}
@@ -737,6 +756,7 @@ let test_gemini_unsupported_part_shape_is_explicit () =
       reason
   | S.Gemini_unsupported_part _ -> fail "malformed executableCode must remain malformed"
   | S.Gemini_chunk _ -> fail "malformed executableCode must not be accepted"
+  | S.Gemini_unsupported_response _ -> fail "malformed executableCode is not a response kind"
 ;;
 
 let test_gemini_builtin_tool_parts_are_typed () =
@@ -748,7 +768,8 @@ let test_gemini_builtin_tool_parts_are_typed () =
      check string "typed toolCall" "toolCall" (S.gemini_unsupported_part_wire_name part);
      check string "toolCall raw preserved" tool_call_raw raw
    | S.Gemini_parse_failed _ -> fail "official toolCall must be typed"
-   | S.Gemini_chunk _ -> fail "unsupported toolCall must not be silently accepted");
+   | S.Gemini_chunk _ -> fail "unsupported toolCall must not be silently accepted"
+   | S.Gemini_unsupported_response _ -> fail "toolCall is not a response kind");
   let tool_response_raw =
     {|{"candidates":[{"content":{"parts":[{"thoughtSignature":"sig","toolResponse":{"toolType":"GOOGLE_SEARCH_WEB","response":{"search_suggestions":"x"},"id":"call-1"}}]}}]}|}
   in
@@ -761,7 +782,8 @@ let test_gemini_builtin_tool_parts_are_typed () =
        (S.gemini_unsupported_part_wire_name part);
      check string "toolResponse raw preserved" tool_response_raw raw
    | S.Gemini_parse_failed _ -> fail "official toolResponse must be typed"
-   | S.Gemini_chunk _ -> fail "unsupported toolResponse must not be silently accepted");
+   | S.Gemini_chunk _ -> fail "unsupported toolResponse must not be silently accepted"
+   | S.Gemini_unsupported_response _ -> fail "toolResponse is not a response kind");
   match
     S.parse_gemini_sse_chunk
       {|{"candidates":[{"content":{"parts":[{"toolCall":{"toolType":"GOOGLE_SEARCH_WEB"}}]}}]}|}
@@ -774,6 +796,7 @@ let test_gemini_builtin_tool_parts_are_typed () =
       reason
   | S.Gemini_unsupported_part _ -> fail "malformed toolCall must remain malformed"
   | S.Gemini_chunk _ -> fail "malformed toolCall must not be accepted"
+  | S.Gemini_unsupported_response _ -> fail "malformed toolCall is not a response kind"
 ;;
 
 let test_gemini_malformed_part_precedes_unsupported_part () =
@@ -790,6 +813,7 @@ let test_gemini_malformed_part_precedes_unsupported_part () =
   | S.Gemini_unsupported_part _ ->
     fail "malformed sibling must not be hidden by unsupported Part"
   | S.Gemini_chunk _ -> fail "malformed sibling must not be accepted"
+  | S.Gemini_unsupported_response _ -> fail "malformed sibling is not a response kind"
 ;;
 
 let gemini_chunk ?(parts = []) ?finish_reason ?usage () : S.gemini_chunk =

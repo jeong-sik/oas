@@ -14,6 +14,7 @@ let parse_gemini_chunk data =
   match Streaming.parse_gemini_sse_chunk data with
   | Streaming.Gemini_chunk chunk -> Some chunk
   | Streaming.Gemini_unsupported_part _ -> None
+  | Streaming.Gemini_unsupported_response _ -> None
   | Streaming.Gemini_parse_failed _ -> None
 ;;
 
