@@ -3,14 +3,7 @@ open Agent_types
 open Agent_trace
 open Result_syntax
 
-let run
-      ?raw_trace_run
-      ?before_tool_execution
-      ~turn
-      ~response
-      ~available_tools
-      agent
-      tools
+let run ?raw_trace_run ?before_tool_execution ~turn ~response ~available_tools agent tools
   =
   let tool_uses = Nonempty.to_list tools in
   Tracing.with_span

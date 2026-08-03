@@ -73,13 +73,7 @@ let pp_node_kind formatter = function
     Format.fprintf formatter "Agent_run {agent_name=%S}" agent_name
   | Agent_turn { ordinal } -> Format.fprintf formatter "Agent_turn {ordinal=%d}" ordinal
   | Provider_attempt { ordinal; target; tool_names } ->
-    Format.fprintf
-      formatter
-      "Provider_attempt {ordinal=%d; target=%a; tool_names=[%s]}"
-      ordinal
-      Binding_identity.Redacted_snapshot.pp
-      target
-      (String.concat "," tool_names)
+    Execution_provider_attempt_surface.pp formatter ~ordinal ~target ~tool_names
   | Output_block { ordinal; block_kind } ->
     Format.fprintf
       formatter
@@ -150,6 +144,7 @@ let provider_attempt ~ordinal ~tool_names binding =
   let+ () = validate_node_kind kind in
   kind
 ;;
+
 let make_node ~node_id ~run_id ~parent_node_id ~kind =
   let* () = validate_node_kind kind in
   Ok { node_id; run_id; parent_node_id; kind }
@@ -568,6 +563,7 @@ let node_kind_to_yojson kind =
   let+ () = validate_node_kind kind in
   node_kind_to_yojson_unchecked kind
 ;;
+
 let node_kind_of_yojson json =
   let* header =
     object_fields

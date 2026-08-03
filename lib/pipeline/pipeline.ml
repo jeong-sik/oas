@@ -1,9 +1,10 @@
 (** Six-stage Agent turn pipeline: Input, Parse, Route, Collect, Execute, Output.
 
-    [Output] ([stage_output]) dispatches [Execute] ([stage_execute]) internally
-    on StopToolUse, so Execute is a sub-step of Output, not a stage that runs
-    between Collect and Output. This matches the dataflow diagram in
-    pipeline.mli: [Input] -> [Parse] -> [Route] -> [Collect] -> [Output]. *)
+    [Output] ([stage_output]) dispatches [Execute]
+    ([Pipeline_stage_execute.run]) internally on StopToolUse, so Execute is a
+    sub-step of Output, not a stage that runs between Collect and Output. This
+    matches the dataflow diagram in pipeline.mli:
+    [Input] -> [Parse] -> [Route] -> [Collect] -> [Output]. *)
 
 open Types
 open Agent_types

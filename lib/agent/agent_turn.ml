@@ -66,15 +66,16 @@ let prepare_messages ~messages ~turn_params () =
 ;;
 
 let prepare_turn ~tools ~messages ~turn_params ?model_input_projection () =
-  let selected_tools =
+  let selected_names =
     match turn_params.Hooks.tool_surface with
-    | Hooks.All_tools -> Ok tools
-    | Hooks.Selected_tools names ->
-      Tool_set.select_exact ~names tools
-      |> Result.map_error (fun error -> Tool_selection_failed error)
+    | Hooks.All_tools -> Tool_set.names tools
+    | Hooks.Selected_tools names -> names
   in
   let ( let* ) = Result.bind in
-  let* visible_tools = selected_tools in
+  let* visible_tools =
+    Tool_set.select_exact ~names:selected_names tools
+    |> Result.map_error (fun error -> Tool_selection_failed error)
+  in
   let* () =
     match turn_params.tool_choice with
     | Some (Tool name) when not (Tool_set.mem name visible_tools) ->
