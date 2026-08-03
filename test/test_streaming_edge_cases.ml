@@ -573,8 +573,30 @@ let test_gemini_parse_edge_shapes () =
      check (option string) "empty modelVersion remains distinct" (Some "") chunk.gem_model
    | S.Gemini_parse_failed { reason; _ } ->
      failf "empty modelVersion was rejected instead of preserved: %s" reason
-   | S.Gemini_unsupported_part _ -> fail "empty modelVersion is not a Part kind"
-   | S.Gemini_unsupported_response _ -> fail "empty modelVersion is not a response kind");
+  | S.Gemini_unsupported_part _ -> fail "empty modelVersion is not a Part kind"
+  | S.Gemini_unsupported_response _ -> fail "empty modelVersion is not a response kind");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"modelVersion":"gemini-wire-model","candidates":[{"content":{"parts":[{"text":"done"}]},"finishReason":"STOP"}]}|}
+   with
+   | S.Gemini_chunk chunk ->
+     let events, _ =
+       require_gemini_events
+         "response model propagation"
+         (S.create_openai_stream_state ~model:"requested-model" ())
+         chunk
+     in
+     let acc = Llm_provider.Complete_stream_acc.create_stream_acc () in
+     List.iter (Llm_provider.Complete_stream_acc.accumulate_event acc) events;
+     (match Llm_provider.Complete_stream_acc.finalize_stream_acc acc with
+      | Ok response ->
+        check string "wire model reaches final response" "gemini-wire-model" response.model
+      | Error _ -> fail "terminal Gemini chunk did not finalize")
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "model propagation fixture was rejected: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "model propagation has no unsupported Part"
+   | S.Gemini_unsupported_response _ ->
+     fail "model propagation has no unsupported response");
   (match
      S.parse_gemini_sse_chunk
        {|{"candidates":[{"content":{"parts":[{"text":"partial"}]},"finishReason":""}]}|}
@@ -648,7 +670,9 @@ let check_gemini_refusal label expected_reason payload =
       (chunk.gem_finish_reason = expected_reason);
     let events, _ = require_gemini_events label (S.create_openai_stream_state ()) chunk in
     (match events with
-     | [ MessageDelta { stop_reason = Some Refusal; _ } ] -> ()
+     | [ MessageStart { model = "gem"; _ }
+       ; MessageDelta { stop_reason = Some Refusal; _ }
+       ] -> ()
      | _ -> failf "%s: expected a typed refusal" label)
   | S.Gemini_parse_failed { reason; _ } ->
     failf "%s: valid policy block was rejected: %s" label reason
@@ -723,6 +747,21 @@ let test_gemini_supported_metadata_and_function_call_shapes () =
      fail "terminal willContinue=false is not incremental arguments"
    | S.Gemini_unsupported_response _ ->
      fail "terminal willContinue=false is not a response kind");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","willContinue":true}}]}}]}|}
+   with
+   | S.Gemini_unsupported_part { part; _ } ->
+     check
+       string
+       "streaming continuation remains explicit"
+       "functionCall.willContinue"
+       (S.gemini_unsupported_part_wire_name part)
+   | S.Gemini_chunk _ -> fail "streaming continuation must not be dropped"
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "official streaming continuation was called malformed: %s" reason
+   | S.Gemini_unsupported_response _ ->
+     fail "streaming continuation is not a response kind");
   match
     S.parse_gemini_sse_chunk
       {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","partialArgs":[],"willContinue":true}}]}}]}|}
@@ -923,7 +962,7 @@ let test_gemini_event_edge_branches () =
       (S.create_openai_stream_state ())
       (gemini_chunk ~parts:[ function_call_part ] ())
   in
-  check_event_count "function call emits start and arguments" 2 tool_events;
+  check_event_count "function call emits message, tool start, and arguments" 3 tool_events;
   let empty_text_without_call = `Assoc [ "functionCall", `String "not-an-object" ] in
   (match
      S.gemini_chunk_to_events
@@ -940,7 +979,9 @@ let test_gemini_event_edge_branches () =
       (gemini_chunk ~finish_reason:"MAX_TOKENS" ~usage:(usage ()) ())
   in
   (match max_tokens_events with
-   | [ MessageDelta { stop_reason = Some MaxTokens; usage = Some _ } ] -> ()
+   | [ MessageStart { model = "gemini-test"; _ }
+     ; MessageDelta { stop_reason = Some MaxTokens; usage = Some _ }
+     ] -> ()
    | _ -> fail "expected gemini max-tokens finish");
   let unknown_events, _ =
     require_gemini_events
@@ -949,7 +990,9 @@ let test_gemini_event_edge_branches () =
       (gemini_chunk ~finish_reason:"SAFETY" ())
   in
   match unknown_events with
-  | [ MessageDelta { stop_reason = Some Refusal; _ } ] -> ()
+  | [ MessageStart { model = "gemini-test"; _ }
+    ; MessageDelta { stop_reason = Some Refusal; _ }
+    ] -> ()
   | _ -> fail "expected gemini unknown finish"
 ;;
 

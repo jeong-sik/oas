@@ -754,6 +754,7 @@ type openai_stream_state =
         the sole identity authority for an open tool block. *)
   ; mutable next_block_index : int
   ; mutable thinking_state : thinking_state
+  ; mutable gemini_message_model : string option
   ; provider : string
   ; model : string
   }
@@ -768,6 +769,7 @@ let create_openai_stream_state ?(provider = "") ?(model = "") () =
   ; tool_block_identities = Hashtbl.create 4
   ; next_block_index = 0
   ; thinking_state = Not_thinking
+  ; gemini_message_model = None
   ; provider
   ; model
   }
@@ -1866,6 +1868,7 @@ type gemini_unsupported_part =
   | Gemini_file_data
   | Gemini_audio_transcription
   | Gemini_streaming_function_call_arguments
+  | Gemini_streaming_function_call_continuation
 
 type gemini_unsupported_response = Gemini_multiple_candidates of { count : int }
 
@@ -2143,6 +2146,7 @@ let gemini_unsupported_part_wire_name = function
   | Gemini_audio_transcription ->
     gemini_unsupported_payload_kind_wire_name Gemini_audio_transcription_payload
   | Gemini_streaming_function_call_arguments -> "functionCall.partialArgs"
+  | Gemini_streaming_function_call_continuation -> "functionCall.willContinue"
 ;;
 
 let gemini_unsupported_response_wire_name = function
@@ -2204,12 +2208,15 @@ let gemini_unsupported_part_of_json ~position part =
     let streaming_function_call =
       match List.assoc_opt "functionCall" fields with
       | Some (`Assoc function_call_fields) ->
-        List.mem_assoc "partialArgs" function_call_fields
-        || List.assoc_opt "willContinue" function_call_fields = Some (`Bool true)
-      | Some _ | None -> false
+        if List.mem_assoc "partialArgs" function_call_fields
+        then Some Gemini_streaming_function_call_arguments
+        else if List.assoc_opt "willContinue" function_call_fields = Some (`Bool true)
+        then Some Gemini_streaming_function_call_continuation
+        else None
+      | Some _ | None -> None
     in
-    if streaming_function_call
-    then
+    (match streaming_function_call with
+     | Some unsupported_part ->
       Some
         (let ( let* ) = Result.bind in
          let* () =
@@ -2257,8 +2264,8 @@ let gemini_unsupported_part_of_json ~position part =
                   function_call_path
                   (Json_util.json_type_name value))
          in
-         Ok Gemini_streaming_function_call_arguments)
-    else (
+         Ok unsupported_part)
+     | None ->
       let payloads =
         List.filter_map
           (fun kind ->
@@ -2542,6 +2549,14 @@ let gemini_chunk_to_events_impl (state : openai_stream_state) (chunk : gemini_ch
   let events = ref [] in
   let emit evt = events := evt :: !events in
   let telemetry_event = ref None in
+  (match chunk.gem_model with
+   | Some model
+     when (match state.gemini_message_model with
+           | Some observed -> not (String.equal observed model)
+           | None -> true) ->
+     state.gemini_message_model <- Some model;
+     emit (MessageStart { id = ""; model; usage = None })
+   | Some _ | None -> ());
   let has_thought_part =
     List.exists
       (fun part ->

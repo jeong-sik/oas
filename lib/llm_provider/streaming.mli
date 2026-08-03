@@ -172,6 +172,7 @@ type gemini_unsupported_part =
   | Gemini_file_data
   | Gemini_audio_transcription
   | Gemini_streaming_function_call_arguments
+  | Gemini_streaming_function_call_continuation
 
 type gemini_unsupported_response = Gemini_multiple_candidates of { count : int }
 
