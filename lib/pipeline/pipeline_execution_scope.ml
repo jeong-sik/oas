@@ -93,16 +93,27 @@ let turn_ordinal t =
   | Durable turn -> Execution_agent_scope.turn_ordinal turn
 ;;
 
-let before_provider_attempt t binding =
+let before_provider_attempt t ~tool_names binding =
   match t.turn with
   | Transient _ -> Ok ()
   | Durable turn ->
-    Execution_agent_scope.open_provider_attempt turn ~ordinal:0 binding
+    Execution_agent_scope.open_provider_attempt turn ~ordinal:0 ~tool_names binding
     |> Result.map (fun provider -> t.provider <- Some provider)
     |> Result.map_error sdk_error
 ;;
 
 let provider (t : t) = t.provider
+
+let provider_tool_names (t : t) =
+  match t.provider with
+  | Some provider ->
+    Execution_agent_scope.provider_tool_names provider |> Result.map_error sdk_error
+  | None ->
+    Error
+      (sdk_error
+         (Execution_agent_scope.Resume_topology_mismatch
+            "active execution has no provider tool surface authority"))
+;;
 
 let record_provider_response (t : t) response =
   match t.turn, t.provider with

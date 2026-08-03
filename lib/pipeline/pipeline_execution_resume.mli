@@ -11,14 +11,15 @@
     [all_pre_tool_use_blocked] continues an exact checkpoint whose ToolUse and
     ToolResult identities match while the journal contains zero invocation
     nodes; that typed path never enters terminal recovery. [execute] receives
-    the durable turn identity ([turn]), owned by the journal rather than
-    reconstructed from mutable agent state. Fails closed on inconsistent
-    restored topology. *)
+    the durable turn identity ([turn]) and exact provider tool surface
+    ([tool_names]), both owned by the journal rather than reconstructed from
+    mutable agent state. Fails closed on inconsistent restored topology. *)
 val dispatch
   :  Agent_types.t
   -> execute:
        (turn:int
         -> response:Types.api_response
+        -> tool_names:string list
         -> Types.content_block Nonempty.t
         -> ('a, Error.sdk_error) result)
   -> tools_settled_before_checkpoint:

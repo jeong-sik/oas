@@ -24,7 +24,7 @@ let context_messages = function
 
 let prepared_turn = function
   | Ok prep -> prep
-  | Error detail -> Alcotest.fail detail
+  | Error error -> Alcotest.fail (Agent_turn.preparation_error_to_string error)
 ;;
 
 (* ── prepare_turn tests ────────────────────────────────────── *)
@@ -136,6 +136,90 @@ let test_prepare_turn_visible_tool_names_preserves_order () =
     "registry order preserved"
     [ "Bash"; "Read"; "Edit" ]
     prep.visible_tool_names
+;;
+
+let test_prepare_turn_selected_tools_are_exact_execution_surface () =
+  let make name =
+    Tool.create ~name ~description:name ~parameters:[] (fun _ ->
+      Ok { Types.content = name; _meta = None })
+  in
+  let tools = Tool_set.of_list [ make "search"; make "write"; make "publish" ] in
+  let turn_params =
+    { Hooks.default_turn_params with
+      tool_surface = Hooks.Selected_tools [ "search"; "publish" ]
+    }
+  in
+  let prep =
+    Agent_turn.prepare_turn ~tools ~messages:[] ~turn_params () |> prepared_turn
+  in
+  Alcotest.(check (list string))
+    "provider schemas"
+    [ "search"; "publish" ]
+    prep.visible_tool_names;
+  Alcotest.(check (list string))
+    "execution handlers"
+    [ "search"; "publish" ]
+    (Tool_set.names prep.visible_tools)
+;;
+
+let test_prepare_turn_unknown_selected_tool_fails_closed () =
+  let tool =
+    Tool.create ~name:"search" ~description:"search" ~parameters:[] (fun _ ->
+      Ok { Types.content = ""; _meta = None })
+  in
+  let turn_params =
+    { Hooks.default_turn_params with tool_surface = Hooks.Selected_tools [ "missing" ] }
+  in
+  match
+    Agent_turn.prepare_turn ~tools:(Tool_set.singleton tool) ~messages:[] ~turn_params ()
+  with
+  | Error (Agent_turn.Tool_selection_failed (Tool_set.Unknown_selection "missing")) -> ()
+  | Error error ->
+    Alcotest.failf "unexpected error: %s" (Agent_turn.preparation_error_to_string error)
+  | Ok _ -> Alcotest.fail "unknown selected tool was accepted"
+;;
+
+let test_prepare_turn_duplicate_selected_tool_fails_closed () =
+  let tool =
+    Tool.create ~name:"search" ~description:"search" ~parameters:[] (fun _ ->
+      Ok { Types.content = ""; _meta = None })
+  in
+  let turn_params =
+    { Hooks.default_turn_params with
+      tool_surface = Hooks.Selected_tools [ "search"; "search" ]
+    }
+  in
+  match
+    Agent_turn.prepare_turn ~tools:(Tool_set.singleton tool) ~messages:[] ~turn_params ()
+  with
+  | Error (Agent_turn.Tool_selection_failed (Tool_set.Duplicate_selection "search")) -> ()
+  | Error error ->
+    Alcotest.failf "unexpected error: %s" (Agent_turn.preparation_error_to_string error)
+  | Ok _ -> Alcotest.fail "duplicate selected tool was accepted"
+;;
+
+let test_prepare_turn_named_choice_must_be_visible () =
+  let make name =
+    Tool.create ~name ~description:name ~parameters:[] (fun _ ->
+      Ok { Types.content = ""; _meta = None })
+  in
+  let turn_params =
+    { Hooks.default_turn_params with
+      tool_choice = Some (Types.Tool "write")
+    ; tool_surface = Hooks.Selected_tools [ "search" ]
+    }
+  in
+  match
+    Agent_turn.prepare_turn
+      ~tools:(Tool_set.of_list [ make "search"; make "write" ])
+      ~messages:[]
+      ~turn_params
+      ()
+  with
+  | Error (Agent_turn.Tool_choice_not_visible "write") -> ()
+  | Error error ->
+    Alcotest.failf "unexpected error: %s" (Agent_turn.preparation_error_to_string error)
+  | Ok _ -> Alcotest.fail "hidden named tool_choice was accepted"
 ;;
 
 (* ── prepare_messages tests ────────────────────────────────── *)
@@ -789,6 +873,22 @@ let () =
             "visible_tool_names preserves order"
             `Quick
             test_prepare_turn_visible_tool_names_preserves_order
+        ; Alcotest.test_case
+            "selected tools define provider and execution surface"
+            `Quick
+            test_prepare_turn_selected_tools_are_exact_execution_surface
+        ; Alcotest.test_case
+            "unknown selected tool fails closed"
+            `Quick
+            test_prepare_turn_unknown_selected_tool_fails_closed
+        ; Alcotest.test_case
+            "duplicate selected tool fails closed"
+            `Quick
+            test_prepare_turn_duplicate_selected_tool_fails_closed
+        ; Alcotest.test_case
+            "named choice must be visible"
+            `Quick
+            test_prepare_turn_named_choice_must_be_visible
         ] )
     ; ( "prepare_messages"
       , [ Alcotest.test_case

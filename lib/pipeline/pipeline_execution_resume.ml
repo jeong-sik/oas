@@ -241,9 +241,12 @@ let run
                  (Error.Internal "durable execution resume lost its provider authority")
              | Some provider ->
                Execution_context.with_provider_attempt provider (fun () ->
+                 let* tool_names =
+                   Pipeline_execution_scope.provider_tool_names execution
+                 in
                  let* settled = Pipeline_execution_scope.invocations_settled execution in
                  if not settled
-                 then execute ~response tool_blocks
+                 then execute ~response ~tool_names tool_blocks
                  else
                    let* persisted =
                      Pipeline_execution_scope.settled_invocations_with_results execution
@@ -254,7 +257,7 @@ let run
                          without opening an invocation. With no persisted result
                          authority, safely re-run admission rather than inventing
                          a result. *)
-                     execute ~response tool_blocks
+                     execute ~response ~tool_names tool_blocks
                    | persisted ->
                      let invocations =
                        List.map

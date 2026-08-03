@@ -57,7 +57,7 @@ let provider_attempt ?(model_id = "test-model") ordinal =
       config
     |> require_codec_ok
   in
-  require_codec_ok (Event.provider_attempt ~ordinal binding)
+  require_codec_ok (Event.provider_attempt ~ordinal ~tool_names:[] binding)
 ;;
 
 let tool_invocation ?(planned_index = 0) name =

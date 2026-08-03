@@ -149,15 +149,32 @@ let prepare_turn_for_agent agent ~turn_params =
     ()
 ;;
 
-let model_input_projection_error detail =
-  Error.Agent
-    (HookExecutionFailed
-       { hook_name = "model_input_projection"
-       ; stage = "turn:parse"
-       ; tool_name = None
-       ; tool_use_id = None
-       ; detail
-       })
+let preparation_error_to_sdk = function
+  | Agent_turn.Model_input_projection_failed detail ->
+    Error.Agent
+      (HookExecutionFailed
+         { hook_name = "model_input_projection"
+         ; stage = "turn:parse"
+         ; tool_name = None
+         ; tool_use_id = None
+         ; detail
+         })
+  | Agent_turn.Tool_selection_failed selection_error ->
+    let detail =
+      match selection_error with
+      | Tool_set.Duplicate_selection name ->
+        Printf.sprintf "duplicate selected tool name %S" name
+      | Tool_set.Unknown_selection name ->
+        Printf.sprintf "selected tool name %S is not registered" name
+    in
+    Error.Config (InvalidConfig { field = "tool_surface"; detail })
+  | Agent_turn.Tool_choice_not_visible name ->
+    Error.Config
+      (InvalidConfig
+         { field = "tool_choice"
+         ; detail =
+             Printf.sprintf "named tool %S is outside the selected tool surface" name
+         })
 ;;
 
 let stage_parse ?raw_trace_run ?clock ~turn agent =
@@ -249,8 +266,7 @@ let stage_parse ?raw_trace_run ?clock ~turn agent =
        (Turn_started { turn; timestamp = Pipeline_common.timestamp_now ?clock () })
    | None -> ());
   let* prep =
-    prepare_turn_for_agent agent ~turn_params
-    |> Result.map_error model_input_projection_error
+    prepare_turn_for_agent agent ~turn_params |> Result.map_error preparation_error_to_sdk
   in
   let ready_tool_names = prep.visible_tool_names in
   (* TurnReady reports the exact caller-supplied tool list the LLM will see

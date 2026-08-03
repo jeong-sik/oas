@@ -29,8 +29,15 @@ val resume_current : Execution_agent_scope.t option -> (resumed, Error.sdk_error
 val finalize_settled : settled_boundary -> (unit, Error.sdk_error) result
 
 val turn_ordinal : t -> int
-val before_provider_attempt : t -> Binding_identity.t -> (unit, Error.sdk_error) result
+
+val before_provider_attempt
+  :  t
+  -> tool_names:string list
+  -> Binding_identity.t
+  -> (unit, Error.sdk_error) result
+
 val provider : t -> Execution_agent_scope.provider_attempt option
+val provider_tool_names : t -> (string list, Error.sdk_error) result
 
 val record_provider_response
   :  t

@@ -10,7 +10,10 @@ let test_default_turn_params () =
   Alcotest.(check (option int)) "no thinking_budget" None p.thinking_budget;
   Alcotest.(check (option bool)) "no enable_thinking" None p.enable_thinking;
   Alcotest.(check bool) "no extra context" true (p.extra_system_context = None);
-  Alcotest.(check bool) "no system prompt override" true (p.system_prompt_override = None)
+  Alcotest.(check bool) "no system prompt override" true (p.system_prompt_override = None);
+  match p.tool_surface with
+  | Hooks.All_tools -> ()
+  | Hooks.Selected_tools _ -> Alcotest.fail "default tool surface is not complete"
 ;;
 
 let test_enable_thinking_override () =

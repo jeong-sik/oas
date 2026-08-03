@@ -15,8 +15,24 @@ let _log = Log.create ~module_name:"agent_turn" ()
 type turn_preparation =
   { tools_json : Yojson.Safe.t list option
   ; effective_messages : message list
+  ; visible_tools : Tool_set.t
   ; visible_tool_names : string list
   }
+
+type preparation_error =
+  | Tool_selection_failed of Tool_set.selection_error
+  | Tool_choice_not_visible of string
+  | Model_input_projection_failed of string
+
+let preparation_error_to_string = function
+  | Tool_selection_failed (Tool_set.Duplicate_selection name) ->
+    Printf.sprintf "duplicate selected tool name %S" name
+  | Tool_selection_failed (Tool_set.Unknown_selection name) ->
+    Printf.sprintf "selected tool name %S is not registered" name
+  | Tool_choice_not_visible name ->
+    Printf.sprintf "named tool %S is outside the selected tool surface" name
+  | Model_input_projection_failed detail -> detail
+;;
 
 let prepare_tools ~(tools : Tool_set.t) () =
   let selected = Tool_set.to_list tools in
@@ -48,19 +64,39 @@ let prepare_messages ~messages ~turn_params () =
 ;;
 
 let prepare_turn ~tools ~messages ~turn_params ?model_input_projection () =
-  let tools_json, visible_tool_names = prepare_tools ~tools () in
+  let selected_tools =
+    match turn_params.Hooks.tool_surface with
+    | Hooks.All_tools -> Ok tools
+    | Hooks.Selected_tools names ->
+      Tool_set.select_exact ~names tools
+      |> Result.map_error (fun error -> Tool_selection_failed error)
+  in
+  let ( let* ) = Result.bind in
+  let* visible_tools = selected_tools in
+  let* () =
+    match turn_params.tool_choice with
+    | Some (Tool name) when not (Tool_set.mem name visible_tools) ->
+      Error (Tool_choice_not_visible name)
+    | Some (Tool _ | Auto | Any | None_) | None -> Ok ()
+  in
+  let tools_json, visible_tool_names = prepare_tools ~tools:visible_tools () in
   let prepared = prepare_messages ~messages ~turn_params () in
   let effective_messages =
     match model_input_projection with
     | None -> Ok prepared
     | Some project ->
-      (try project prepared with
+      (try
+         Result.map_error
+           (fun detail -> Model_input_projection_failed detail)
+           (project prepared)
+       with
        | exn ->
          Llm_provider.Reserved_exn.reraise_if_reserved exn;
-         Error (Printexc.to_string exn))
+         Error (Model_input_projection_failed (Printexc.to_string exn)))
   in
   Result.map
-    (fun effective_messages -> { tools_json; effective_messages; visible_tool_names })
+    (fun effective_messages ->
+       { tools_json; effective_messages; visible_tools; visible_tool_names })
     effective_messages
 ;;
 

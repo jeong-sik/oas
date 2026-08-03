@@ -6,6 +6,12 @@
 
 open Types
 
+(** Exact provider and execution surface for one turn. [Selected_tools] names
+    are validated against the caller-owned tool set before provider dispatch. *)
+type tool_surface =
+  | All_tools
+  | Selected_tools of string list
+
 (** Per-turn adjustable parameters.
     Hooks can return [AdjustParams] from [BeforeTurnParams] to override
     these for a single turn. Values revert to the agent's base config
@@ -17,6 +23,7 @@ type turn_params =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; tool_choice : tool_choice option
+  ; tool_surface : tool_surface
   ; extra_system_context : string option
   ; system_prompt_override : string option
   }
@@ -28,6 +35,7 @@ let default_turn_params =
   ; enable_thinking = None
   ; preserve_thinking = None
   ; tool_choice = None
+  ; tool_surface = All_tools
   ; extra_system_context = None
   ; system_prompt_override = None
   }

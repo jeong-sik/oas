@@ -54,6 +54,7 @@ type node_kind =
   | Provider_attempt of
       { ordinal : int
       ; target : Binding_identity.Redacted_snapshot.t
+      ; tool_names : string list
       }
   | Output_block of
       { ordinal : int
@@ -71,13 +72,14 @@ let pp_node_kind formatter = function
   | Agent_run { agent_name } ->
     Format.fprintf formatter "Agent_run {agent_name=%S}" agent_name
   | Agent_turn { ordinal } -> Format.fprintf formatter "Agent_turn {ordinal=%d}" ordinal
-  | Provider_attempt { ordinal; target } ->
+  | Provider_attempt { ordinal; target; tool_names } ->
     Format.fprintf
       formatter
-      "Provider_attempt {ordinal=%d; target=%a}"
+      "Provider_attempt {ordinal=%d; target=%a; tool_names=[%s]}"
       ordinal
       Binding_identity.Redacted_snapshot.pp
       target
+      (String.concat "," tool_names)
   | Output_block { ordinal; block_kind } ->
     Format.fprintf
       formatter
@@ -130,8 +132,22 @@ let validate_node_kind = function
   | Agent_run { agent_name } -> validate_non_blank "agent_name" agent_name
   | Agent_turn { ordinal } ->
     if ordinal < 0 then Error "agent turn ordinal must be non-negative" else Ok ()
-  | Provider_attempt { ordinal; _ } ->
-    if ordinal < 0 then Error "provider attempt ordinal must be non-negative" else Ok ()
+  | Provider_attempt { ordinal; tool_names; _ } ->
+    if ordinal < 0
+    then Error "provider attempt ordinal must be non-negative"
+    else (
+      let seen = Hashtbl.create (List.length tool_names) in
+      let rec validate = function
+        | [] -> Ok ()
+        | name :: rest ->
+          let* () = validate_non_blank "tool_name" name in
+          if Hashtbl.mem seen name
+          then Error (Printf.sprintf "provider attempt tool name %S is duplicated" name)
+          else (
+            Hashtbl.add seen name ();
+            validate rest)
+      in
+      validate tool_names)
   | Output_block { ordinal; _ } ->
     if ordinal < 0 then Error "output block ordinal must be non-negative" else Ok ()
   | Tool_invocation { provider_tool_use_id = _; tool_name; schedule; completion } ->
@@ -140,9 +156,10 @@ let validate_node_kind = function
   | Tool_attempt -> Ok ()
 ;;
 
-let provider_attempt ~ordinal binding =
+let provider_attempt ~ordinal ~tool_names binding =
   let kind =
-    Provider_attempt { ordinal; target = Binding_identity.redacted_snapshot binding }
+    Provider_attempt
+      { ordinal; target = Binding_identity.redacted_snapshot binding; tool_names }
   in
   let+ () = validate_node_kind kind in
   kind
@@ -160,6 +177,7 @@ let equal_node_kind left right =
   | Provider_attempt left, Provider_attempt right ->
     left.ordinal = right.ordinal
     && Binding_identity.Redacted_snapshot.equal left.target right.target
+    && List.equal String.equal left.tool_names right.tool_names
   | Output_block left, Output_block right ->
     left.ordinal = right.ordinal
     && equal_output_block_kind left.block_kind right.block_kind
@@ -541,11 +559,12 @@ let node_kind_to_yojson_unchecked = function
     `Assoc [ "type", `String "agent_run"; "agent_name", `String agent_name ]
   | Agent_turn { ordinal } ->
     `Assoc [ "type", `String "agent_turn"; "ordinal", `Int ordinal ]
-  | Provider_attempt { ordinal; target } ->
+  | Provider_attempt { ordinal; target; tool_names } ->
     `Assoc
       [ "type", `String "provider_attempt"
       ; "ordinal", `Int ordinal
       ; "target", Binding_identity.Redacted_snapshot.to_yojson target
+      ; "tool_names", `List (List.map (fun name -> `String name) tool_names)
       ]
   | Output_block { ordinal; block_kind } ->
     `Assoc
@@ -579,6 +598,7 @@ let node_kind_of_yojson json =
         [ "agent_name"
         ; "ordinal"
         ; "target"
+        ; "tool_names"
         ; "block_kind"
         ; "provider_tool_use_id"
         ; "tool_name"
@@ -609,11 +629,23 @@ let node_kind_of_yojson json =
         let+ ordinal = int_field "ordinal" fields in
         Agent_turn { ordinal })
     | "provider_attempt" ->
-      decode ~required:[ "ordinal"; "target" ] ~optional:[] (fun fields ->
+      decode ~required:[ "ordinal"; "target"; "tool_names" ] ~optional:[] (fun fields ->
         let* ordinal = int_field "ordinal" fields in
         let* target_json = field "target" fields in
-        let+ target = Binding_identity.Redacted_snapshot.of_yojson target_json in
-        Provider_attempt { ordinal; target })
+        let* target = Binding_identity.Redacted_snapshot.of_yojson target_json in
+        let* tool_names_json = field "tool_names" fields in
+        let* tool_names =
+          match tool_names_json with
+          | `List names ->
+            let rec decode_names decoded_rev = function
+              | [] -> Ok (List.rev decoded_rev)
+              | `String name :: rest -> decode_names (name :: decoded_rev) rest
+              | _ :: _ -> Error "provider attempt tool_names must contain only strings"
+            in
+            decode_names [] names
+          | _ -> Error "provider attempt tool_names must be an array"
+        in
+        Ok (Provider_attempt { ordinal; target; tool_names }))
     | "output_block" ->
       decode ~required:[ "ordinal"; "block_kind" ] ~optional:[] (fun fields ->
         let* ordinal = int_field "ordinal" fields in

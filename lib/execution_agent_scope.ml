@@ -96,6 +96,7 @@ type error =
       }
   | Invocation_locator_mismatch
   | Resume_topology_mismatch of string
+  | Tool_not_in_provider_surface of string
   | Invalid_tool_result
   | Settlement_failed of Settlement.error
 
@@ -127,6 +128,8 @@ let error_to_string = function
   | Invocation_locator_mismatch ->
     "execution invocation locator does not match durable topology"
   | Resume_topology_mismatch detail -> "execution resume topology mismatch: " ^ detail
+  | Tool_not_in_provider_surface name ->
+    Printf.sprintf "tool %S is outside the durable provider surface" name
   | Invalid_tool_result -> "execution settlement returned an invalid ToolResult"
   | Settlement_failed error -> settlement_error_to_string error
 ;;
@@ -368,14 +371,29 @@ let resume_current_turn scope =
                 Error (Resume_topology_mismatch "requested turn is already closed")))))
 ;;
 
-let open_provider_attempt turn ~ordinal binding =
-  match Event.provider_attempt ~ordinal binding with
+let open_provider_attempt turn ~ordinal ~tool_names binding =
+  match Event.provider_attempt ~ordinal ~tool_names binding with
   | Error detail -> Error (Invalid_provider_attempt detail)
   | Ok kind ->
     transact
       turn.scope.writer
       (Tx.open_node ~run:turn.scope.run ~parent:turn.node ~kind ())
     |> Result.map (fun (node, _event) -> { turn; node })
+;;
+
+let provider_tool_names (provider : provider_attempt) =
+  match Writer.find_node provider.turn.scope.writer provider.node with
+  | Error error -> Error (Scope_unavailable error)
+  | Ok None -> Error (Resume_topology_mismatch "provider attempt node disappeared")
+  | Ok (Some view) ->
+    (match Event.node_kind view.node with
+     | Event.Provider_attempt { tool_names; _ } -> Ok tool_names
+     | Event.Agent_run _
+     | Event.Agent_turn _
+     | Event.Output_block _
+     | Event.Tool_invocation _
+     | Event.Tool_attempt ->
+       Error (Resume_topology_mismatch "provider authority points to a non-provider node"))
 ;;
 
 let resume_provider_attempt (turn : turn) =
@@ -422,24 +440,29 @@ let resume_provider_attempt (turn : turn) =
 ;;
 
 let open_invocation provider ~invocation ~tool_name ~input =
-  let scope = provider.turn.scope in
-  match
-    transact
-      scope.writer
-      (Tx.open_tool_invocation
-         ~run:scope.run
-         ~provider_attempt:provider.node
-         ~invocation
-         ~tool_name
-         ~input
-         ())
-  with
+  match provider_tool_names provider with
   | Error _ as error -> error
-  | Ok (node, _events) ->
-    let locator = { run_id = Journal.run_id scope.run; node } in
-    Settlement.rebind ~writer:scope.writer ~invocation_node:node
-    |> Result.map (fun durable -> { durable; locator; scope })
-    |> Result.map_error (fun error -> Settlement_failed error)
+  | Ok tool_names when not (List.mem tool_name tool_names) ->
+    Error (Tool_not_in_provider_surface tool_name)
+  | Ok _ ->
+    let scope = provider.turn.scope in
+    (match
+       transact
+         scope.writer
+         (Tx.open_tool_invocation
+            ~run:scope.run
+            ~provider_attempt:provider.node
+            ~invocation
+            ~tool_name
+            ~input
+            ())
+     with
+     | Error _ as error -> error
+     | Ok (node, _events) ->
+       let locator = { run_id = Journal.run_id scope.run; node } in
+       Settlement.rebind ~writer:scope.writer ~invocation_node:node
+       |> Result.map (fun durable -> { durable; locator; scope })
+       |> Result.map_error (fun error -> Settlement_failed error))
 ;;
 
 let invocation_locator invocation = invocation.locator

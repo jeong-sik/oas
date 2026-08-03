@@ -304,8 +304,84 @@ let stage_collect ?raw_trace_run ?clock ~turn ~provider_config agent response =
 
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
+(** Reject provider ToolUse blocks outside the exact surface serialized for
+    this turn. The check runs before the response becomes durable authority. *)
+let validate_response_tool_surface ~visible_tools (response : Types.api_response) =
+  let rec validate = function
+    | [] -> Ok ()
+    | ToolUse { name; _ } :: rest ->
+      if Tool_set.mem name visible_tools
+      then validate rest
+      else
+        Error
+          (Error.Config
+             (InvalidConfig
+                { field = "tool_surface"
+                ; detail =
+                    Printf.sprintf
+                      "provider called tool %S outside the selected turn surface"
+                      name
+                }))
+    | ( Text _
+      | Thinking _
+      | ReasoningDetails _
+      | RedactedThinking _
+      | ToolResult _
+      | Image _
+      | Document _
+      | Audio _ )
+      :: rest -> validate rest
+  in
+  validate response.content
+;;
+
+let select_durable_tool_surface ~tool_names tools =
+  match Tool_set.select_exact ~names:tool_names tools with
+  | Ok selected -> Ok selected
+  | Error selection_error ->
+    let detail =
+      match selection_error with
+      | Tool_set.Duplicate_selection name ->
+        Printf.sprintf "durable provider tool name %S is duplicated" name
+      | Tool_set.Unknown_selection name ->
+        Printf.sprintf "durable provider tool name %S is not registered" name
+    in
+    Error (Error.Config (InvalidConfig { field = "tool_surface"; detail }))
+;;
+
+let%test "selected turn surface rejects a hidden provider ToolUse" =
+  let visible_tool =
+    Tool.create ~name:"search" ~description:"search" ~parameters:[] (fun _ ->
+      Ok { Types.content = ""; _meta = None })
+  in
+  let response : Types.api_response =
+    { id = "response"
+    ; model = "model"
+    ; stop_reason = StopToolUse
+    ; content = [ ToolUse { id = "call"; name = "write"; input = `Assoc [] } ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  match
+    validate_response_tool_surface
+      ~visible_tools:(Tool_set.singleton visible_tool)
+      response
+  with
+  | Error (Error.Config (InvalidConfig { field = "tool_surface"; _ })) -> true
+  | Error _ | Ok () -> false
+;;
+
 (** Handle tool execution and context injection. *)
-let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent tools =
+let stage_execute
+      ?raw_trace_run
+      ?before_tool_execution
+      ~turn
+      ~response
+      ~available_tools
+      agent
+      tools
+  =
   (* [stage_output] rejects empty StopToolUse from provider and injected
      transports. [Nonempty.t] then prevents a silent empty [ToolsExecuted]
      loop at compile time. *)
@@ -325,6 +401,7 @@ let stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent to
            agent
            raw_trace_run
            ~turn
+           ~tools:available_tools
            ?before_tool_execution
            tool_uses
          |> Pipeline_terminal_tool.unpack_execution_result
@@ -400,7 +477,14 @@ let replay_settled_before_checkpoint agent =
 ;;
 
 (** Map stop_reason to turn_outcome. *)
-let stage_output ?raw_trace_run ?before_tool_execution ~turn agent response =
+let stage_output
+      ?raw_trace_run
+      ?before_tool_execution
+      ~turn
+      ~available_tools
+      agent
+      response
+  =
   Tracing.with_span
     agent.options.tracer
     { kind = Hook_invoke
@@ -443,6 +527,7 @@ let stage_output ?raw_trace_run ?before_tool_execution ~turn agent response =
               ?before_tool_execution
               ~turn
               ~response
+              ~available_tools
               agent
               tool_uses_nonempty)
        | UnmatchedToolCalls ->
@@ -598,7 +683,9 @@ let run_new_turn
         ?raw_trace_run
         ?on_provider_failure
         ~before_provider_attempt:
-          (Pipeline_execution_scope.before_provider_attempt execution)
+          (Pipeline_execution_scope.before_provider_attempt
+             execution
+             ~tool_names:prep.visible_tool_names)
         ~turn_config
         agent
         prep
@@ -649,6 +736,9 @@ let run_new_turn
            Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
          | Guardrails_async.Pass ->
            let* () =
+             validate_response_tool_surface ~visible_tools:prep.visible_tools response
+           in
+           let* () =
              Pipeline_execution_scope.record_provider_response execution response
              |> tag_error "response"
            in
@@ -658,10 +748,22 @@ let run_new_turn
            in
            (match Pipeline_execution_scope.provider execution with
             | None ->
-              stage_output ?raw_trace_run ?before_tool_execution ~turn agent response
+              stage_output
+                ?raw_trace_run
+                ?before_tool_execution
+                ~turn
+                ~available_tools:prep.visible_tools
+                agent
+                response
             | Some provider ->
               Execution_context.with_provider_attempt provider (fun () ->
-                stage_output ?raw_trace_run ?before_tool_execution ~turn agent response))
+                stage_output
+                  ?raw_trace_run
+                  ?before_tool_execution
+                  ~turn
+                  ~available_tools:prep.visible_tools
+                  agent
+                  response))
            |> tag_error "output")
     in
     (match outcome with
@@ -691,8 +793,16 @@ let run_turn
          identity is the durable turn ordinal supplied by [dispatch]
          ([turn_ordinal]), not [agent.state.turn_count], so the resumed turn is
          traced under the exact ordinal the crashed run used (#2709). *)
-    ~execute:(fun ~turn ~response tool_uses ->
-      stage_execute ?raw_trace_run ?before_tool_execution ~turn ~response agent tool_uses)
+    ~execute:(fun ~turn ~response ~tool_names tool_uses ->
+      let* available_tools = select_durable_tool_surface ~tool_names agent.tools in
+      stage_execute
+        ?raw_trace_run
+        ?before_tool_execution
+        ~turn
+        ~response
+        ~available_tools
+        agent
+        tool_uses)
     ~all_pre_tool_use_blocked:(ToolsExecuted After_tool_results_appended)
     ~tools_settled_before_checkpoint:(replay_settled_before_checkpoint agent)
     ~tools_settled:Pipeline_terminal_tool.recovered_outcome

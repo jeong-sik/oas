@@ -126,7 +126,8 @@ let binding_for ~provider_id =
 ;;
 
 let provider_attempt_for ~provider_id ordinal =
-  require_codec (Event.provider_attempt ~ordinal (binding_for ~provider_id))
+  require_codec
+    (Event.provider_attempt ~ordinal ~tool_names:[] (binding_for ~provider_id))
 ;;
 
 let provider_attempt ordinal =
@@ -693,6 +694,7 @@ let test_agent_scope_owns_effect_topology () =
           (Agent_scope.open_provider_attempt
              turn
              ~ordinal:0
+             ~tool_names:[ "effect" ]
              (binding_for ~provider_id:"scope-provider"))
       in
       let schedule : Tool_contract.schedule =
@@ -892,6 +894,7 @@ let test_agent_scope_executes_pending_after_restart () =
           (Agent_scope.open_provider_attempt
              turn
              ~ordinal:0
+             ~tool_names:[ "durable-tool" ]
              (binding_for ~provider_id:"pending-provider"))
       in
       let schedule : Tool_contract.schedule =

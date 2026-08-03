@@ -40,6 +40,7 @@ val execute_tools_with_trace
   :  t
   -> Raw_trace.active_run option
   -> turn:int
+  -> tools:Tool_set.t
   -> ?before_tool_execution:(unit -> unit)
   -> Types.content_block list
   -> (Agent_tools.execution_report, Agent_tools.execution_failure) result

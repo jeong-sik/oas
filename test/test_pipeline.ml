@@ -327,6 +327,172 @@ let test_pipeline_sends_exact_supplied_tools () =
     (Option.equal (List.equal Yojson.Safe.equal) (Some expected) !captured)
 ;;
 
+let test_selected_tool_surface_rejects_hidden_provider_call () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let executed = ref false in
+  let make_tool name =
+    Tool.create ~name ~description:name ~parameters:[] (fun _ ->
+      executed := true;
+      Ok { Types.content = name; _meta = None })
+  in
+  let visible = make_tool "visible" in
+  let hidden = make_tool "hidden" in
+  let captured = ref [] in
+  let response : Types.api_response =
+    { id = "hidden-call"
+    ; model = "mock-model"
+    ; stop_reason = StopToolUse
+    ; content = [ ToolUse { id = "hidden-1"; name = "hidden"; input = `Assoc [] } ]
+    ; usage = None
+    ; telemetry = None
+    }
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun request ->
+          captured := request.tools;
+          { response = Ok response; latency_ms = Some 0 })
+    ; complete_stream = (fun ?on_telemetry:_ ~on_event:_ _request -> Ok response)
+    }
+  in
+  let hooks =
+    { Hooks.empty with
+      before_turn_params =
+        Some
+          (function
+            | Hooks.BeforeTurnParams { current_params; _ } ->
+              Hooks.AdjustParams
+                { current_params with tool_surface = Hooks.Selected_tools [ "visible" ] }
+            | _ -> Alcotest.fail "expected BeforeTurnParams")
+    }
+  in
+  let options =
+    { Agent.default_options with
+      hooks
+    ; transport = Some transport
+    ; provider_config = Some (Provider_mock.to_provider_config ())
+    }
+  in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~tools:[ visible; hidden ]
+      ~config:
+        { (Types.default_config ~model:"test-model") with name = "selected-surface" }
+      ~options
+      ()
+  in
+  (match Agent.run ~sw agent "call hidden" with
+   | Error (Error.Config (InvalidConfig { field = "tool_surface"; _ })) -> ()
+   | Error error -> Alcotest.failf "unexpected error: %s" (Error.to_string error)
+   | Ok _ -> Alcotest.fail "hidden provider call was accepted");
+  Alcotest.(check bool) "handler not executed" false !executed;
+  let captured_names =
+    List.map Yojson.Safe.Util.(fun json -> json |> member "name" |> to_string) !captured
+  in
+  Alcotest.(check (list string))
+    "only visible schema serialized"
+    [ "visible" ]
+    captured_names
+;;
+
+let test_selected_tool_surface_expands_on_next_turn () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let activated = ref false in
+  let write_executions = ref 0 in
+  let search =
+    Tool.create ~name:"search" ~description:"search" ~parameters:[] (fun _ ->
+      activated := true;
+      Ok { Types.content = "activated write"; _meta = None })
+  in
+  let write =
+    Tool.create ~name:"write" ~description:"write" ~parameters:[] (fun _ ->
+      incr write_executions;
+      Ok { Types.content = "written"; _meta = None })
+  in
+  let provider_calls = ref 0 in
+  let next_response (request : Llm_provider.Llm_transport.completion_request) =
+    incr provider_calls;
+    let expected_names =
+      match !provider_calls with
+      | 1 -> [ "search" ]
+      | 2 | 3 -> [ "search"; "write" ]
+      | _ -> Alcotest.fail "unexpected provider call"
+    in
+    let actual_names =
+      List.map
+        Yojson.Safe.Util.(fun json -> json |> member "name" |> to_string)
+        request.tools
+    in
+    Alcotest.(check (list string)) "turn surface" expected_names actual_names;
+    match !provider_calls with
+    | 1 ->
+      { Types.id = "search-call"
+      ; model = "mock-model"
+      ; stop_reason = StopToolUse
+      ; content = [ ToolUse { id = "search-1"; name = "search"; input = `Assoc [] } ]
+      ; usage = None
+      ; telemetry = None
+      }
+    | 2 ->
+      { Types.id = "write-call"
+      ; model = "mock-model"
+      ; stop_reason = StopToolUse
+      ; content = [ ToolUse { id = "write-1"; name = "write"; input = `Assoc [] } ]
+      ; usage = None
+      ; telemetry = None
+      }
+    | 3 -> pipeline_response EndTurn
+    | _ -> assert false
+  in
+  let transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun request -> { response = Ok (next_response request); latency_ms = Some 0 })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ request -> Ok (next_response request))
+    }
+  in
+  let hooks =
+    { Hooks.empty with
+      before_turn_params =
+        Some
+          (function
+            | Hooks.BeforeTurnParams { current_params; _ } ->
+              let names = if !activated then [ "search"; "write" ] else [ "search" ] in
+              Hooks.AdjustParams
+                { current_params with tool_surface = Hooks.Selected_tools names }
+            | _ -> Alcotest.fail "expected BeforeTurnParams")
+    }
+  in
+  let options =
+    { Agent.default_options with
+      hooks
+    ; transport = Some transport
+    ; provider_config = Some (Provider_mock.to_provider_config ())
+    }
+  in
+  let agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~tools:[ search; write ]
+      ~config:
+        { (Types.default_config ~model:"test-model") with name = "expanding-surface" }
+      ~options
+      ()
+  in
+  (match Agent.run ~sw agent "discover then write" with
+   | Ok _ -> ()
+   | Error error -> Alcotest.failf "unexpected error: %s" (Error.to_string error));
+  Alcotest.(check int) "provider turns" 3 !provider_calls;
+  Alcotest.(check int) "write executed once" 1 !write_executions
+;;
+
 let test_effective_provider_config_drives_lifecycle_and_pricing () =
   Eio_main.run
   @@ fun env ->
@@ -1845,7 +2011,13 @@ let test_agent_run_resumes_tool_without_duplicate_effects
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
             let provider =
-              match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+              match
+                Internal_scope.open_provider_attempt
+                  turn
+                  ~ordinal:0
+                  ~tool_names:[ "durable_tool" ]
+                  binding
+              with
               | Ok provider -> provider
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
@@ -2083,7 +2255,13 @@ let test_unattempted_legacy_invocation_requires_typed_readmission () =
              | Error detail -> Alcotest.fail detail
            in
            let provider =
-             match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+             match
+               Internal_scope.open_provider_attempt
+                 turn
+                 ~ordinal:0
+                 ~tool_names:[ "durable_tool" ]
+                 binding
+             with
              | Ok provider -> provider
              | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
            in
@@ -2369,7 +2547,13 @@ let test_agent_run_resumes_settled_closed_turn
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
             let provider =
-              match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+              match
+                Internal_scope.open_provider_attempt
+                  turn
+                  ~ordinal:0
+                  ~tool_names:[ "durable_tool" ]
+                  binding
+              with
               | Ok provider -> provider
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
@@ -2786,8 +2970,19 @@ let test_settled_malformed_terminal_topology_does_not_finalize_turn () =
                | Ok turn -> turn
                | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
              in
+             let tool_names =
+               match case with
+               | `Invalid_contract _ -> [ "terminal_tool" ]
+               | `Response_mismatch _ -> [ "zero_invocation_tool" ]
+               | `Resume (_, persisted, restored) ->
+                 List.map (fun (_, name, _, _, _) -> name) persisted
+                 @ List.map (fun (_, name, _) -> name) restored
+                 |> List.sort_uniq String.compare
+             in
              let provider =
-               match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+               match
+                 Internal_scope.open_provider_attempt turn ~ordinal:0 ~tool_names binding
+               with
                | Ok provider -> provider
                | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
              in
@@ -3381,7 +3576,13 @@ let test_agent_run_resumes_all_blocked_settled_turn () =
               | Ok turn -> turn
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
-            match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+            match
+              Internal_scope.open_provider_attempt
+                turn
+                ~ordinal:0
+                ~tool_names:[ "durable_tool" ]
+                binding
+            with
             | Ok provider ->
               record_durable_provider_response
                 provider
@@ -3576,7 +3777,13 @@ let test_agent_run_resume_fires_on_yield () =
               | Ok turn -> turn
               | Error error -> Alcotest.fail (Internal_scope.error_to_string error)
             in
-            match Internal_scope.open_provider_attempt turn ~ordinal:0 binding with
+            match
+              Internal_scope.open_provider_attempt
+                turn
+                ~ordinal:0
+                ~tool_names:[ "durable_tool" ]
+                binding
+            with
             | Ok provider ->
               record_durable_provider_response
                 provider
@@ -3705,6 +3912,14 @@ let () =
             "provider receives exact supplied tools"
             `Quick
             test_pipeline_sends_exact_supplied_tools
+        ; Alcotest.test_case
+            "selected surface rejects hidden provider call"
+            `Quick
+            test_selected_tool_surface_rejects_hidden_provider_call
+        ; Alcotest.test_case
+            "selected surface expands next turn"
+            `Quick
+            test_selected_tool_surface_expands_on_next_turn
         ; Alcotest.test_case
             "effective provider config drives lifecycle and pricing"
             `Quick

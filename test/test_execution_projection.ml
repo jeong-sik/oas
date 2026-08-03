@@ -196,7 +196,12 @@ let test_live_and_restart_projection () =
             in
             check int "frozen page excludes later commit" 0 (List.length frozen.events);
             let provider =
-              scope_value (Scope.open_provider_attempt turn ~ordinal:0 (binding ()))
+              scope_value
+                (Scope.open_provider_attempt
+                   turn
+                   ~ordinal:0
+                   ~tool_names:[ "recursive-tool" ]
+                   (binding ()))
             in
             let durable =
               scope_value

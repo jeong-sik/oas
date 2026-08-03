@@ -5,6 +5,10 @@
 
 (** Per-turn adjustable parameters.
     Returned via [AdjustParams] from [BeforeTurnParams] hook. *)
+type tool_surface =
+  | All_tools
+  | Selected_tools of string list
+
 type turn_params =
   { temperature : float option
   ; thinking_budget : int option
@@ -12,6 +16,7 @@ type turn_params =
   ; enable_thinking : bool option
   ; preserve_thinking : bool option
   ; tool_choice : Types.tool_choice option
+  ; tool_surface : tool_surface
   ; extra_system_context : string option
   ; system_prompt_override : string option
   }

@@ -165,7 +165,9 @@ let legacy_recursive_events correlation_id =
       config
     |> require_event
   in
-  let provider_kind = require_event (Event.provider_attempt ~ordinal:0 binding) in
+  let provider_kind =
+    require_event (Event.provider_attempt ~ordinal:0 ~tool_names:[] binding)
+  in
   let provider, _ =
     require_journal
       (Journal.open_node journal ~run:parent_run ~parent:turn ~kind:provider_kind)

@@ -61,6 +61,7 @@ type error =
       }
   | Invocation_locator_mismatch
   | Resume_topology_mismatch of string
+  | Tool_not_in_provider_surface of string
   | Invalid_tool_result
   | Settlement_failed of Execution_tool_settlement.error
 
@@ -123,10 +124,14 @@ val turn_ordinal : turn -> int
 val open_provider_attempt
   :  turn
   -> ordinal:int
+  -> tool_names:string list
   -> Binding_identity.t
   -> (provider_attempt, error) result
 
 val resume_provider_attempt : turn -> (provider_resume, error) result
+
+(** Exact tool surface serialized for this provider attempt. *)
+val provider_tool_names : provider_attempt -> (string list, error) result
 
 (** Materialize the exact provider response once on its owning attempt. *)
 val record_provider_response

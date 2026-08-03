@@ -15,6 +15,7 @@
 type turn_preparation =
   { tools_json : Yojson.Safe.t list option
   ; effective_messages : Types.message list
+  ; visible_tools : Tool_set.t
   ; visible_tool_names : string list
     (** Names of the caller-supplied tools. This is exactly the list the LLM
         sees this turn. Useful for [Event_bus.TurnReady] subscribers and
@@ -25,6 +26,13 @@ type turn_preparation =
 
         @since 0.162.0 *)
   }
+
+type preparation_error =
+  | Tool_selection_failed of Tool_set.selection_error
+  | Tool_choice_not_visible of string
+  | Model_input_projection_failed of string
+
+val preparation_error_to_string : preparation_error -> string
 
 (** Serialize every caller-supplied tool with its complete input schema. *)
 val prepare_tools : tools:Tool_set.t -> unit -> Yojson.Safe.t list option * string list
@@ -53,7 +61,7 @@ val prepare_turn
   -> turn_params:Hooks.turn_params
   -> ?model_input_projection:Agent_types.model_input_projection
   -> unit
-  -> (turn_preparation, string) result
+  -> (turn_preparation, preparation_error) result
 
 (** Project caller-owned turn controls onto the exact provider carrier.
     Provider identity and transport fields remain unchanged; model-specific

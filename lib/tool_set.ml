@@ -14,6 +14,10 @@ type dep_error =
   | DuplicateName of string
   | EmptyName
 
+type selection_error =
+  | Duplicate_selection of string
+  | Unknown_selection of string
+
 let empty = { tools = []; by_name = Hashtbl.create 0 }
 
 let singleton tool =
@@ -54,6 +58,22 @@ let find name set = Hashtbl.find_opt set.by_name name
 let mem name set = Hashtbl.mem set.by_name name
 let size set = List.length set.tools
 let names set = List.map (fun (t : Tool.t) -> t.schema.Types.name) set.tools
+
+let select_exact ~names set =
+  let seen = Hashtbl.create (List.length names) in
+  let rec select selected_rev = function
+    | [] -> Ok (of_list (List.rev selected_rev))
+    | name :: rest ->
+      if Hashtbl.mem seen name
+      then Error (Duplicate_selection name)
+      else (
+        Hashtbl.add seen name ();
+        match find name set with
+        | None -> Error (Unknown_selection name)
+        | Some tool -> select (tool :: selected_rev) rest)
+  in
+  select [] names
+;;
 
 let validate set =
   let errors = ref [] in

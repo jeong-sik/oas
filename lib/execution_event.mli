@@ -64,6 +64,7 @@ type node_kind =
   | Provider_attempt of
       { ordinal : int
       ; target : Binding_identity.Redacted_snapshot.t
+      ; tool_names : string list
       }
   | Output_block of
       { ordinal : int
@@ -81,7 +82,11 @@ type node_kind =
     identity already selected for dispatch. The stored target is its durable
     redacted observation, never a second config resolution or dispatch key. The
     journal allocates the attempt's occurrence identity when the node opens. *)
-val provider_attempt : ordinal:int -> Binding_identity.t -> (node_kind, string) result
+val provider_attempt
+  :  ordinal:int
+  -> tool_names:string list
+  -> Binding_identity.t
+  -> (node_kind, string) result
 
 val pp_node_kind : Format.formatter -> node_kind -> unit
 val show_node_kind : node_kind -> string

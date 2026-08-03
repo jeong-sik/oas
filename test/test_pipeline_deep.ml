@@ -235,6 +235,7 @@ let test_resolve_params_adjust () =
     ; enable_thinking = None
     ; preserve_thinking = None
     ; tool_choice = None
+    ; tool_surface = Hooks.All_tools
     ; extra_system_context = Some "Debug mode"
     ; system_prompt_override = None
     }

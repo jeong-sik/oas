@@ -37,6 +37,14 @@ val mem : string -> t -> bool
 val size : t -> int
 val names : t -> string list
 
+type selection_error =
+  | Duplicate_selection of string
+  | Unknown_selection of string
+
+(** Select the exact named subset in caller-supplied order. Unknown and
+    duplicate names fail closed. *)
+val select_exact : names:string list -> t -> (t, selection_error) result
+
 (** {1 Validation} *)
 
 type dep_error =
