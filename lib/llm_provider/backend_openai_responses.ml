@@ -646,11 +646,15 @@ let response_failed_message json =
 ;;
 
 let stop_reason_of_response_json ~has_tool_calls json =
-  Responses_stop_reason.of_status
-    ~status:(response_status json)
-    ~incomplete_reason:(response_incomplete_reason json)
-    ~failed_message:(response_failed_message json)
-    ~has_tool_calls
+  match
+    Responses_stop_reason.of_status
+      ~status:(response_status json)
+      ~incomplete_reason:(response_incomplete_reason json)
+      ~failed_message:(response_failed_message json)
+      ~has_tool_calls
+  with
+  | Some stop_reason -> Ok stop_reason
+  | None -> Error "malformed_openai_responses:missing_status"
 ;;
 
 let parse_response_result json_str =
@@ -700,6 +704,7 @@ let parse_response_result json_str =
             | Audio _ -> false)
           content
       in
+      let* stop_reason = stop_reason_of_response_json ~has_tool_calls json in
       Ok
         { id =
             opt_bind (json_assoc_opt "id" json) json_string_opt
@@ -707,7 +712,7 @@ let parse_response_result json_str =
         ; model =
             opt_bind (json_assoc_opt "model" json) json_string_opt
             |> Option.value ~default:""
-        ; stop_reason = stop_reason_of_response_json ~has_tool_calls json
+        ; stop_reason
         ; content
         ; usage = usage_of_response_json json
         ; telemetry = telemetry_of_response_json json

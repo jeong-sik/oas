@@ -337,16 +337,15 @@ let parse_ollama_response json_str =
       | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ ->
         Error "malformed_ollama_response:message_not_object"
     in
-    let done_reason =
-      json |> member "done_reason" |> to_string_option |> Option.value ~default:"stop"
+    let* done_reason =
+      match json |> member "done_reason" |> to_string_option with
+      | Some done_reason -> Ok done_reason
+      | None -> Error "malformed_ollama_response:missing_done_reason"
     in
     let stop_reason =
-      match String.lowercase_ascii done_reason with
-      | "tool_calls" when tool_blocks <> [] -> StopToolUse
-      | "length" -> MaxTokens
-      | "stop" -> EndTurn
-      | _other when tool_blocks <> [] -> StopToolUse
-      | other -> Unknown other
+      Stop_reason_wire.of_finish
+        (Stop_reason_wire.wire_finish_of_string done_reason)
+        ~has_tool_blocks:(tool_blocks <> [])
     in
     let input_tokens = Cli_common_json.member_int "prompt_eval_count" json in
     let output_tokens = Cli_common_json.member_int "eval_count" json in
@@ -754,6 +753,46 @@ let%test "parse_ollama_response maps done_reason=tool_calls to StopToolUse" =
       | _ -> false)
 ;;
 
+let%test "parse_ollama_response rejects tool_calls without tool blocks" =
+  match
+    parse_ollama_response
+      {|{"model":"dashscope-3:8b","done":true,"done_reason":"tool_calls","message":{"role":"assistant","content":""}}|}
+  with
+  | Ok response -> response.stop_reason = Types.UnmatchedToolCalls
+  | Error _ -> false
+;;
+
+let%test "parse_ollama_response trusts complete tool blocks over stop label" =
+  let json =
+    {|{"model":"dashscope-3:8b","done":true,"done_reason":"stop",
+       "message":{"role":"assistant","content":"",
+         "tool_calls":[{"function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}]}}|}
+  in
+  match parse_ollama_response json with
+  | Ok response -> response.stop_reason = Types.StopToolUse
+  | Error _ -> false
+;;
+
+let%test "parse_ollama_response keeps unknown reason non-executable" =
+  let json =
+    {|{"model":"dashscope-3:8b","done":true,"done_reason":"provider_terminal",
+       "message":{"role":"assistant","content":"",
+         "tool_calls":[{"function":{"name":"get_weather","arguments":"{\"city\":\"Seoul\"}"}}]}}|}
+  in
+  match parse_ollama_response json with
+  | Ok response -> response.stop_reason = Types.Unknown "provider_terminal"
+  | Error _ -> false
+;;
+
+let%test "parse_ollama_response maps overflow done_reason to ContextWindowExceeded" =
+  match
+    parse_ollama_response
+      {|{"model":"dashscope-3:8b","done":true,"done_reason":"model_context_window_exceeded","message":{"role":"assistant","content":""}}|}
+  with
+  | Ok response -> response.stop_reason = Types.ContextWindowExceeded
+  | Error _ -> false
+;;
+
 let%test "parse_ollama_response returns Error on error field" =
   let json = {|{"error":"model \"nonexistent\" not found, try pulling it first"}|} in
   match parse_ollama_response json with
@@ -764,6 +803,15 @@ let%test "parse_ollama_response returns Error on error field" =
 let%test "parse_ollama_response rejects a missing message" =
   match parse_ollama_response {|{"model":"dashscope-3:8b","done":true}|} with
   | Error "malformed_ollama_response:missing_message" -> true
+  | Error _ | Ok _ -> false
+;;
+
+let%test "parse_ollama_response rejects a missing done reason" =
+  match
+    parse_ollama_response
+      {|{"model":"dashscope-3:8b","done":true,"message":{"role":"assistant","content":"ok"}}|}
+  with
+  | Error "malformed_ollama_response:missing_done_reason" -> true
   | Error _ | Ok _ -> false
 ;;
 

@@ -26,19 +26,20 @@ type wire_finish =
   | Context_window_exceeded
   | Other of string
 
-(** Case-insensitive OpenAI-compatible vocabulary. ["end_turn"] maps to [Stop].
-    ["model_context_window_exceeded"] maps to [Context_window_exceeded] so the
-    OpenAI/GLM finish-reason decoder recognizes the same overflow token as the
-    canonical {!Types.stop_reason_of_string} decoder (previously only the
-    Anthropic/cache path decoded it; the OpenAI/GLM path surfaced it as
-    [Other _ -> Types.Unknown], which the empty-completion overflow classifier
-    routed to provider-unavailability instead of context overflow). *)
+(** Case-insensitive OpenAI-compatible vocabulary. OpenAI-specific
+    ["tool_calls"] and ["stop"] are handled here because the canonical
+    {!Types.stop_reason_of_string} spellings are ["tool_use"] and ["end_turn"].
+    All other canonical and provider-dialect tokens are owned by that decoder
+    and translated from its typed result. Thus an overflow token reaches
+    [Context_window_exceeded] without duplicating its wire spellings here. *)
 val wire_finish_of_string : string -> wire_finish
 
 (** Canonical parse-time mapping for backends that know the assembled tool-block
     set at parse time (the non-streaming OpenAI parser). [Tool_calls] without a
-    tool block fails closed to [UnmatchedToolCalls]. [Other] preserves the raw
-    terminal label as non-executable [Unknown], regardless of content. [Stop]
+    tool block fails closed to [UnmatchedToolCalls]. [Other] re-decodes through
+    {!Types.stop_reason_of_string}: canonical tokens outside this module's
+    vocabulary keep their typed value and unrecognized tokens stay [Unknown].
+    No token reaching [Other] maps to executable [StopToolUse]. [Stop]
     (finish_reason=stop/end_turn) with a tool block present upgrades to
     [StopToolUse] — a provider that emits complete tool_calls but labels the
     turn as normal completion is mislabeling a tool-request turn, and the

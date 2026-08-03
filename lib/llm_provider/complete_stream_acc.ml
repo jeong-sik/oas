@@ -181,9 +181,8 @@ let accumulate_event (acc : stream_acc) = function
   | Types.MessageStop ->
     (* Explicit terminal sentinel from the provider ([data: [DONE]] for
        OpenAI-compatible streams, [message_stop] for Anthropic). It carries no
-       stop_reason, but its presence proves the stream closed cleanly rather than
-       being truncated, so the finalizer may default a missing stop_reason to
-       EndTurn instead of failing closed. *)
+       stop_reason. Its presence distinguishes a provider contract violation
+       from a truncated transport, but cannot synthesize completion semantics. *)
     acc.done_sentinel_seen := true
   | Types.Ping | Types.Connected | Types.Timeout _ -> ()
 ;;
@@ -224,24 +223,17 @@ let block_kind_of_string = function
 let finalize_stream_acc (acc : stream_acc) =
   match !(acc.sse_error) with
   | Some serr -> Error serr
-  | None when (not !(acc.stop_reason_received)) && not !(acc.done_sentinel_seen) ->
-    (* Stream ended without a terminal stop_reason AND without an explicit
-       terminal sentinel. This is a truncated stream: the connection dropped
-       mid-stream (End_of_file in sse_parser) before any [data: [DONE]] /
-       message_stop arrived. Without this check the default EndTurn would make a
-       truncated stream look like a successful completion (phantom completion).
-
-       When a sentinel WAS seen ([done_sentinel_seen] is true) the stream closed
-       cleanly, so we fall through to the success arm below even if no
-       stop_reason was reported -- some OpenAI-compatible providers send
-       [data: [DONE]] with every prior chunk carrying [finish_reason: null], and
-       [acc.stop_reason] already defaults to EndTurn. This mirrors the
-       Ollama-native ([done: true]) and Responses-API terminal defaults; only a
-       sentinel-less close is rejected. *)
+  | None when not !(acc.stop_reason_received) ->
+    (* A terminal sentinel proves transport closure, not why the model stopped.
+       Missing provider semantics stay typed as incomplete instead of being
+       silently promoted to [EndTurn]. *)
     Error
-      (* Preserve the established diagnostic reason while giving callers a
-         typed incomplete-stream fact instead of calling it malformed JSON. *)
-      (Types.Stream_incomplete { reason = "stream_terminated_without_stop_reason" })
+      (Types.Stream_incomplete
+         { reason =
+             (if !(acc.done_sentinel_seen)
+              then "stream_terminal_without_stop_reason"
+              else "stream_terminated_without_stop_reason")
+         })
   | None ->
     let indices =
       Hashtbl.fold (fun k _ acc -> k :: acc) acc.block_types [] |> List.sort compare

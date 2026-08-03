@@ -139,6 +139,38 @@ let%test "clean stream finalizes Ok: Ollama done:true" =
   | Error _ -> false
 ;;
 
+let%test "Ollama done without reason finalizes typed incomplete" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"ollama" ~model:"m" () in
+  (match
+     Streaming.parse_ollama_ndjson_chunk
+       {|{"model":"m","done":true,"message":{"role":"assistant","content":"partial"}}|}
+   with
+   | Streaming.Ollama_chunk chunk ->
+     accumulate_events acc (fst (Streaming.ollama_chunk_to_events st chunk))
+   | Streaming.Ollama_provider_error _ | Streaming.Ollama_parse_failed _ -> ());
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Error (Types.Stream_incomplete { reason = "stream_terminated_without_stop_reason" })
+    -> true
+  | Error _ | Ok _ -> false
+;;
+
+let%test "Responses terminal event without status finalizes typed incomplete" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
+  let events, _ =
+    Streaming.responses_sse_to_events
+      st
+      (Some "response.completed")
+      {|{"response":{"id":"resp-1","model":"m","output":[]}}|}
+  in
+  accumulate_events acc events;
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Error (Types.Stream_incomplete { reason = "stream_terminal_without_stop_reason" }) ->
+    true
+  | Error _ | Ok _ -> false
+;;
+
 let%test "truncated stream (no terminal stop_reason) finalizes Error, not phantom Ok" =
   let acc = Complete_stream_acc.create_stream_acc () in
   Complete_stream_acc.accumulate_event
@@ -153,14 +185,9 @@ let%test "truncated stream (no terminal stop_reason) finalizes Error, not phanto
   | Ok _ -> false
 ;;
 
-(* GAP 1: an OpenAI-compatible stream whose only completion signal is the
-   [data: [DONE]] sentinel (every content chunk carries [finish_reason: null]).
-   The closed parser and event projection preserve that terminal fact as
-   [MessageStop], so finalization can use the default [EndTurn]. *)
-let%test
-    "clean stream finalizes Ok: OpenAI-compat [DONE] without finish_reason defaults \
-     EndTurn (covers GLM/Kimi/DashScope)"
-  =
+(* A [data: [DONE]] sentinel proves transport closure, but cannot invent the
+   missing model stop reason. The completion stays fail-closed. *)
+let%test "OpenAI-compat [DONE] without finish_reason fails closed" =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
   accumulate_openai_payload
@@ -169,8 +196,9 @@ let%test
     {|{"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}|};
   accumulate_openai_payload acc st "[DONE]";
   match Complete_stream_acc.finalize_stream_acc acc with
-  | Ok resp -> resp.stop_reason = Types.EndTurn
-  | Error _ -> false
+  | Error (Types.Stream_incomplete { reason = "stream_terminal_without_stop_reason" }) ->
+    true
+  | Error _ | Ok _ -> false
 ;;
 
 (* The [DONE] sentinel must not overwrite a real stop_reason that already
