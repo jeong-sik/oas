@@ -7,6 +7,11 @@
     @stability Evolving
     @since 0.93.1 *)
 
+exception Entropy_unavailable of string
+(** Raised when the operating-system entropy source cannot mint a valid
+    OpenTelemetry trace or span identifier. No clock, counter, or PRNG
+    fallback is used. *)
+
 (** {1 Types} *)
 
 type otel_span_kind =

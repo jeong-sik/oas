@@ -3,16 +3,6 @@ open Result_syntax
 
 type descriptor = Runtime.artifact
 
-let safe_name name =
-  let trimmed = String.trim name in
-  let base = if trimmed = "" then "artifact" else trimmed in
-  String.map
-    (function
-      | '/' | '\\' | ' ' | '\t' | '\n' | '\r' -> '_'
-      | c -> c)
-    base
-;;
-
 let extension_of_kind kind =
   match String.lowercase_ascii (String.trim kind) with
   | "markdown" | "md" -> "md"
@@ -35,20 +25,16 @@ let mime_type_of_kind kind =
     "application/octet-stream"
 ;;
 
-let artifact_counter = Atomic.make 0
-let next_artifact_counter () = Atomic.fetch_and_add artifact_counter 1
-
-let generate_artifact_id name =
-  let ts = int_of_float (Unix.gettimeofday () *. 1000.0) in
-  let pid = Unix.getpid () land 0xFFFF in
-  let seq = next_artifact_counter () land 0xFFFFFF in
-  Printf.sprintf "art-%08x-%04x-%06x-%s" ts pid seq (safe_name name)
+let generate_artifact_id () =
+  Random_id.create ()
+  |> Result.map (fun id -> "art-" ^ id)
+  |> Result.map_error (fun detail -> Error.Internal ("artifact ID: " ^ detail))
 ;;
 
 let make_store ?session_root () = Runtime_store.create ?root:session_root ()
 
 let save_text_internal store ~session_id ~name ~kind ~content =
-  let artifact_id = generate_artifact_id name in
+  let%bind artifact_id = generate_artifact_id () in
   let extension = extension_of_kind kind in
   let path =
     Filename.concat

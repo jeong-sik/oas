@@ -15,9 +15,14 @@ let hex_of_string value =
   Bytes.unsafe_to_string encoded
 ;;
 
-let create () =
-  try Ok (Mirage_crypto_rng_unix.getrandom 16 |> hex_of_string) with
-  | exn ->
-    Llm_provider.Reserved_exn.reraise_if_reserved exn;
-    Error ("operating-system entropy unavailable: " ^ Printexc.to_string exn)
+let hex ~bytes =
+  if bytes <= 0
+  then Error "random identifier byte count must be positive"
+  else
+    try Ok (Mirage_crypto_rng_unix.getrandom bytes |> hex_of_string) with
+    | exn ->
+      Llm_provider.Reserved_exn.reraise_if_reserved exn;
+      Error ("operating-system entropy unavailable: " ^ Printexc.to_string exn)
 ;;
+
+let create () = hex ~bytes:16

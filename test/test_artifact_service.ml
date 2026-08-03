@@ -46,6 +46,10 @@ let unwrap_result = function
   | Error e -> fail (Error.to_string e)
 ;;
 
+let is_lower_hex = function
+  | '0' .. '9' | 'a' .. 'f' -> true
+  | _ -> false
+
 (* ── extension_of_kind ────────────────────────────────── *)
 
 let test_ext_markdown () =
@@ -180,6 +184,12 @@ let test_save_text_internal_persists_descriptor () =
            ~kind:"markdown"
            ~content:"# report\n")
     in
+    check int "artifact ID length" 36 (String.length artifact.artifact_id);
+    check string "artifact ID prefix" "art-" (String.sub artifact.artifact_id 0 4);
+    check bool "artifact ID suffix is lowercase hex" true
+      (String.sub artifact.artifact_id 4 32 |> String.for_all is_lower_hex);
+    check bool "artifact name is not encoded into ID" false
+      (String.ends_with ~suffix:"Report___One" artifact.artifact_id);
     check string "name preserved" " Report / One " artifact.name;
     check string "kind preserved" "markdown" artifact.kind;
     check string "mime" "text/markdown" artifact.mime_type;

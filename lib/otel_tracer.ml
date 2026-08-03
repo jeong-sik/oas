@@ -109,24 +109,20 @@ type instance =
 
 (* -- Random hex ID generation ----------------------------------------- *)
 
-(* Trace/span IDs need uniqueness, not cryptographic strength.
-   OCaml 5.x Random is domain-safe and self-seeded from OS entropy,
-   so we avoid opening /dev/urandom on every span start. *)
+exception Entropy_unavailable of string
 
-let hex_chars = "0123456789abcdef"
-
-let hex_of_prng n =
-  let buf = Buffer.create (n * 2) in
-  for _ = 1 to n do
-    let byte = Random.int 256 in
-    Buffer.add_char buf hex_chars.[byte lsr 4];
-    Buffer.add_char buf hex_chars.[byte land 0x0f]
-  done;
-  Buffer.contents buf
+let rec otel_id ~kind ~bytes =
+  match Random_id.hex ~bytes with
+  | Error detail -> raise (Entropy_unavailable (kind ^ " ID: " ^ detail))
+  | Ok value when String.for_all (Char.equal '0') value ->
+    (* W3C trace-context forbids the all-zero trace-id and parent-id values.
+       Resample from the same authority instead of introducing a fallback. *)
+    otel_id ~kind ~bytes
+  | Ok value -> value
 ;;
 
-let gen_trace_id () = hex_of_prng 16 (* 32-char hex = 128-bit *)
-let gen_span_id () = hex_of_prng 8 (* 16-char hex = 64-bit *)
+let gen_trace_id () = otel_id ~kind:"trace" ~bytes:16
+let gen_span_id () = otel_id ~kind:"span" ~bytes:8
 
 (* -- Timestamp -------------------------------------------------------- *)
 
