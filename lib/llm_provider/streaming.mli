@@ -164,6 +164,10 @@ type gemini_unsupported_part =
   | Gemini_code_execution_result
   | Gemini_tool_call
   | Gemini_tool_response
+  | Gemini_function_response
+  | Gemini_file_data
+  | Gemini_audio_transcription
+  | Gemini_streaming_function_call_arguments
 
 type gemini_sse_parse_result =
   | Gemini_chunk of gemini_chunk

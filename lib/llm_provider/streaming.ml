@@ -1853,6 +1853,10 @@ type gemini_unsupported_part =
   | Gemini_code_execution_result
   | Gemini_tool_call
   | Gemini_tool_response
+  | Gemini_function_response
+  | Gemini_file_data
+  | Gemini_audio_transcription
+  | Gemini_streaming_function_call_arguments
 
 type gemini_sse_parse_result =
   | Gemini_chunk of gemini_chunk
@@ -1950,19 +1954,38 @@ let validate_gemini_part_metadata ~path part =
            path
            (Json_util.json_type_name value))
   in
-  match gemini_assoc_field "thoughtSignature" part with
-  | None | Some `Null -> Ok ()
-  | Some (`String value) when not (Api_common.string_is_blank value) -> Ok ()
-  | Some (`String _) -> Error (Printf.sprintf "%s.thoughtSignature:blank" path)
-  | Some value ->
-    Error
-      (Printf.sprintf
-         "%s.thoughtSignature:not_string(got %s)"
-         path
-         (Json_util.json_type_name value))
+  let* () =
+    match gemini_assoc_field "thoughtSignature" part with
+    | None | Some `Null -> Ok ()
+    | Some (`String value) when not (Api_common.string_is_blank value) -> Ok ()
+    | Some (`String _) -> Error (Printf.sprintf "%s.thoughtSignature:blank" path)
+    | Some value ->
+      Error
+        (Printf.sprintf
+           "%s.thoughtSignature:not_string(got %s)"
+           path
+           (Json_util.json_type_name value))
+  in
+  let rec validate_objects = function
+    | [] -> Ok ()
+    | key :: rest ->
+      (match gemini_assoc_field key part with
+       | None | Some `Null | Some (`Assoc _) -> validate_objects rest
+       | Some value ->
+         Error
+           (Printf.sprintf
+              "%s.%s:not_object(got %s)"
+              path
+              key
+              (Json_util.json_type_name value)))
+  in
+  validate_objects [ "partMetadata"; "mediaResolution"; "videoMetadata" ]
 ;;
 
-let gemini_part_metadata_fields = [ "thought"; "thoughtSignature" ]
+let gemini_part_metadata_fields =
+  [ "thought"; "thoughtSignature"; "partMetadata"; "mediaResolution"; "videoMetadata" ]
+;;
+
 let gemini_supported_part_payloads = [ "text"; "functionCall"; "inlineData" ]
 
 let validate_gemini_part ~position part =
@@ -2003,9 +2026,17 @@ let validate_gemini_part ~position part =
     Error
       (Printf.sprintf "%s.text:not_string(got %s)" path (Json_util.json_type_name value))
   | [ ("functionCall", (`Assoc function_call_fields as function_call)) ] ->
+    let* () =
+      if
+        List.mem_assoc "partialArgs" function_call_fields
+        || List.mem_assoc "willContinue" function_call_fields
+      then Error (path ^ ".functionCall:streaming_arguments_unsupported")
+      else Ok ()
+    in
     let unsupported_field =
       List.find_opt
-        (fun (key, _) -> not (List.mem key [ "id"; "name"; "args" ]))
+        (fun (key, _) ->
+           not (List.mem key [ "id"; "name"; "args"; "partialArgs"; "willContinue" ]))
         function_call_fields
     in
     let* () =
@@ -2016,8 +2047,16 @@ let validate_gemini_part ~position part =
     in
     let* _id = gemini_optional_string ~path:(path ^ ".functionCall") "id" function_call in
     let* _ = gemini_required_string ~path:(path ^ ".functionCall") "name" function_call in
-    let* args = gemini_field ~path:(path ^ ".functionCall") "args" function_call in
-    let* _args = gemini_object ~path:(path ^ ".functionCall.args") args in
+    let* () =
+      match gemini_assoc_field "args" function_call with
+      | None | Some `Null | Some (`Assoc _) -> Ok ()
+      | Some value ->
+        Error
+          (Printf.sprintf
+             "%s.functionCall.args:not_object(got %s)"
+             path
+             (Json_util.json_type_name value))
+    in
     Ok ()
   | [ ("functionCall", value) ] ->
     Error
@@ -2044,6 +2083,10 @@ let gemini_unsupported_part_wire_name = function
   | Gemini_code_execution_result -> "codeExecutionResult"
   | Gemini_tool_call -> "toolCall"
   | Gemini_tool_response -> "toolResponse"
+  | Gemini_function_response -> "functionResponse"
+  | Gemini_file_data -> "fileData"
+  | Gemini_audio_transcription -> "audioTranscription"
+  | Gemini_streaming_function_call_arguments -> "functionCall.partialArgs"
 ;;
 
 let gemini_unsupported_part_kinds =
@@ -2051,6 +2094,9 @@ let gemini_unsupported_part_kinds =
   ; Gemini_code_execution_result
   ; Gemini_tool_call
   ; Gemini_tool_response
+  ; Gemini_function_response
+  ; Gemini_file_data
+  ; Gemini_audio_transcription
   ]
 ;;
 
@@ -2095,106 +2141,180 @@ let gemini_unsupported_part_of_json ~position part =
   let path = Printf.sprintf "gemini.candidates[0].content.parts[%d]" position in
   match part with
   | `Assoc fields ->
-    let payloads =
-      List.filter_map
-        (fun kind ->
-           let key = gemini_unsupported_part_wire_name kind in
-           match List.assoc_opt key fields with
-           | Some value -> Some (kind, value)
-           | None -> None)
-        gemini_unsupported_part_kinds
+    let streaming_function_call =
+      match List.assoc_opt "functionCall" fields with
+      | Some (`Assoc function_call_fields) ->
+        List.mem_assoc "partialArgs" function_call_fields
+        || List.mem_assoc "willContinue" function_call_fields
+      | Some _ | None -> false
     in
-    (match payloads with
-     | [] -> None
-     | _ :: _ :: _ -> Some (Error (path ^ ":multiple_payloads"))
-     | [ (Gemini_executable_code, value) ] ->
-       let ( let* ) = Result.bind in
-       Some
-         (let* () = validate_gemini_unsupported_part_envelope ~path fields in
-          let* code_fields =
-            gemini_object_fields ~path:(path ^ ".executableCode") value
-          in
-          let* () =
-            gemini_validate_allowed_fields
-              ~path:(path ^ ".executableCode")
-              ~allowed:[ "id"; "language"; "code" ]
-              code_fields
-          in
-          let code = `Assoc code_fields in
-          let* _id = gemini_optional_string ~path:(path ^ ".executableCode") "id" code in
-          let* _language =
-            gemini_required_string ~path:(path ^ ".executableCode") "language" code
-          in
-          let* _code =
-            gemini_required_string ~path:(path ^ ".executableCode") "code" code
-          in
-          Ok Gemini_executable_code)
-     | [ (Gemini_code_execution_result, value) ] ->
-       let ( let* ) = Result.bind in
-       Some
-         (let* () = validate_gemini_unsupported_part_envelope ~path fields in
-          let* result_fields =
-            gemini_object_fields ~path:(path ^ ".codeExecutionResult") value
-          in
-          let* () =
-            gemini_validate_allowed_fields
-              ~path:(path ^ ".codeExecutionResult")
-              ~allowed:[ "id"; "outcome"; "output" ]
-              result_fields
-          in
-          let result = `Assoc result_fields in
-          let* _id =
-            gemini_optional_string ~path:(path ^ ".codeExecutionResult") "id" result
-          in
-          let* _outcome =
-            gemini_required_string ~path:(path ^ ".codeExecutionResult") "outcome" result
-          in
-          let* _output =
-            gemini_optional_string ~path:(path ^ ".codeExecutionResult") "output" result
-          in
-          Ok Gemini_code_execution_result)
-     | [ (Gemini_tool_call, value) ] ->
-       let ( let* ) = Result.bind in
-       Some
-         (let* () = validate_gemini_unsupported_part_envelope ~path fields in
-          let tool_call_path = path ^ ".toolCall" in
-          let* tool_call_fields = gemini_object_fields ~path:tool_call_path value in
-          let* () =
-            gemini_validate_allowed_fields
-              ~path:tool_call_path
-              ~allowed:[ "id"; "toolType"; "args" ]
-              tool_call_fields
-          in
-          let tool_call = `Assoc tool_call_fields in
-          let* _id = gemini_required_string ~path:tool_call_path "id" tool_call in
-          let* _tool_type =
-            gemini_required_string ~path:tool_call_path "toolType" tool_call
-          in
-          let* () = gemini_optional_object ~path:tool_call_path "args" tool_call in
-          Ok Gemini_tool_call)
-     | [ (Gemini_tool_response, value) ] ->
-       let ( let* ) = Result.bind in
-       Some
-         (let* () = validate_gemini_unsupported_part_envelope ~path fields in
-          let tool_response_path = path ^ ".toolResponse" in
-          let* tool_response_fields =
-            gemini_object_fields ~path:tool_response_path value
-          in
-          let* () =
-            gemini_validate_allowed_fields
-              ~path:tool_response_path
-              ~allowed:[ "id"; "toolType"; "response" ]
-              tool_response_fields
-          in
-          let tool_response = `Assoc tool_response_fields in
-          let* _id = gemini_required_string ~path:tool_response_path "id" tool_response in
-          let* _tool_type =
-            gemini_required_string ~path:tool_response_path "toolType" tool_response
-          in
-          let* () =
-            gemini_optional_object ~path:tool_response_path "response" tool_response
-          in
-          Ok Gemini_tool_response))
+    if streaming_function_call
+    then
+      Some
+        (let ( let* ) = Result.bind in
+         let* () =
+           gemini_validate_allowed_fields
+             ~path
+             ~allowed:(gemini_supported_part_payloads @ gemini_part_metadata_fields)
+             fields
+         in
+         let* () = validate_gemini_part_metadata ~path (`Assoc fields) in
+         let function_call_path = path ^ ".functionCall" in
+         let* function_call_fields =
+           match List.assoc_opt "functionCall" fields with
+           | Some value -> gemini_object_fields ~path:function_call_path value
+           | None -> Error (function_call_path ^ ":missing")
+         in
+         let* () =
+           gemini_validate_allowed_fields
+             ~path:function_call_path
+             ~allowed:[ "id"; "name"; "args"; "partialArgs"; "willContinue" ]
+             function_call_fields
+         in
+         let function_call = `Assoc function_call_fields in
+         let* _id = gemini_optional_string ~path:function_call_path "id" function_call in
+         let* _name =
+           gemini_optional_string ~path:function_call_path "name" function_call
+         in
+         let* () = gemini_optional_object ~path:function_call_path "args" function_call in
+         let* () =
+           match gemini_assoc_field "partialArgs" function_call with
+           | None | Some `Null | Some (`List _) -> Ok ()
+           | Some value ->
+             Error
+               (Printf.sprintf
+                  "%s.partialArgs:not_array(got %s)"
+                  function_call_path
+                  (Json_util.json_type_name value))
+         in
+         let* () =
+           match gemini_assoc_field "willContinue" function_call with
+           | None | Some `Null | Some (`Bool _) -> Ok ()
+           | Some value ->
+             Error
+               (Printf.sprintf
+                  "%s.willContinue:not_boolean(got %s)"
+                  function_call_path
+                  (Json_util.json_type_name value))
+         in
+         Ok Gemini_streaming_function_call_arguments)
+    else (
+      let payloads =
+        List.filter_map
+          (fun kind ->
+             let key = gemini_unsupported_part_wire_name kind in
+             match List.assoc_opt key fields with
+             | Some value -> Some (kind, value)
+             | None -> None)
+          gemini_unsupported_part_kinds
+      in
+      match payloads with
+      | [] -> None
+      | _ :: _ :: _ -> Some (Error (path ^ ":multiple_payloads"))
+      | [ (Gemini_executable_code, value) ] ->
+        let ( let* ) = Result.bind in
+        Some
+          (let* () = validate_gemini_unsupported_part_envelope ~path fields in
+           let* code_fields =
+             gemini_object_fields ~path:(path ^ ".executableCode") value
+           in
+           let* () =
+             gemini_validate_allowed_fields
+               ~path:(path ^ ".executableCode")
+               ~allowed:[ "id"; "language"; "code" ]
+               code_fields
+           in
+           let code = `Assoc code_fields in
+           let* _id = gemini_optional_string ~path:(path ^ ".executableCode") "id" code in
+           let* _language =
+             gemini_required_string ~path:(path ^ ".executableCode") "language" code
+           in
+           let* _code =
+             gemini_required_string ~path:(path ^ ".executableCode") "code" code
+           in
+           Ok Gemini_executable_code)
+      | [ (Gemini_code_execution_result, value) ] ->
+        let ( let* ) = Result.bind in
+        Some
+          (let* () = validate_gemini_unsupported_part_envelope ~path fields in
+           let* result_fields =
+             gemini_object_fields ~path:(path ^ ".codeExecutionResult") value
+           in
+           let* () =
+             gemini_validate_allowed_fields
+               ~path:(path ^ ".codeExecutionResult")
+               ~allowed:[ "id"; "outcome"; "output" ]
+               result_fields
+           in
+           let result = `Assoc result_fields in
+           let* _id =
+             gemini_optional_string ~path:(path ^ ".codeExecutionResult") "id" result
+           in
+           let* _outcome =
+             gemini_required_string ~path:(path ^ ".codeExecutionResult") "outcome" result
+           in
+           let* _output =
+             gemini_optional_string ~path:(path ^ ".codeExecutionResult") "output" result
+           in
+           Ok Gemini_code_execution_result)
+      | [ (Gemini_tool_call, value) ] ->
+        let ( let* ) = Result.bind in
+        Some
+          (let* () = validate_gemini_unsupported_part_envelope ~path fields in
+           let tool_call_path = path ^ ".toolCall" in
+           let* tool_call_fields = gemini_object_fields ~path:tool_call_path value in
+           let* () =
+             gemini_validate_allowed_fields
+               ~path:tool_call_path
+               ~allowed:[ "id"; "toolType"; "args" ]
+               tool_call_fields
+           in
+           let tool_call = `Assoc tool_call_fields in
+           let* _id = gemini_required_string ~path:tool_call_path "id" tool_call in
+           let* _tool_type =
+             gemini_required_string ~path:tool_call_path "toolType" tool_call
+           in
+           let* () = gemini_optional_object ~path:tool_call_path "args" tool_call in
+           Ok Gemini_tool_call)
+      | [ (Gemini_tool_response, value) ] ->
+        let ( let* ) = Result.bind in
+        Some
+          (let* () = validate_gemini_unsupported_part_envelope ~path fields in
+           let tool_response_path = path ^ ".toolResponse" in
+           let* tool_response_fields =
+             gemini_object_fields ~path:tool_response_path value
+           in
+           let* () =
+             gemini_validate_allowed_fields
+               ~path:tool_response_path
+               ~allowed:[ "id"; "toolType"; "response" ]
+               tool_response_fields
+           in
+           let tool_response = `Assoc tool_response_fields in
+           let* _id =
+             gemini_required_string ~path:tool_response_path "id" tool_response
+           in
+           let* _tool_type =
+             gemini_required_string ~path:tool_response_path "toolType" tool_response
+           in
+           let* () =
+             gemini_optional_object ~path:tool_response_path "response" tool_response
+           in
+           Ok Gemini_tool_response)
+      | [ ( ((Gemini_function_response | Gemini_file_data | Gemini_audio_transcription) as
+             kind)
+          , value )
+        ] ->
+        let ( let* ) = Result.bind in
+        Some
+          (let* () = validate_gemini_unsupported_part_envelope ~path fields in
+           let* _ =
+             gemini_object_fields
+               ~path:(path ^ "." ^ gemini_unsupported_part_wire_name kind)
+               value
+           in
+           Ok kind)
+      | [ (Gemini_streaming_function_call_arguments, _) ] -> assert false)
   | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
 ;;
 
@@ -2204,6 +2324,9 @@ let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
   in
   let gemini_optional_string ~path key json =
     malformed (gemini_optional_string ~path key json)
+  in
+  let gemini_required_string ~path key json =
+    malformed (gemini_required_string ~path key json)
   in
   let gemini_field ~path key json = malformed (gemini_field ~path key json) in
   let gemini_list ~path json = malformed (gemini_list ~path json) in
@@ -2230,13 +2353,36 @@ let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
     | [ candidate ] -> Ok candidate
     | _ :: _ ->
       Error (Gemini_payload_malformed "gemini.candidates:multiple_candidates_unsupported")
-    | [] -> Error (Gemini_payload_malformed "gemini.candidates:empty")
+    | [] ->
+      let* prompt_feedback = gemini_field ~path:"gemini" "promptFeedback" json in
+      let* prompt_feedback =
+        gemini_object ~path:"gemini.promptFeedback" prompt_feedback
+      in
+      let* _block_reason =
+        gemini_required_string ~path:"gemini.promptFeedback" "blockReason" prompt_feedback
+      in
+      Ok
+        (`Assoc
+            [ "finishReason", `String "SAFETY"; "content", `Assoc [ "parts", `List [] ] ])
   in
   let* candidate = gemini_object ~path:"gemini.candidates[0]" candidate in
-  let* content = gemini_field ~path:"gemini.candidates[0]" "content" candidate in
-  let* content = gemini_object ~path:"gemini.candidates[0].content" content in
-  let* parts_value = gemini_field ~path:"gemini.candidates[0].content" "parts" content in
-  let* parts = gemini_list ~path:"gemini.candidates[0].content.parts" parts_value in
+  let* gem_finish_reason =
+    gemini_optional_string ~path:"gemini.candidates[0]" "finishReason" candidate
+  in
+  let terminal_without_content = Option.is_some gem_finish_reason in
+  let* parts =
+    match gemini_assoc_field "content" candidate with
+    | (None | Some `Null) when terminal_without_content -> Ok []
+    | None -> Error (Gemini_payload_malformed "gemini.candidates[0].content:missing")
+    | Some content ->
+      let* content = gemini_object ~path:"gemini.candidates[0].content" content in
+      (match gemini_assoc_field "parts" content with
+       | (None | Some `Null) when terminal_without_content -> Ok []
+       | None ->
+         Error (Gemini_payload_malformed "gemini.candidates[0].content.parts:missing")
+       | Some parts_value ->
+         gemini_list ~path:"gemini.candidates[0].content.parts" parts_value)
+  in
   let rec validate_parts position unsupported_part = function
     | [] -> Ok unsupported_part
     | part :: rest ->
@@ -2259,9 +2405,6 @@ let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
     match unsupported_part with
     | None -> Ok ()
     | Some part -> Error (Gemini_payload_unsupported_part part)
-  in
-  let* gem_finish_reason =
-    gemini_optional_string ~path:"gemini.candidates[0]" "finishReason" candidate
   in
   let* gem_usage =
     match gemini_assoc_field "usageMetadata" json with
@@ -2387,7 +2530,11 @@ let gemini_chunk_to_events_impl (state : openai_stream_state) (chunk : gemini_ch
          match part |> member "functionCall" with
          | `Assoc _ as fc ->
            let name = Cli_common_json.member_str "name" fc in
-           let args = fc |> member "args" in
+           let args =
+             match fc |> member "args" with
+             | `Null -> `Assoc []
+             | args -> args
+           in
            let provider_tool_id = fc |> member "id" |> to_string_option in
            let thought_signature = part_thought_signature in
            let resolution, start =

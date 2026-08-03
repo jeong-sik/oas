@@ -597,6 +597,75 @@ let test_gemini_parse_edge_shapes () =
   | S.Gemini_unsupported_part _ -> fail "invalid JSON is not a Part kind"
 ;;
 
+let check_gemini_refusal label payload =
+  match S.parse_gemini_sse_chunk payload with
+  | S.Gemini_chunk chunk ->
+    let events, _ = require_gemini_events label (S.create_openai_stream_state ()) chunk in
+    (match events with
+     | [ MessageDelta { stop_reason = Some Refusal; _ } ] -> ()
+     | _ -> failf "%s: expected a typed refusal" label)
+  | S.Gemini_parse_failed { reason; _ } ->
+    failf "%s: valid policy block was rejected: %s" label reason
+  | S.Gemini_unsupported_part _ ->
+    failf "%s: policy block is not an unsupported Part" label
+;;
+
+let test_gemini_policy_blocks_are_not_wire_failures () =
+  check_gemini_refusal
+    "prompt policy block"
+    {|{"modelVersion":"gem","promptFeedback":{"blockReason":"SAFETY"},"candidates":[]}|};
+  check_gemini_refusal
+    "candidate policy block"
+    {|{"modelVersion":"gem","candidates":[{"finishReason":"PROHIBITED_CONTENT"}]}|}
+;;
+
+let test_gemini_supported_metadata_and_function_call_shapes () =
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"text":"ok","partMetadata":{},"mediaResolution":{},"videoMetadata":{}}]}}]}|}
+   with
+   | S.Gemini_chunk _ -> ()
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "official Part metadata was rejected: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "Part metadata is not a payload kind");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup"}}]}}]}|}
+   with
+   | S.Gemini_chunk chunk ->
+     let events, _ =
+       require_gemini_events
+         "argument-free function call"
+         (S.create_openai_stream_state ())
+         chunk
+     in
+     check
+       bool
+       "missing args becomes the empty object"
+       true
+       (List.exists
+          (function
+            | ContentBlockDelta { delta = InputJsonSnapshot "{}"; _ } -> true
+            | _ -> false)
+          events)
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "optional functionCall.args was rejected: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "argument-free function call is supported");
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","partialArgs":[],"willContinue":true}}]}}]}|}
+  with
+  | S.Gemini_unsupported_part { part; _ } ->
+    check
+      string
+      "streaming function args remain explicit"
+      "functionCall.partialArgs"
+      (S.gemini_unsupported_part_wire_name part)
+  | S.Gemini_chunk _ -> fail "streaming function args must not be dropped"
+  | S.Gemini_parse_failed { reason; _ } ->
+    failf "official streaming function args were called malformed: %s" reason
+;;
+
 let test_gemini_part_shape_failure_is_explicit () =
   match
     S.parse_gemini_sse_chunk
@@ -618,16 +687,28 @@ let test_gemini_official_unsupported_part_is_not_malformed () =
   let raw =
     {|{"candidates":[{"content":{"parts":[{"executableCode":{"language":"PYTHON","code":"print(1)"}}]}}]}|}
   in
-  match S.parse_gemini_sse_chunk raw with
-  | S.Gemini_unsupported_part { part; raw = observed_raw } ->
+  (match S.parse_gemini_sse_chunk raw with
+   | S.Gemini_unsupported_part { part; raw = observed_raw } ->
+     check
+       string
+       "typed unsupported Part"
+       "executableCode"
+       (S.gemini_unsupported_part_wire_name part);
+     check string "unsupported Part raw preserved" raw observed_raw
+   | S.Gemini_parse_failed _ -> fail "official unsupported Part must not be malformed"
+   | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted");
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"functionResponse":{"name":"lookup","response":{}}}]}}]}|}
+  with
+  | S.Gemini_unsupported_part { part; _ } ->
     check
       string
-      "typed unsupported Part"
-      "executableCode"
-      (S.gemini_unsupported_part_wire_name part);
-    check string "unsupported Part raw preserved" raw observed_raw
-  | S.Gemini_parse_failed _ -> fail "official unsupported Part must not be malformed"
-  | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted"
+      "typed function response Part"
+      "functionResponse"
+      (S.gemini_unsupported_part_wire_name part)
+  | S.Gemini_parse_failed _ -> fail "official functionResponse must not be malformed"
+  | S.Gemini_chunk _ -> fail "unsupported functionResponse must not be dropped"
 ;;
 
 let test_gemini_unsupported_part_shape_is_explicit () =
@@ -960,6 +1041,14 @@ let () =
         ] )
     ; ( "gemini_sse"
       , [ test_case "parse edge shapes" `Quick test_gemini_parse_edge_shapes
+        ; test_case
+            "policy blocks are typed refusals"
+            `Quick
+            test_gemini_policy_blocks_are_not_wire_failures
+        ; test_case
+            "supported metadata and function calls"
+            `Quick
+            test_gemini_supported_metadata_and_function_call_shapes
         ; test_case "part shape failure" `Quick test_gemini_part_shape_failure_is_explicit
         ; test_case
             "official unsupported Part is typed"
