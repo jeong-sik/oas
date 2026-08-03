@@ -2646,12 +2646,14 @@ let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
 let%test "ollama_chunk_to_events: overflow reason stays typed" =
   let state = create_openai_stream_state () in
   let chunk : ollama_chunk =
-    { oll_content = ""
-    ; oll_thinking = None
+    { oll_model = "dashscope-3:8b"
+    ; oll_delta_content = None
+    ; oll_delta_thinking = None
     ; oll_tool_calls = []
-    ; oll_is_done = true
     ; oll_done_reason = Some "model_context_window_exceeded"
+    ; oll_is_done = true
     ; oll_usage = None
+    ; oll_timings = None
     }
   in
   match fst (ollama_chunk_to_events state chunk) with
