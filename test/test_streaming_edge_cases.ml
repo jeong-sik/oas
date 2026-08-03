@@ -573,8 +573,8 @@ let test_gemini_parse_edge_shapes () =
      check (option string) "empty modelVersion remains distinct" (Some "") chunk.gem_model
    | S.Gemini_parse_failed { reason; _ } ->
      failf "empty modelVersion was rejected instead of preserved: %s" reason
-  | S.Gemini_unsupported_part _ -> fail "empty modelVersion is not a Part kind"
-  | S.Gemini_unsupported_response _ -> fail "empty modelVersion is not a response kind");
+   | S.Gemini_unsupported_part _ -> fail "empty modelVersion is not a Part kind"
+   | S.Gemini_unsupported_response _ -> fail "empty modelVersion is not a response kind");
   (match
      S.parse_gemini_sse_chunk
        {|{"modelVersion":"gemini-wire-model","candidates":[{"content":{"parts":[{"text":"done"}]},"finishReason":"STOP"}]}|}
@@ -590,7 +590,11 @@ let test_gemini_parse_edge_shapes () =
      List.iter (Llm_provider.Complete_stream_acc.accumulate_event acc) events;
      (match Llm_provider.Complete_stream_acc.finalize_stream_acc acc with
       | Ok response ->
-        check string "wire model reaches final response" "gemini-wire-model" response.model
+        check
+          string
+          "wire model reaches final response"
+          "gemini-wire-model"
+          response.model
       | Error _ -> fail "terminal Gemini chunk did not finalize")
    | S.Gemini_parse_failed { reason; _ } ->
      failf "model propagation fixture was rejected: %s" reason
@@ -924,6 +928,55 @@ let gemini_chunk ?(parts = []) ?finish_reason ?usage () : S.gemini_chunk =
   }
 ;;
 
+let test_gemini_model_identity_is_single_and_fail_closed () =
+  let state = S.create_openai_stream_state ~provider:"gemini" ~model:"gem" () in
+  let text_part text = `Assoc [ "text", `String text ] in
+  let first_events, _ =
+    require_gemini_events
+      "first model observation"
+      state
+      (gemini_chunk ~parts:[ text_part "first" ] ())
+  in
+  check
+    bool
+    "first model observation emits MessageStart"
+    true
+    (List.exists
+       (function
+         | MessageStart _ -> true
+         | _ -> false)
+       first_events);
+  let repeated_events, _ =
+    require_gemini_events
+      "repeated model observation"
+      state
+      (gemini_chunk ~parts:[ text_part "second" ] ())
+  in
+  check
+    bool
+    "repeated identical model does not emit MessageStart"
+    false
+    (List.exists
+       (function
+         | MessageStart _ -> true
+         | _ -> false)
+       repeated_events);
+  let changed_chunk =
+    { (gemini_chunk ~parts:[ text_part "changed" ] ()) with
+      gem_model = Some "different-gemini-model"
+    }
+  in
+  match S.gemini_chunk_to_events state changed_chunk with
+  | Error { reason } ->
+    check
+      string
+      "changed model is an explicit stream failure"
+      "gemini_sse_chunk_decode_failure: gemini.modelVersion changed within one streamed \
+       response"
+      reason
+  | Ok _ -> fail "changed modelVersion must not be silently accepted"
+;;
+
 let test_gemini_event_edge_branches () =
   let state = S.create_openai_stream_state ~provider:"gemini" ~model:"gem" () in
   let thought_part = `Assoc [ "thought", `Bool true; "text", `String "plan" ] in
@@ -1194,6 +1247,10 @@ let () =
             "malformed sibling is not hidden"
             `Quick
             test_gemini_malformed_part_precedes_unsupported_part
+        ; test_case
+            "model identity is single and fail-closed"
+            `Quick
+            test_gemini_model_identity_is_single_and_fail_closed
         ; test_case "event edge branches" `Quick test_gemini_event_edge_branches
         ] )
     ; ( "ollama_ndjson"

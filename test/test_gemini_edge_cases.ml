@@ -116,7 +116,7 @@ let test_sse_function_call () =
     check "has parts" (List.length chunk.gem_parts > 0);
     check
       "finish reason STOP"
-      (chunk.gem_finish_reason = Some (S.Gemini_candidate_finish_reason "STOP"));
+      (chunk.gem_finish_reason = Some (Streaming.Gemini_candidate_finish_reason "STOP"));
     let state = Streaming.create_openai_stream_state () in
     let events, _tel = gemini_events state chunk in
     let has_tool_start =
