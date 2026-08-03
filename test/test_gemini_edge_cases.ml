@@ -10,6 +10,18 @@ let check label cond =
     exit 1)
 ;;
 
+let parse_gemini_chunk data =
+  match Streaming.parse_gemini_sse_chunk data with
+  | Streaming.Gemini_chunk chunk -> Some chunk
+  | Streaming.Gemini_parse_failed _ -> None
+;;
+
+let gemini_events state chunk =
+  match Streaming.gemini_chunk_to_events state chunk with
+  | Ok events -> events
+  | Error { reason } -> failwith ("unexpected Gemini stream decode failure: " ^ reason)
+;;
+
 let string_has haystack needle =
   let nlen = String.length needle in
   let hlen = String.length haystack in
@@ -96,13 +108,13 @@ let test_sse_function_call () =
   let chunk_data =
     {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","args":{"city":"Seoul"}},"thoughtSignature":"abc123"}],"role":"model"},"finishReason":"STOP","index":0}],"usageMetadata":{"promptTokenCount":44,"candidatesTokenCount":15},"modelVersion":"gemini-2.5-flash"}|}
   in
-  match Streaming.parse_gemini_sse_chunk chunk_data with
+  match parse_gemini_chunk chunk_data with
   | Some chunk ->
     check "parsed chunk" true;
     check "has parts" (List.length chunk.gem_parts > 0);
     check "finish reason STOP" (chunk.gem_finish_reason = Some "STOP");
     let state = Streaming.create_openai_stream_state () in
-    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = gemini_events state chunk in
     let has_tool_start =
       List.exists
         (function

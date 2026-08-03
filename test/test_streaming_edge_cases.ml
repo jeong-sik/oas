@@ -79,6 +79,18 @@ let require_ollama_chunk label = function
     fail (Printf.sprintf "%s: unexpected parse failure: %s" label reason)
 ;;
 
+let parse_gemini_chunk data =
+  match S.parse_gemini_sse_chunk data with
+  | S.Gemini_chunk chunk -> Some chunk
+  | S.Gemini_parse_failed _ -> None
+;;
+
+let require_gemini_events label state chunk =
+  match S.gemini_chunk_to_events state chunk with
+  | Ok events -> events
+  | Error { reason } -> fail (Printf.sprintf "%s: %s" label reason)
+;;
+
 let test_anthropic_sse_parser_edges () =
   (match
      S.parse_sse_event
@@ -542,27 +554,58 @@ let test_openai_event_edge_branches () =
 
 let test_gemini_parse_edge_shapes () =
   (match
-     S.parse_gemini_sse_chunk
-       {|{"modelVersion":"gem","candidates":[],"usageMetadata":null}|}
+     parse_gemini_chunk {|{"modelVersion":"gem","candidates":[],"usageMetadata":null}|}
    with
    | None -> ()
    | Some _ -> fail "empty candidates should be rejected by missing content");
   (match
-     S.parse_gemini_sse_chunk
+     parse_gemini_chunk
        {|{"modelVersion":"gem","candidates":{"unexpected":true},"usageMetadata":null}|}
    with
    | None -> ()
    | Some _ -> fail "non-list candidates should be rejected by missing content");
-  let non_list_parts =
-    require_some
-      "non-list parts"
-      (S.parse_gemini_sse_chunk
-         {|{"modelVersion":"gem","candidates":[{"content":{"parts":{"bad":true}}}],"usageMetadata":null}|})
-  in
-  check int "non-list parts ignored" 0 (List.length non_list_parts.gem_parts);
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"text":"a"}]}},{"content":{"parts":[{"text":"b"}]}}]}|}
+   with
+   | S.Gemini_parse_failed { reason; _ } ->
+     check
+       string
+       "multiple candidates reason"
+       "gemini.candidates:multiple_candidates_unsupported"
+       reason
+   | S.Gemini_chunk _ -> fail "multiple Gemini candidates must not be dropped");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"modelVersion":"gem","candidates":[{"content":{"parts":{"bad":true}}}],"usageMetadata":null}|}
+   with
+   | S.Gemini_parse_failed { reason; _ } ->
+     check
+       string
+       "non-list parts reason"
+       "gemini.candidates[0].content.parts:not_array(got object)"
+       reason
+   | S.Gemini_chunk _ -> fail "non-list parts must be rejected");
   match S.parse_gemini_sse_chunk "{not-json" with
-  | None -> ()
-  | Some _ -> fail "invalid gemini json should return None"
+  | S.Gemini_parse_failed { raw; reason } ->
+    check string "invalid gemini raw" "{not-json" raw;
+    check bool "invalid gemini reason" true (String.length reason > 0)
+  | S.Gemini_chunk _ -> fail "invalid gemini json should be rejected"
+;;
+
+let test_gemini_part_shape_failure_is_explicit () =
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"unknownPart":{}}]}}]}|}
+  with
+  | S.Gemini_parse_failed { raw; reason } ->
+    check bool "unknown part raw preserved" true (String.length raw > 0);
+    check
+      string
+      "unknown part reason"
+      "gemini.candidates[0].content.parts[0].unknownPart:unsupported_field"
+      reason
+  | S.Gemini_chunk _ -> fail "unknown Gemini part must not be accepted"
 ;;
 
 let gemini_chunk ?(parts = []) ?finish_reason ?usage () : S.gemini_chunk =
@@ -576,9 +619,16 @@ let gemini_chunk ?(parts = []) ?finish_reason ?usage () : S.gemini_chunk =
 let test_gemini_event_edge_branches () =
   let state = S.create_openai_stream_state ~provider:"gemini" ~model:"gem" () in
   let thought_part = `Assoc [ "thought", `Bool true; "text", `String "plan" ] in
-  ignore (S.gemini_chunk_to_events state (gemini_chunk ~parts:[ thought_part ] ()));
+  ignore
+    (require_gemini_events
+       "thought chunk"
+       state
+       (gemini_chunk ~parts:[ thought_part ] ()));
   let no_thought_events, telemetry =
-    S.gemini_chunk_to_events state (gemini_chunk ~parts:[ `Assoc [] ] ())
+    require_gemini_events
+      "empty text chunk"
+      state
+      (gemini_chunk ~parts:[ `Assoc [ "text", `String "" ] ] ())
   in
   check_event_count "no-thought chunk emits no events" 0 no_thought_events;
   (match telemetry with
@@ -586,33 +636,37 @@ let test_gemini_event_edge_branches () =
      check string "provider" "gemini" r.provider
    | _ -> fail "expected gemini thinking completion telemetry");
   let restarted_events, _ =
-    S.gemini_chunk_to_events state (gemini_chunk ~parts:[ thought_part ] ())
+    require_gemini_events
+      "restarted thought chunk"
+      state
+      (gemini_chunk ~parts:[ thought_part ] ())
   in
   check_event_count "thinking after done restarts and emits delta" 1 restarted_events;
-  let empty_text_with_call =
+  let function_call_part =
     `Assoc
-      [ "text", `String ""
-      ; ( "functionCall"
+      [ ( "functionCall"
         , `Assoc [ "name", `String "lookup"; "args", `Assoc [ "q", `String "seoul" ] ] )
       ]
   in
   let tool_events, _ =
-    S.gemini_chunk_to_events
+    require_gemini_events
+      "function call"
       (S.create_openai_stream_state ())
-      (gemini_chunk ~parts:[ empty_text_with_call ] ())
+      (gemini_chunk ~parts:[ function_call_part ] ())
   in
-  check_event_count "empty text can still carry function call" 2 tool_events;
-  let empty_text_without_call =
-    `Assoc [ "text", `String ""; "functionCall", `String "not-an-object" ]
-  in
-  let ignored_events, _ =
-    S.gemini_chunk_to_events
-      (S.create_openai_stream_state ())
-      (gemini_chunk ~parts:[ empty_text_without_call ] ())
-  in
-  check_event_count "non-object functionCall ignored" 0 ignored_events;
+  check_event_count "function call emits start and arguments" 2 tool_events;
+  let empty_text_without_call = `Assoc [ "functionCall", `String "not-an-object" ] in
+  (match
+     S.gemini_chunk_to_events
+       (S.create_openai_stream_state ())
+       (gemini_chunk ~parts:[ empty_text_without_call ] ())
+   with
+   | Error { reason } ->
+     check bool "non-object functionCall rejected" true (String.length reason > 0)
+   | Ok _ -> fail "non-object functionCall must not be ignored");
   let max_tokens_events, _ =
-    S.gemini_chunk_to_events
+    require_gemini_events
+      "max tokens chunk"
       (S.create_openai_stream_state ())
       (gemini_chunk ~finish_reason:"MAX_TOKENS" ~usage:(usage ()) ())
   in
@@ -620,7 +674,8 @@ let test_gemini_event_edge_branches () =
    | [ MessageDelta { stop_reason = Some MaxTokens; usage = Some _ } ] -> ()
    | _ -> fail "expected gemini max-tokens finish");
   let unknown_events, _ =
-    S.gemini_chunk_to_events
+    require_gemini_events
+      "safety finish chunk"
       (S.create_openai_stream_state ())
       (gemini_chunk ~finish_reason:"SAFETY" ())
   in
@@ -802,6 +857,7 @@ let () =
         ] )
     ; ( "gemini_sse"
       , [ test_case "parse edge shapes" `Quick test_gemini_parse_edge_shapes
+        ; test_case "part shape failure" `Quick test_gemini_part_shape_failure_is_explicit
         ; test_case "event edge branches" `Quick test_gemini_event_edge_branches
         ] )
     ; ( "ollama_ndjson"

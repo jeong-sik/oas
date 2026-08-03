@@ -159,12 +159,25 @@ type gemini_chunk =
   ; gem_usage : api_usage option
   }
 
-val parse_gemini_sse_chunk : string -> gemini_chunk option
+type gemini_sse_parse_result =
+  | Gemini_chunk of gemini_chunk
+  | Gemini_parse_failed of
+      { reason : string
+      ; raw : string
+      }
+
+(** Parse one Gemini SSE data payload without collapsing malformed JSON or
+    malformed candidate/part shapes into an absent chunk. A caller that
+    receives [Gemini_parse_failed] must surface the raw payload as a wire
+    failure. *)
+val parse_gemini_sse_chunk : string -> gemini_sse_parse_result
+
+type gemini_chunk_to_events_error = { reason : string }
 
 val gemini_chunk_to_events
   :  openai_stream_state
   -> gemini_chunk
-  -> sse_event list * Telemetry_event.t option
+  -> (sse_event list * Telemetry_event.t option, gemini_chunk_to_events_error) result
 
 (** {1 Ollama NDJSON Streaming}
 

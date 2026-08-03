@@ -117,8 +117,11 @@ let%test "clean stream finalizes Ok: Gemini finishReason" =
      Streaming.parse_gemini_sse_chunk
        {|{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}|}
    with
-   | Some chunk -> accumulate_events acc (fst (Streaming.gemini_chunk_to_events st chunk))
-   | None -> ());
+   | Streaming.Gemini_chunk chunk ->
+     (match Streaming.gemini_chunk_to_events st chunk with
+      | Ok (events, _telemetry) -> accumulate_events acc events
+      | Error _ -> ())
+   | Streaming.Gemini_parse_failed _ -> ());
   match Complete_stream_acc.finalize_stream_acc acc with
   | Ok _ -> true
   | Error _ -> false
@@ -702,15 +705,15 @@ let complete_stream_http
                                     (get_state ())
                              | Provider_http_codec.Gemini_generate_content ->
                                (match Streaming.parse_gemini_sse_chunk data with
-                                | Some chunk ->
-                                  Streaming.gemini_chunk_to_events (get_state ()) chunk
-                                | None ->
-                                  ( [ Types.SSEParseFailed
-                                        { raw = data
-                                        ; reason = "gemini_sse_chunk_parse_failure"
-                                        }
-                                    ]
-                                  , None ))
+                                | Streaming.Gemini_chunk chunk ->
+                                  (match
+                                     Streaming.gemini_chunk_to_events (get_state ()) chunk
+                                   with
+                                   | Ok events -> events
+                                   | Error { reason } ->
+                                     [ Types.SSEParseFailed { raw = data; reason } ], None)
+                                | Streaming.Gemini_parse_failed { reason; raw } ->
+                                  [ Types.SSEParseFailed { raw; reason } ], None)
                              | Provider_http_codec.Glm_chat ->
                                Backend_glm.parse_stream_chunk ~streaming_reasoning data
                                |> Streaming.openai_sse_parse_result_to_events

@@ -1843,47 +1843,269 @@ type gemini_chunk =
   ; gem_usage : api_usage option
   }
 
-let parse_gemini_sse_chunk data_str : gemini_chunk option =
-  let open Yojson.Safe.Util in
-  try
-    let json = Yojson.Safe.from_string data_str in
-    let gem_model = Cli_common_json.member_str "modelVersion" json in
-    let candidate =
-      match json |> member "candidates" with
-      | `List (c :: _) -> c
-      | `List [] -> `Assoc []
-      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ ->
-        `Assoc []
-    in
-    let gem_parts =
-      match candidate |> member "content" |> member "parts" with
-      | `List ps -> ps
-      | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ -> []
-    in
-    let gem_finish_reason = candidate |> member "finishReason" |> to_string_option in
-    let gem_usage =
-      let um = json |> member "usageMetadata" in
-      if um = `Null
-      then None
-      else
-        Some
-          { input_tokens = Cli_common_json.member_int "promptTokenCount" um
-          ; output_tokens = Cli_common_json.member_int "candidatesTokenCount" um
-          ; cache_creation_input_tokens = 0
-          ; cache_read_input_tokens =
-              Cli_common_json.member_int "cachedContentTokenCount" um
-          ; cost_usd = None
-          }
-    in
-    Some { gem_model; gem_parts; gem_finish_reason; gem_usage }
-  with
-  | Yojson.Safe.Util.Type_error _
-  | Yojson.Safe.Util.Undefined _
-  | Yojson.Json_error _
-  | Invalid_argument _ -> None
+type gemini_sse_parse_result =
+  | Gemini_chunk of gemini_chunk
+  | Gemini_parse_failed of
+      { reason : string
+      ; raw : string
+      }
+
+type gemini_chunk_to_events_error = { reason : string }
+
+let gemini_assoc_field key = function
+  | `Assoc fields -> List.assoc_opt key fields
+  | `List _ | `String _ | `Int _ | `Intlit _ | `Float _ | `Bool _ | `Null -> None
 ;;
 
-let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
+let gemini_field ~path key json =
+  match json with
+  | `Assoc fields ->
+    (match List.assoc_opt key fields with
+     | Some value -> Ok value
+     | None -> Error (Printf.sprintf "%s.%s:missing" path key))
+  | value ->
+    Error (Printf.sprintf "%s:not_object(got %s)" path (Json_util.json_type_name value))
+;;
+
+let gemini_object ~path = function
+  | `Assoc _ as value -> Ok value
+  | value ->
+    Error (Printf.sprintf "%s:not_object(got %s)" path (Json_util.json_type_name value))
+;;
+
+let gemini_list ~path = function
+  | `List values -> Ok values
+  | value ->
+    Error (Printf.sprintf "%s:not_array(got %s)" path (Json_util.json_type_name value))
+;;
+
+let gemini_optional_string ~path key json =
+  match gemini_assoc_field key json with
+  | None | Some `Null -> Ok None
+  | Some (`String value) -> Ok (Some value)
+  | Some value ->
+    Error
+      (Printf.sprintf
+         "%s.%s:not_string(got %s)"
+         path
+         key
+         (Json_util.json_type_name value))
+;;
+
+let gemini_required_string ~path key json =
+  match gemini_field ~path key json with
+  | Ok (`String value) when not (Api_common.string_is_blank value) -> Ok value
+  | Ok (`String _) -> Error (Printf.sprintf "%s.%s:blank" path key)
+  | Ok value ->
+    Error
+      (Printf.sprintf
+         "%s.%s:not_string(got %s)"
+         path
+         key
+         (Json_util.json_type_name value))
+  | Error _ as error -> error
+;;
+
+let gemini_optional_int_default_zero ~path key json =
+  match gemini_assoc_field key json with
+  | None | Some `Null -> Ok 0
+  | Some (`Int value) -> Ok value
+  | Some (`Intlit raw) ->
+    (match int_of_string_opt raw with
+     | Some value -> Ok value
+     | None -> Error (Printf.sprintf "%s.%s:not_integer" path key))
+  | Some value ->
+    Error
+      (Printf.sprintf
+         "%s.%s:not_integer(got %s)"
+         path
+         key
+         (Json_util.json_type_name value))
+;;
+
+let validate_gemini_part ~position part =
+  let ( let* ) = Result.bind in
+  let path = Printf.sprintf "gemini.candidates[0].content.parts[%d]" position in
+  let* fields =
+    match part with
+    | `Assoc fields -> Ok fields
+    | value ->
+      Error (Printf.sprintf "%s:not_object(got %s)" path (Json_util.json_type_name value))
+  in
+  let part = `Assoc fields in
+  let* () =
+    let supported_payloads = [ "text"; "functionCall"; "inlineData" ] in
+    let metadata_fields = [ "thought"; "thoughtSignature" ] in
+    let unsupported_field =
+      List.find_opt
+        (fun (key, _) -> not (List.mem key (supported_payloads @ metadata_fields)))
+        fields
+    in
+    match unsupported_field with
+    | Some (key, _) -> Error (Printf.sprintf "%s.%s:unsupported_field" path key)
+    | None -> Ok ()
+  in
+  let* () =
+    match gemini_assoc_field "thought" part with
+    | None | Some `Null | Some (`Bool _) -> Ok ()
+    | Some value ->
+      Error
+        (Printf.sprintf
+           "%s.thought:not_boolean(got %s)"
+           path
+           (Json_util.json_type_name value))
+  in
+  let* () =
+    match gemini_assoc_field "thoughtSignature" part with
+    | None | Some `Null -> Ok ()
+    | Some (`String value) when not (Api_common.string_is_blank value) -> Ok ()
+    | Some (`String _) -> Error (Printf.sprintf "%s.thoughtSignature:blank" path)
+    | Some value ->
+      Error
+        (Printf.sprintf
+           "%s.thoughtSignature:not_string(got %s)"
+           path
+           (Json_util.json_type_name value))
+  in
+  let payloads =
+    List.filter_map
+      (fun key ->
+         match gemini_assoc_field key part with
+         | None -> None
+         | Some value -> Some (key, value))
+      [ "text"; "functionCall"; "inlineData" ]
+  in
+  match payloads with
+  | [] -> Error (path ^ ":missing_supported_payload")
+  | [ ("text", `String _) ] -> Ok ()
+  | [ ("text", value) ] ->
+    Error
+      (Printf.sprintf "%s.text:not_string(got %s)" path (Json_util.json_type_name value))
+  | [ ("functionCall", (`Assoc function_call_fields as function_call)) ] ->
+    let unsupported_field =
+      List.find_opt
+        (fun (key, _) -> not (List.mem key [ "id"; "name"; "args" ]))
+        function_call_fields
+    in
+    let* () =
+      match unsupported_field with
+      | Some (key, _) ->
+        Error (Printf.sprintf "%s.functionCall.%s:unsupported_field" path key)
+      | None -> Ok ()
+    in
+    let* _id = gemini_optional_string ~path:(path ^ ".functionCall") "id" function_call in
+    let* _ = gemini_required_string ~path:(path ^ ".functionCall") "name" function_call in
+    let* args = gemini_field ~path:(path ^ ".functionCall") "args" function_call in
+    let* _args = gemini_object ~path:(path ^ ".functionCall.args") args in
+    Ok ()
+  | [ ("functionCall", value) ] ->
+    Error
+      (Printf.sprintf
+         "%s.functionCall:not_object(got %s)"
+         path
+         (Json_util.json_type_name value))
+  | [ ("inlineData", `Assoc _) ] -> Ok ()
+  | [ ("inlineData", value) ] ->
+    Error
+      (Printf.sprintf
+         "%s.inlineData:not_object(got %s)"
+         path
+         (Json_util.json_type_name value))
+  | _ -> Error (path ^ ":multiple_payloads")
+;;
+
+let parse_gemini_json json : (gemini_chunk, string) result =
+  let ( let* ) = Result.bind in
+  let* () =
+    match json with
+    | `Assoc _ -> Ok ()
+    | value ->
+      Error
+        (Printf.sprintf
+           "gemini_sse_payload:not_object(got %s)"
+           (Json_util.json_type_name value))
+  in
+  let* model_version = gemini_optional_string ~path:"gemini" "modelVersion" json in
+  let* candidates_value = gemini_field ~path:"gemini" "candidates" json in
+  let* candidates = gemini_list ~path:"gemini.candidates" candidates_value in
+  let* candidate =
+    match candidates with
+    | [ candidate ] -> Ok candidate
+    | _ :: _ -> Error "gemini.candidates:multiple_candidates_unsupported"
+    | [] -> Error "gemini.candidates:empty"
+  in
+  let* candidate = gemini_object ~path:"gemini.candidates[0]" candidate in
+  let* content = gemini_field ~path:"gemini.candidates[0]" "content" candidate in
+  let* content = gemini_object ~path:"gemini.candidates[0].content" content in
+  let* parts_value = gemini_field ~path:"gemini.candidates[0].content" "parts" content in
+  let* parts = gemini_list ~path:"gemini.candidates[0].content.parts" parts_value in
+  let rec validate_parts position = function
+    | [] -> Ok ()
+    | part :: rest ->
+      let* () = validate_gemini_part ~position part in
+      validate_parts (position + 1) rest
+  in
+  let* () = validate_parts 0 parts in
+  let* gem_finish_reason =
+    gemini_optional_string ~path:"gemini.candidates[0]" "finishReason" candidate
+  in
+  let* gem_usage =
+    match gemini_assoc_field "usageMetadata" json with
+    | None | Some `Null -> Ok None
+    | Some (`Assoc _ as usage) ->
+      let* input_tokens =
+        gemini_optional_int_default_zero
+          ~path:"gemini.usageMetadata"
+          "promptTokenCount"
+          usage
+      in
+      let* output_tokens =
+        gemini_optional_int_default_zero
+          ~path:"gemini.usageMetadata"
+          "candidatesTokenCount"
+          usage
+      in
+      let* cache_read_input_tokens =
+        gemini_optional_int_default_zero
+          ~path:"gemini.usageMetadata"
+          "cachedContentTokenCount"
+          usage
+      in
+      Ok
+        (Some
+           { input_tokens
+           ; output_tokens
+           ; cache_creation_input_tokens = 0
+           ; cache_read_input_tokens
+           ; cost_usd = None
+           })
+    | Some value ->
+      Error
+        (Printf.sprintf
+           "gemini.usageMetadata:not_object(got %s)"
+           (Json_util.json_type_name value))
+  in
+  Ok
+    { gem_model = Option.value ~default:"" model_version
+    ; gem_parts = parts
+    ; gem_finish_reason
+    ; gem_usage
+    }
+;;
+
+let parse_gemini_sse_chunk data_str : gemini_sse_parse_result =
+  match Yojson.Safe.from_string data_str with
+  | exception Yojson.Json_error message ->
+    Gemini_parse_failed { raw = data_str; reason = "json_error: " ^ message }
+  | exception Invalid_argument message ->
+    Gemini_parse_failed { raw = data_str; reason = "json_invalid_argument: " ^ message }
+  | json ->
+    (match parse_gemini_json json with
+     | Ok chunk -> Gemini_chunk chunk
+     | Error reason -> Gemini_parse_failed { raw = data_str; reason })
+;;
+
+let gemini_chunk_to_events_impl (state : openai_stream_state) (chunk : gemini_chunk)
   : sse_event list * Telemetry_event.t option
   =
   let open Yojson.Safe.Util in
@@ -2117,6 +2339,29 @@ let gemini_chunk_to_events (state : openai_stream_state) (chunk : gemini_chunk)
      emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.gem_usage })
    | None -> ());
   List.rev !events, !telemetry_event
+;;
+
+let rec validate_gemini_parts position = function
+  | [] -> Ok ()
+  | part :: rest ->
+    (match validate_gemini_part ~position part with
+     | Error _ as error -> error
+     | Ok () -> validate_gemini_parts (position + 1) rest)
+;;
+
+let gemini_chunk_to_events state chunk =
+  match validate_gemini_parts 0 chunk.gem_parts with
+  | Error reason -> Error { reason = "gemini_sse_chunk_shape_failure: " ^ reason }
+  | Ok () ->
+    (try Ok (gemini_chunk_to_events_impl state chunk) with
+     | Backend_gemini.Gemini_api_error reason ->
+       Error { reason = "gemini_sse_chunk_decode_failure: " ^ reason }
+     | Yojson.Safe.Util.Type_error (reason, _) ->
+       Error { reason = "gemini_sse_chunk_decode_type_error: " ^ reason }
+     | Yojson.Safe.Util.Undefined (reason, _) ->
+       Error { reason = "gemini_sse_chunk_decode_undefined: " ^ reason }
+     | Invalid_argument reason ->
+       Error { reason = "gemini_sse_chunk_decode_invalid_argument: " ^ reason })
 ;;
 
 (** {1 Ollama NDJSON Streaming}
