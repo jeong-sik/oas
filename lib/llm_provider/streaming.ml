@@ -1711,7 +1711,7 @@ let responses_sse_to_events (state : openai_stream_state) event_type data_str
       let emit_terminal response =
         emit
           (MessageDelta
-             { stop_reason = Some (responses_stop_reason_of_response response)
+             { stop_reason = responses_stop_reason_of_response response
              ; usage = responses_usage_of_response response
              });
         emit MessageStop
@@ -2435,14 +2435,15 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
   then (
     let stop_reason =
       match chunk.oll_done_reason with
-      | None -> Some EndTurn
+      (* Non-streaming parsing can reject before returning content. Streaming
+         may already have delivered deltas, so absence stays [None] and the
+         accumulator returns typed [Stream_incomplete] at finalization. *)
+      | None -> None
       | Some reason ->
-        (match String.lowercase_ascii reason with
-         | "tool_calls" when chunk.oll_tool_calls <> [] -> Some StopToolUse
-         | "length" -> Some MaxTokens
-         | "stop" -> Some EndTurn
-         | _other when chunk.oll_tool_calls <> [] -> Some StopToolUse
-         | other -> Some (Unknown other))
+        Some
+          (Stop_reason_wire.of_finish
+             (Stop_reason_wire.wire_finish_of_string reason)
+             ~has_tool_blocks:(chunk.oll_tool_calls <> []))
     in
     emit (MessageDelta { stop_reason; usage = chunk.oll_usage }));
   List.rev !events, !telemetry_event
@@ -2643,6 +2644,24 @@ let%test "ollama_chunk_to_events: done with stop_reason emits MessageDelta" =
   | unexpected_events ->
     let (_ : sse_event list) = unexpected_events in
     false
+;;
+
+let%test "ollama_chunk_to_events: overflow reason stays typed" =
+  let state = create_openai_stream_state () in
+  let chunk : ollama_chunk =
+    { oll_model = "dashscope-3:8b"
+    ; oll_delta_content = None
+    ; oll_delta_thinking = None
+    ; oll_tool_calls = []
+    ; oll_done_reason = Some "model_context_window_exceeded"
+    ; oll_is_done = true
+    ; oll_usage = None
+    ; oll_timings = None
+    }
+  in
+  match fst (ollama_chunk_to_events state chunk) with
+  | [ MessageDelta { stop_reason = Some ContextWindowExceeded; usage = None } ] -> true
+  | _ -> false
 ;;
 
 let%test "ollama_chunk_to_events: done with zero usage → usage=None" =

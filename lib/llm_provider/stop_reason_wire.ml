@@ -9,23 +9,27 @@ type wire_finish =
   | Other of string
 
 let wire_finish_of_string s =
-  match String.lowercase_ascii s with
+  let normalized = String.lowercase_ascii s in
+  match normalized with
   | "tool_calls" -> Tool_calls
-  | "length" | "max_tokens" | "length_limit" -> Length
-  | "stop" | "end_turn" -> Stop
-  | "refusal" -> Refusal
-  | "content_filter" -> Content_filter
-  | "repetition_truncation" -> Repetition_truncation
-  (* SSOT parity with [Types.stop_reason_of_string]: the OpenAI/GLM finish-reason
-     decoder must recognize canonical and provider-dialect overflow tokens so an
-     empty completion that reports it reaches [Retry.overflow_of_empty_completion]
-     as [ContextWindowExceeded] instead of the [Unknown _] dead arm. *)
-  | "model_context_window_exceeded"
-  | "context_window_exceeded"
-  | "context_length_exceeded"
-  | "max_context_length"
-  | "context_limit_exceeded" -> Context_window_exceeded
-  | other -> Other other
+  | "stop" -> Stop
+  | other ->
+    (* [Types.stop_reason_of_string] owns the canonical and provider-dialect
+       tokens.  This boundary only translates that typed result into the
+       smaller finish-reason vocabulary needed for tool-block reconciliation. *)
+    (match Types.stop_reason_of_string other with
+     | Types.StopToolUse -> Tool_calls
+     | Types.EndTurn -> Stop
+     | Types.MaxTokens -> Length
+     | Types.Refusal -> Refusal
+     | Types.ContentFilter -> Content_filter
+     | Types.RepetitionTruncation -> Repetition_truncation
+     | Types.ContextWindowExceeded -> Context_window_exceeded
+     | Types.StopSequence
+     | Types.PauseTurn
+     | Types.Compaction
+     | Types.UnmatchedToolCalls
+     | Types.Unknown _ -> Other other)
 ;;
 
 let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
@@ -44,7 +48,7 @@ let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
   | Content_filter -> Types.ContentFilter
   | Repetition_truncation -> Types.RepetitionTruncation
   | Context_window_exceeded -> Types.ContextWindowExceeded
-  | Other other -> Types.Unknown other
+  | Other other -> Types.stop_reason_of_string other
 ;;
 
 let provisional_of_string s : Types.stop_reason =
@@ -56,7 +60,7 @@ let provisional_of_string s : Types.stop_reason =
   | Content_filter -> Types.ContentFilter
   | Repetition_truncation -> Types.RepetitionTruncation
   | Context_window_exceeded -> Types.ContextWindowExceeded
-  | Other other -> Types.Unknown other
+  | Other other -> Types.stop_reason_of_string other
 ;;
 
 let reconcile (sr : Types.stop_reason) ~has_tool_blocks : Types.stop_reason =
@@ -148,6 +152,14 @@ let%test "reconcile preserves EndTurn without tools" =
 let%test "reconcile preserves Unknown with tools as non-executable" =
   reconcile (Types.Unknown "provider_terminal") ~has_tool_blocks:true
   = Types.Unknown "provider_terminal"
+;;
+
+let%test "of_finish restores canonical reason outside wire vocabulary" =
+  of_finish (Other "stop_sequence") ~has_tool_blocks:true = Types.StopSequence
+;;
+
+let%test "provisional restores canonical reason outside wire vocabulary" =
+  provisional_of_string "pause_turn" = Types.PauseTurn
 ;;
 
 (* Truncation safety: MaxTokens + tool blocks is NOT upgraded, because a

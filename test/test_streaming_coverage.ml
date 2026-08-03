@@ -228,11 +228,10 @@ let test_acc_message_delta_stop_reason () =
 let test_acc_message_delta_none_stop_reason () =
   let acc = Streaming.create_stream_acc () in
   Streaming.accumulate_event acc (MessageDelta { stop_reason = None; usage = None });
-  let resp = finalize_ok acc in
-  (* Default is EndTurn *)
-  match resp.stop_reason with
-  | EndTurn -> ()
-  | _ -> Alcotest.fail "expected default EndTurn"
+  match Streaming.finalize_stream_acc acc with
+  | Error (Stream_incomplete { reason = "stream_terminated_without_stop_reason" }) -> ()
+  | Error _ -> Alcotest.fail "expected typed missing stop reason"
+  | Ok _ -> Alcotest.fail "missing stop reason must not become EndTurn"
 ;;
 
 let test_acc_message_delta_with_usage () =

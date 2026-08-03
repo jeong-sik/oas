@@ -337,8 +337,10 @@ let parse_openai_response_result_json_raw (raw_json : Yojson.Safe.t) =
   | `Null ->
     let choice = json |> member "choices" |> index 0 in
     let msg = choice |> member "message" in
-    let finish_reason =
-      choice |> member "finish_reason" |> to_string_option |> Option.value ~default:"stop"
+    let* finish_reason =
+      match choice |> member "finish_reason" |> to_string_option with
+      | Some finish_reason -> Ok finish_reason
+      | None -> Error "malformed_openai_response:missing_finish_reason"
     in
     let text_content = text_content_of_openai_content (msg |> member "content") in
     let* tool_blocks = parse_tool_calls_field (msg |> member "tool_calls") in
@@ -406,6 +408,15 @@ let parse_openai_response_result_json raw_json =
     {!parse_openai_response_result_json} directly to avoid re-parsing. *)
 let parse_openai_response_result json_str =
   parse_openai_response_result_json (Yojson.Safe.from_string json_str)
+;;
+
+let%test "missing finish reason is not synthesized as stop" =
+  match
+    parse_openai_response_result
+      {|{"id":"chat-1","model":"m","choices":[{"message":{"content":"ok"}}]}|}
+  with
+  | Error (Provider_error "malformed_openai_response:missing_finish_reason") -> true
+  | Error _ | Ok _ -> false
 ;;
 
 let%test "usage_of_openai_json supports mlx_vlm input/output token fields" =
