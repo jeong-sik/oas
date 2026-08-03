@@ -11,10 +11,12 @@ type t =
   ; metadata : Context.t
   }
 
+exception Entropy_unavailable of string
+
 let generate_id () =
   match Random_id.create () with
   | Ok value -> "session-" ^ value
-  | Error message -> failwith ("Session.generate_id: " ^ message)
+  | Error message -> raise (Entropy_unavailable message)
 ;;
 
 let create ?id ?resumed_from ?cwd ?(metadata = Context.create_sync ()) () =
