@@ -48,7 +48,7 @@ let of_finish (w : wire_finish) ~has_tool_blocks : Types.stop_reason =
   | Content_filter -> Types.ContentFilter
   | Repetition_truncation -> Types.RepetitionTruncation
   | Context_window_exceeded -> Types.ContextWindowExceeded
-  | Other other -> Types.Unknown other
+  | Other other -> Types.stop_reason_of_string other
 ;;
 
 let provisional_of_string s : Types.stop_reason =
@@ -60,7 +60,7 @@ let provisional_of_string s : Types.stop_reason =
   | Content_filter -> Types.ContentFilter
   | Repetition_truncation -> Types.RepetitionTruncation
   | Context_window_exceeded -> Types.ContextWindowExceeded
-  | Other other -> Types.Unknown other
+  | Other other -> Types.stop_reason_of_string other
 ;;
 
 let reconcile (sr : Types.stop_reason) ~has_tool_blocks : Types.stop_reason =
@@ -152,6 +152,14 @@ let%test "reconcile preserves EndTurn without tools" =
 let%test "reconcile preserves Unknown with tools as non-executable" =
   reconcile (Types.Unknown "provider_terminal") ~has_tool_blocks:true
   = Types.Unknown "provider_terminal"
+;;
+
+let%test "of_finish restores canonical reason outside wire vocabulary" =
+  of_finish (Other "stop_sequence") ~has_tool_blocks:true = Types.StopSequence
+;;
+
+let%test "provisional restores canonical reason outside wire vocabulary" =
+  provisional_of_string "pause_turn" = Types.PauseTurn
 ;;
 
 (* Truncation safety: MaxTokens + tool blocks is NOT upgraded, because a
