@@ -104,10 +104,6 @@ let%test "unknown status with tools remains non-executable" =
 ;;
 
 let%test "missing status with tools remains non-executable" =
-  of_status
-    ~status:None
-    ~incomplete_reason:None
-    ~failed_message:None
-    ~has_tool_calls:true
+  of_status ~status:None ~incomplete_reason:None ~failed_message:None ~has_tool_calls:true
   = Types.Unknown "missing_status"
 ;;

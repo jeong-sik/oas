@@ -155,9 +155,7 @@ let%test "truncated stream (no terminal stop_reason) finalizes Error, not phanto
 
 (* A [data: [DONE]] sentinel proves transport closure, but cannot invent the
    missing model stop reason. The completion stays fail-closed. *)
-let%test
-    "OpenAI-compat [DONE] without finish_reason fails closed"
-  =
+let%test "OpenAI-compat [DONE] without finish_reason fails closed" =
   let acc = Complete_stream_acc.create_stream_acc () in
   let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
   accumulate_openai_payload
@@ -166,9 +164,8 @@ let%test
     {|{"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}|};
   accumulate_openai_payload acc st "[DONE]";
   match Complete_stream_acc.finalize_stream_acc acc with
-  | Error
-      (Types.Stream_incomplete
-        { reason = "stream_terminal_without_stop_reason" }) -> true
+  | Error (Types.Stream_incomplete { reason = "stream_terminal_without_stop_reason" }) ->
+    true
   | Error _ | Ok _ -> false
 ;;
 
