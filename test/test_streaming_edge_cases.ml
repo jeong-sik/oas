@@ -656,6 +656,10 @@ let test_gemini_policy_blocks_are_not_wire_failures () =
     (Some (S.Gemini_prompt_block_reason "SAFETY"))
     {|{"modelVersion":"gem","promptFeedback":{"blockReason":"SAFETY"},"candidates":[]}|};
   check_gemini_refusal
+    "omitted empty candidates policy block"
+    (Some (S.Gemini_prompt_block_reason "SAFETY"))
+    {|{"modelVersion":"gem","promptFeedback":{"blockReason":"SAFETY"}}|};
+  check_gemini_refusal
     "candidate policy block"
     (Some (S.Gemini_candidate_finish_reason "PROHIBITED_CONTENT"))
     {|{"modelVersion":"gem","candidates":[{"finishReason":"PROHIBITED_CONTENT"}]}|}

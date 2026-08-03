@@ -2400,8 +2400,11 @@ let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
               (Json_util.json_type_name value)))
   in
   let* model_version = gemini_optional_string ~path:"gemini" "modelVersion" json in
-  let* candidates_value = gemini_field ~path:"gemini" "candidates" json in
-  let* candidates = gemini_list ~path:"gemini.candidates" candidates_value in
+  let* candidates =
+    match gemini_assoc_field "candidates" json with
+    | None | Some `Null -> Ok []
+    | Some candidates -> gemini_list ~path:"gemini.candidates" candidates
+  in
   let* candidate, gem_finish_reason =
     match candidates with
     | [ candidate ] ->
