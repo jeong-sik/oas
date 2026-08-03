@@ -1614,28 +1614,43 @@ let test_responses_stop_reason_ssot_status_table () =
     true
     (Responses_stop_reason.of_status
        ~status:(Some "failed")
-       ~incomplete_reason:None
-       ~failed_message:(Some "quota exhausted")
-       ~has_tool_calls:true
-     = Unknown "quota exhausted");
+     ~incomplete_reason:None
+     ~failed_message:(Some "quota exhausted")
+     ~has_tool_calls:true
+     = Some (Unknown "quota exhausted"));
   check_bool
     "completed with tool calls is tool use"
     true
     (Responses_stop_reason.of_status
        ~status:(Some "completed")
-       ~incomplete_reason:None
-       ~failed_message:None
-       ~has_tool_calls:true
-     = StopToolUse);
+     ~incomplete_reason:None
+     ~failed_message:None
+     ~has_tool_calls:true
+     = Some StopToolUse);
   check_bool
     "unknown status without tools is preserved"
     true
     (Responses_stop_reason.of_status
        ~status:(Some "queued")
+     ~incomplete_reason:None
+     ~failed_message:None
+     ~has_tool_calls:false
+     = Some (Unknown "queued"));
+  check_bool
+    "missing status stays absent"
+    true
+    (Responses_stop_reason.of_status
+       ~status:None
        ~incomplete_reason:None
        ~failed_message:None
-       ~has_tool_calls:false
-     = Unknown "queued")
+       ~has_tool_calls:true
+     = None);
+  match Backend_openai_responses.parse_response_result
+          {|{"id":"resp-missing-status","model":"m","output":[]}|}
+  with
+  | Error "malformed_openai_responses:missing_status" -> ()
+  | Error message -> Alcotest.fail ("unexpected missing-status error: " ^ message)
+  | Ok _ -> Alcotest.fail "missing Responses status must fail closed"
 ;;
 
 let test_responses_preserves_encrypted_reasoning_item_for_replay () =

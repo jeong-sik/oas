@@ -1711,7 +1711,7 @@ let responses_sse_to_events (state : openai_stream_state) event_type data_str
       let emit_terminal response =
         emit
           (MessageDelta
-             { stop_reason = Some (responses_stop_reason_of_response response)
+             { stop_reason = responses_stop_reason_of_response response
              ; usage = responses_usage_of_response response
              });
         emit MessageStop
@@ -2435,7 +2435,10 @@ let ollama_chunk_to_events (state : openai_stream_state) (chunk : ollama_chunk)
   then (
     let stop_reason =
       match chunk.oll_done_reason with
-      | None -> Some (Unknown "missing_done_reason")
+      (* Non-streaming parsing can reject before returning content. Streaming
+         may already have delivered deltas, so absence stays [None] and the
+         accumulator returns typed [Stream_incomplete] at finalization. *)
+      | None -> None
       | Some reason ->
         Some
           (Stop_reason_wire.of_finish

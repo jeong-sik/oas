@@ -139,6 +139,38 @@ let%test "clean stream finalizes Ok: Ollama done:true" =
   | Error _ -> false
 ;;
 
+let%test "Ollama done without reason finalizes typed incomplete" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"ollama" ~model:"m" () in
+  (match
+     Streaming.parse_ollama_ndjson_chunk
+       {|{"model":"m","done":true,"message":{"role":"assistant","content":"partial"}}|}
+   with
+   | Streaming.Ollama_chunk chunk ->
+     accumulate_events acc (fst (Streaming.ollama_chunk_to_events st chunk))
+   | Streaming.Ollama_provider_error _ | Streaming.Ollama_parse_failed _ -> ());
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Error (Types.Stream_incomplete { reason = "stream_terminated_without_stop_reason" }) ->
+    true
+  | Error _ | Ok _ -> false
+;;
+
+let%test "Responses terminal event without status finalizes typed incomplete" =
+  let acc = Complete_stream_acc.create_stream_acc () in
+  let st = Streaming.create_openai_stream_state ~provider:"openai" ~model:"m" () in
+  let events, _ =
+    Streaming.responses_sse_to_events
+      st
+      (Some "response.completed")
+      {|{"response":{"id":"resp-1","model":"m","output":[]}}|}
+  in
+  accumulate_events acc events;
+  match Complete_stream_acc.finalize_stream_acc acc with
+  | Error (Types.Stream_incomplete { reason = "stream_terminal_without_stop_reason" }) ->
+    true
+  | Error _ | Ok _ -> false
+;;
+
 let%test "truncated stream (no terminal stop_reason) finalizes Error, not phantom Ok" =
   let acc = Complete_stream_acc.create_stream_acc () in
   Complete_stream_acc.accumulate_event

@@ -19,14 +19,15 @@ let failed_stop_reason failed_message =
 
 let of_status ~status ~incomplete_reason ~failed_message ~has_tool_calls =
   match status with
-  | None -> Types.Unknown "missing_status"
+  | None -> None
   | Some status ->
-    (match String.lowercase_ascii status with
-     | "incomplete" -> incomplete_stop_reason incomplete_reason
-     | "failed" -> failed_stop_reason failed_message
-     | "completed" when has_tool_calls -> Types.StopToolUse
-     | "completed" -> Types.EndTurn
-     | other -> Types.Unknown other)
+    Some
+      (match String.lowercase_ascii status with
+       | "incomplete" -> incomplete_stop_reason incomplete_reason
+       | "failed" -> failed_stop_reason failed_message
+       | "completed" when has_tool_calls -> Types.StopToolUse
+       | "completed" -> Types.EndTurn
+       | other -> Types.Unknown other)
 ;;
 
 [@@@coverage off]
@@ -37,7 +38,7 @@ let%test "incomplete max output tokens wins over tool calls" =
     ~incomplete_reason:(Some "max_output_tokens")
     ~failed_message:None
     ~has_tool_calls:true
-  = Types.MaxTokens
+  = Some Types.MaxTokens
 ;;
 
 let%test "incomplete content filter is typed" =
@@ -46,7 +47,7 @@ let%test "incomplete content filter is typed" =
     ~incomplete_reason:(Some "content_filter")
     ~failed_message:None
     ~has_tool_calls:true
-  = Types.ContentFilter
+  = Some Types.ContentFilter
 ;;
 
 let%test "incomplete context overflow is typed" =
@@ -55,7 +56,7 @@ let%test "incomplete context overflow is typed" =
     ~incomplete_reason:(Some "model_context_window_exceeded")
     ~failed_message:None
     ~has_tool_calls:false
-  = Types.ContextWindowExceeded
+  = Some Types.ContextWindowExceeded
 ;;
 
 let%test "unknown incomplete reason remains unknown" =
@@ -64,7 +65,7 @@ let%test "unknown incomplete reason remains unknown" =
     ~incomplete_reason:(Some "tool_use")
     ~failed_message:None
     ~has_tool_calls:true
-  = Types.Unknown "tool_use"
+  = Some (Types.Unknown "tool_use")
 ;;
 
 let%test "failed message wins over tool calls" =
@@ -73,7 +74,7 @@ let%test "failed message wins over tool calls" =
     ~incomplete_reason:None
     ~failed_message:(Some "quota exhausted")
     ~has_tool_calls:true
-  = Types.Unknown "quota exhausted"
+  = Some (Types.Unknown "quota exhausted")
 ;;
 
 let%test "completed with tool calls is tool use" =
@@ -82,7 +83,7 @@ let%test "completed with tool calls is tool use" =
     ~incomplete_reason:None
     ~failed_message:None
     ~has_tool_calls:true
-  = Types.StopToolUse
+  = Some Types.StopToolUse
 ;;
 
 let%test "unknown status without tools is preserved" =
@@ -91,7 +92,7 @@ let%test "unknown status without tools is preserved" =
     ~incomplete_reason:None
     ~failed_message:None
     ~has_tool_calls:false
-  = Types.Unknown "queued"
+  = Some (Types.Unknown "queued")
 ;;
 
 let%test "unknown status with tools remains non-executable" =
@@ -100,10 +101,10 @@ let%test "unknown status with tools remains non-executable" =
     ~incomplete_reason:None
     ~failed_message:None
     ~has_tool_calls:true
-  = Types.Unknown "queued"
+  = Some (Types.Unknown "queued")
 ;;
 
-let%test "missing status with tools remains non-executable" =
+let%test "missing status remains absent" =
   of_status ~status:None ~incomplete_reason:None ~failed_message:None ~has_tool_calls:true
-  = Types.Unknown "missing_status"
+  = None
 ;;
