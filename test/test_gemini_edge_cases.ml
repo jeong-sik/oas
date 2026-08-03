@@ -114,7 +114,9 @@ let test_sse_function_call () =
   | Some chunk ->
     check "parsed chunk" true;
     check "has parts" (List.length chunk.gem_parts > 0);
-    check "finish reason STOP" (chunk.gem_finish_reason = Some "STOP");
+    check
+      "finish reason STOP"
+      (chunk.gem_finish_reason = Some (S.Gemini_candidate_finish_reason "STOP"));
     let state = Streaming.create_openai_stream_state () in
     let events, _tel = gemini_events state chunk in
     let has_tool_start =

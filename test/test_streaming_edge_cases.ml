@@ -556,6 +556,26 @@ let test_openai_event_edge_branches () =
 
 let test_gemini_parse_edge_shapes () =
   (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"text":"no model"}]}}]}|}
+   with
+   | S.Gemini_chunk chunk ->
+     check (option string) "absent modelVersion" None chunk.gem_model
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "absent optional modelVersion was rejected: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "absent modelVersion is not a Part kind"
+   | S.Gemini_unsupported_response _ -> fail "absent modelVersion is not a response kind");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"modelVersion":"","candidates":[{"content":{"parts":[{"text":"empty model"}]}}]}|}
+   with
+   | S.Gemini_chunk chunk ->
+     check (option string) "empty modelVersion remains distinct" (Some "") chunk.gem_model
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "empty modelVersion was rejected instead of preserved: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "empty modelVersion is not a Part kind"
+   | S.Gemini_unsupported_response _ -> fail "empty modelVersion is not a response kind");
+  (match
      parse_gemini_chunk {|{"modelVersion":"gem","candidates":[],"usageMetadata":null}|}
    with
    | None -> ()
@@ -606,9 +626,14 @@ let test_gemini_parse_edge_shapes () =
   | S.Gemini_unsupported_response _ -> fail "invalid JSON is not a response kind"
 ;;
 
-let check_gemini_refusal label payload =
+let check_gemini_refusal label expected_reason payload =
   match S.parse_gemini_sse_chunk payload with
   | S.Gemini_chunk chunk ->
+    check
+      bool
+      (label ^ ": terminal reason preserved")
+      true
+      (chunk.gem_finish_reason = expected_reason);
     let events, _ = require_gemini_events label (S.create_openai_stream_state ()) chunk in
     (match events with
      | [ MessageDelta { stop_reason = Some Refusal; _ } ] -> ()
@@ -624,9 +649,15 @@ let check_gemini_refusal label payload =
 let test_gemini_policy_blocks_are_not_wire_failures () =
   check_gemini_refusal
     "prompt policy block"
+    (Some (S.Gemini_prompt_block_reason "OTHER"))
+    {|{"modelVersion":"gem","promptFeedback":{"blockReason":"OTHER"},"candidates":[]}|};
+  check_gemini_refusal
+    "safety prompt policy block"
+    (Some (S.Gemini_prompt_block_reason "SAFETY"))
     {|{"modelVersion":"gem","promptFeedback":{"blockReason":"SAFETY"},"candidates":[]}|};
   check_gemini_refusal
     "candidate policy block"
+    (Some (S.Gemini_candidate_finish_reason "PROHIBITED_CONTENT"))
     {|{"modelVersion":"gem","candidates":[{"finishReason":"PROHIBITED_CONTENT"}]}|}
 ;;
 
@@ -663,7 +694,19 @@ let test_gemini_supported_metadata_and_function_call_shapes () =
    | S.Gemini_parse_failed { reason; _ } ->
      failf "optional functionCall.args was rejected: %s" reason
    | S.Gemini_unsupported_part _ -> fail "argument-free function call is supported"
-   | S.Gemini_unsupported_response _ -> fail "argument-free function call is not a response");
+   | S.Gemini_unsupported_response _ ->
+     fail "argument-free function call is not a response");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{},"willContinue":false}}]}}]}|}
+   with
+   | S.Gemini_chunk _ -> ()
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "terminal willContinue=false was rejected: %s" reason
+   | S.Gemini_unsupported_part _ ->
+     fail "terminal willContinue=false is not incremental arguments"
+   | S.Gemini_unsupported_response _ ->
+     fail "terminal willContinue=false is not a response kind");
   match
     S.parse_gemini_sse_chunk
       {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","partialArgs":[],"willContinue":true}}]}}]}|}
@@ -756,7 +799,8 @@ let test_gemini_unsupported_part_shape_is_explicit () =
       reason
   | S.Gemini_unsupported_part _ -> fail "malformed executableCode must remain malformed"
   | S.Gemini_chunk _ -> fail "malformed executableCode must not be accepted"
-  | S.Gemini_unsupported_response _ -> fail "malformed executableCode is not a response kind"
+  | S.Gemini_unsupported_response _ ->
+    fail "malformed executableCode is not a response kind"
 ;;
 
 let test_gemini_builtin_tool_parts_are_typed () =
@@ -817,9 +861,10 @@ let test_gemini_malformed_part_precedes_unsupported_part () =
 ;;
 
 let gemini_chunk ?(parts = []) ?finish_reason ?usage () : S.gemini_chunk =
-  { gem_model = "gemini-test"
+  { gem_model = Some "gemini-test"
   ; gem_parts = parts
-  ; gem_finish_reason = finish_reason
+  ; gem_finish_reason =
+      Option.map (fun reason -> S.Gemini_candidate_finish_reason reason) finish_reason
   ; gem_usage = usage
   }
 ;;

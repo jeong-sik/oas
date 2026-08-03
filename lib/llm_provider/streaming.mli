@@ -152,10 +152,14 @@ val responses_sse_to_events
     We reuse {!openai_stream_state} for block tracking since the
     state management pattern is identical. *)
 
+type gemini_terminal_reason =
+  | Gemini_candidate_finish_reason of string
+  | Gemini_prompt_block_reason of string
+
 type gemini_chunk =
-  { gem_model : string
+  { gem_model : string option
   ; gem_parts : Yojson.Safe.t list
-  ; gem_finish_reason : string option
+  ; gem_finish_reason : gemini_terminal_reason option
   ; gem_usage : api_usage option
   }
 
@@ -169,8 +173,7 @@ type gemini_unsupported_part =
   | Gemini_audio_transcription
   | Gemini_streaming_function_call_arguments
 
-type gemini_unsupported_response =
-  | Gemini_multiple_candidates of { count : int }
+type gemini_unsupported_response = Gemini_multiple_candidates of { count : int }
 
 type gemini_sse_parse_result =
   | Gemini_chunk of gemini_chunk
@@ -196,7 +199,6 @@ type gemini_sse_parse_result =
 val parse_gemini_sse_chunk : string -> gemini_sse_parse_result
 
 val gemini_unsupported_part_wire_name : gemini_unsupported_part -> string
-
 val gemini_unsupported_response_wire_name : gemini_unsupported_response -> string
 
 type gemini_chunk_to_events_error = { reason : string }

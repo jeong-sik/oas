@@ -1846,10 +1846,14 @@ let responses_sse_to_events (state : openai_stream_state) event_type data_str
     JSON payloads: [{candidates: [{content: {parts: [...]}}]}].
     Each chunk may contain text, thought, or functionCall parts. *)
 
+type gemini_terminal_reason =
+  | Gemini_candidate_finish_reason of string
+  | Gemini_prompt_block_reason of string
+
 type gemini_chunk =
-  { gem_model : string
+  { gem_model : string option
   ; gem_parts : Yojson.Safe.t list
-  ; gem_finish_reason : string option
+  ; gem_finish_reason : gemini_terminal_reason option
   ; gem_usage : api_usage option
   }
 
@@ -1863,8 +1867,7 @@ type gemini_unsupported_part =
   | Gemini_audio_transcription
   | Gemini_streaming_function_call_arguments
 
-type gemini_unsupported_response =
-  | Gemini_multiple_candidates of { count : int }
+type gemini_unsupported_response = Gemini_multiple_candidates of { count : int }
 
 type gemini_sse_parse_result =
   | Gemini_chunk of gemini_chunk
@@ -1954,7 +1957,9 @@ let gemini_optional_int_default_zero ~path key json =
          (Json_util.json_type_name value))
 ;;
 
-let gemini_part_metadata_object_fields = [ "partMetadata"; "mediaResolution"; "videoMetadata" ]
+let gemini_part_metadata_object_fields =
+  [ "partMetadata"; "mediaResolution"; "videoMetadata" ]
+;;
 
 let gemini_part_metadata_fields =
   [ "thought"; "thoughtSignature" ] @ gemini_part_metadata_object_fields
@@ -2042,7 +2047,7 @@ let validate_gemini_part ~position part =
   | [ ("functionCall", (`Assoc function_call_fields as function_call)) ] ->
     let unsupported_field =
       List.find_opt
-        (fun (key, _) -> not (List.mem key [ "id"; "name"; "args" ]))
+        (fun (key, _) -> not (List.mem key [ "id"; "name"; "args"; "willContinue" ]))
         function_call_fields
     in
     let* () =
@@ -2060,6 +2065,17 @@ let validate_gemini_part ~position part =
         Error
           (Printf.sprintf
              "%s.functionCall.args:not_object(got %s)"
+             path
+             (Json_util.json_type_name value))
+    in
+    let* () =
+      match gemini_assoc_field "willContinue" function_call with
+      | None | Some `Null | Some (`Bool false) -> Ok ()
+      | Some (`Bool true) -> Error (path ^ ".functionCall:streaming_arguments_unsupported")
+      | Some value ->
+        Error
+          (Printf.sprintf
+             "%s.functionCall.willContinue:not_boolean(got %s)"
              path
              (Json_util.json_type_name value))
     in
@@ -2180,7 +2196,7 @@ let gemini_unsupported_part_of_json ~position part =
       match List.assoc_opt "functionCall" fields with
       | Some (`Assoc function_call_fields) ->
         List.mem_assoc "partialArgs" function_call_fields
-        || List.mem_assoc "willContinue" function_call_fields
+        || List.assoc_opt "willContinue" function_call_fields = Some (`Bool true)
       | Some _ | None -> false
     in
     if streaming_function_call
@@ -2336,9 +2352,9 @@ let gemini_unsupported_part_of_json ~position part =
              gemini_optional_object ~path:tool_response_path "response" tool_response
            in
            Ok Gemini_tool_response)
-      | [ ( ((Gemini_function_response_payload | Gemini_file_data_payload
-             | Gemini_audio_transcription_payload) as
-             kind)
+      | [ ( (( Gemini_function_response_payload
+             | Gemini_file_data_payload
+             | Gemini_audio_transcription_payload ) as kind)
           , value )
         ] ->
         let ( let* ) = Result.bind in
@@ -2387,9 +2403,17 @@ let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
   let* model_version = gemini_optional_string ~path:"gemini" "modelVersion" json in
   let* candidates_value = gemini_field ~path:"gemini" "candidates" json in
   let* candidates = gemini_list ~path:"gemini.candidates" candidates_value in
-  let* candidate =
+  let* candidate, gem_finish_reason =
     match candidates with
-    | [ candidate ] -> Ok candidate
+    | [ candidate ] ->
+      let* candidate = gemini_object ~path:"gemini.candidates[0]" candidate in
+      let* finish_reason =
+        gemini_optional_string ~path:"gemini.candidates[0]" "finishReason" candidate
+      in
+      Ok
+        ( candidate
+        , Option.map (fun reason -> Gemini_candidate_finish_reason reason) finish_reason
+        )
     | _ :: _ ->
       Error
         (Gemini_payload_unsupported_response
@@ -2399,16 +2423,10 @@ let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
       let* prompt_feedback =
         gemini_object ~path:"gemini.promptFeedback" prompt_feedback
       in
-      let* _block_reason =
+      let* block_reason =
         gemini_required_string ~path:"gemini.promptFeedback" "blockReason" prompt_feedback
       in
-      Ok
-        (`Assoc
-            [ "finishReason", `String "SAFETY"; "content", `Assoc [ "parts", `List [] ] ])
-  in
-  let* candidate = gemini_object ~path:"gemini.candidates[0]" candidate in
-  let* gem_finish_reason =
-    gemini_optional_string ~path:"gemini.candidates[0]" "finishReason" candidate
+      Ok (`Assoc [], Some (Gemini_prompt_block_reason block_reason))
   in
   let terminal_without_content = Option.is_some gem_finish_reason in
   let* parts =
@@ -2484,12 +2502,7 @@ let parse_gemini_json json : (gemini_chunk, gemini_payload_failure) result =
               "gemini.usageMetadata:not_object(got %s)"
               (Json_util.json_type_name value)))
   in
-  Ok
-    { gem_model = Option.value ~default:"" model_version
-    ; gem_parts = parts
-    ; gem_finish_reason
-    ; gem_usage
-    }
+  Ok { gem_model = model_version; gem_parts = parts; gem_finish_reason; gem_usage }
 ;;
 
 let parse_gemini_sse_chunk data_str : gemini_sse_parse_result =
@@ -2738,13 +2751,15 @@ let gemini_chunk_to_events_impl (state : openai_stream_state) (chunk : gemini_ch
     chunk.gem_parts;
   (* Finish reason *)
   (match chunk.gem_finish_reason with
-   | Some reason ->
+   | Some (Gemini_candidate_finish_reason reason) ->
      let stop_reason =
        Backend_gemini.stop_reason_of_finish_reason
          ~has_tool_use:(Hashtbl.length state.tool_block_indices > 0)
          reason
      in
      emit (MessageDelta { stop_reason = Some stop_reason; usage = chunk.gem_usage })
+   | Some (Gemini_prompt_block_reason _) ->
+     emit (MessageDelta { stop_reason = Some Refusal; usage = chunk.gem_usage })
    | None -> ());
   List.rev !events, !telemetry_event
 ;;
