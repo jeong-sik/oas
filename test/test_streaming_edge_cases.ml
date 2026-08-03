@@ -764,8 +764,8 @@ let test_ollama_event_edge_branches () =
       (ollama_chunk ~is_done:true ~done_reason:"content_filter" ())
   in
   match done_unknown_events with
-  | [ MessageDelta { stop_reason = Some (Unknown "content_filter"); _ } ] -> ()
-  | _ -> fail "unknown done reason should be preserved"
+  | [ MessageDelta { stop_reason = Some ContentFilter; _ } ] -> ()
+  | _ -> fail "canonical content_filter reason should stay typed"
 ;;
 
 let () =
