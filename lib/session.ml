@@ -19,7 +19,10 @@ let generate_id () =
 
 let create ?id ?resumed_from ?cwd ?(metadata = Context.create_sync ()) () =
   let now = Unix.gettimeofday () in
-  { id = Option.value id ~default:(generate_id ())
+  { id =
+      (match id with
+       | Some id -> id
+       | None -> generate_id ())
   ; started_at = now
   ; last_active_at = now
   ; turn_count = 0
