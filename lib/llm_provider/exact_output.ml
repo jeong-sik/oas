@@ -433,7 +433,7 @@ let snapshot_flow ~first ~rest ~messages requirement =
 ;;
 
 let start_attempt (ready : ready_plan) =
-  match Exact_output_call_id.create () with
+  match Random_id.create () with
   | Error detail -> Error (Call_id_generation_failed detail)
   | Ok id ->
     let receipt =
@@ -449,7 +449,7 @@ let start_attempt (ready : ready_plan) =
 ;;
 
 let start_flow (ready : flow_snapshot) =
-  match Exact_output_call_id.create () with
+  match Random_id.create () with
   | Error detail -> Error (Flow_id_generation_failed detail)
   | Ok raw_flow_id ->
     let flow_id = Flow_id raw_flow_id in

@@ -15,7 +15,8 @@ module Make (Prefix : sig
   end) : S = struct
   type t = string
 
-  let fresh () = Result.map (fun value -> Prefix.value ^ value) (Random_id.create ())
+  let fresh () =
+    Result.map (fun value -> Prefix.value ^ value) (Llm_provider.Random_id.create ())
 
   let of_string value =
     if String.equal value ""
@@ -39,7 +40,7 @@ end
 module Correlation : S = struct
   type t = string
 
-  let fresh = Random_id.create
+  let fresh = Llm_provider.Random_id.create
 
   let of_string value =
     if String.equal (String.trim value) ""

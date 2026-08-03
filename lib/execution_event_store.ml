@@ -2163,7 +2163,7 @@ let prepare_frame ~file_offset kind payload =
 
 let append_new_batch store ~expected_next_seq ~count payloads =
   let* batch_id =
-    match Random_id.create () with
+    match Llm_provider.Random_id.create () with
     | Ok value -> Ok value
     | Error detail -> Error (Identity_failure detail)
   in

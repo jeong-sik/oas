@@ -26,7 +26,7 @@ let mime_type_of_kind kind =
 ;;
 
 let generate_artifact_id () =
-  Random_id.create ()
+  Llm_provider.Random_id.create ()
   |> Result.map (fun id -> "art-" ^ id)
   |> Result.map_error (fun detail -> Error.Internal ("artifact ID: " ^ detail))
 ;;

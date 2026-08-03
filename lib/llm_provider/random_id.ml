@@ -21,7 +21,7 @@ let hex ~bytes =
   else (
     try Ok (Mirage_crypto_rng_unix.getrandom bytes |> hex_of_string) with
     | exn ->
-      Llm_provider.Reserved_exn.reraise_if_reserved exn;
+      Reserved_exn.reraise_if_reserved exn;
       Error ("operating-system entropy unavailable: " ^ Printexc.to_string exn))
 ;;
 

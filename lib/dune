@@ -5,7 +5,6 @@
  (public_name agent_sdk)
  (modules_without_implementation agent_execution_projection_intf)
  (private_modules
-  random_id
   execution_id
   execution_cause
   execution_json
@@ -46,7 +45,6 @@
   tls-eio
   ca-certs
   mtime.clock.os
-  mirage-crypto-rng.unix
   digestif
   cstruct
   optint

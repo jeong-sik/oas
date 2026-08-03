@@ -112,7 +112,7 @@ type instance =
 exception Entropy_unavailable of string
 
 let rec otel_id ~kind ~bytes =
-  match Random_id.hex ~bytes with
+  match Llm_provider.Random_id.hex ~bytes with
   | Error detail -> raise (Entropy_unavailable (kind ^ " ID: " ^ detail))
   | Ok value when String.for_all (Char.equal '0') value ->
     (* W3C trace-context forbids the all-zero trace-id and parent-id values.
