@@ -388,10 +388,11 @@ let test_selected_tool_surface_rejects_hidden_provider_call () =
   (match Agent.run ~sw agent "call hidden" with
    | Error
        (Error.Config
-         (InvalidConfig
-           { field = "tool_surface"
-           ; detail = "provider called tool \"hidden\" outside the selected turn surface"
-           })) -> ()
+          (InvalidConfig
+             { field = "tool_surface"
+             ; detail =
+                 "provider called tool \"hidden\" outside the selected turn surface"
+             })) -> ()
    | Error error -> Alcotest.failf "unexpected error: %s" (Error.to_string error)
    | Ok _ -> Alcotest.fail "hidden provider call was accepted");
   Alcotest.(check bool) "handler not executed" false !executed;
