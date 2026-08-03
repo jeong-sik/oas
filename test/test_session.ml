@@ -11,7 +11,11 @@ let () =
               bool
               "starts with session-"
               true
-              (String.length s.id > 8 && String.sub s.id 0 8 = "session-"))
+              (String.length s.id = 40
+               && String.sub s.id 0 8 = "session-"
+               && String.for_all
+                    (fun ch -> (ch >= '0' && ch <= '9') || (ch >= 'a' && ch <= 'f'))
+                    (String.sub s.id 8 32)))
         ; test_case "custom id" `Quick (fun () ->
             let s = Session.create ~id:"my-session" () in
             check string "id" "my-session" s.id)

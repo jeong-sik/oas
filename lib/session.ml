@@ -11,16 +11,20 @@ type t =
   ; metadata : Context.t
   }
 
+exception Entropy_unavailable of string
+
 let generate_id () =
-  let t = Unix.gettimeofday () in
-  let hi = Float.to_int (Float.rem t 1_000_000.) in
-  let lo = Random.int 0xFFFF in
-  Printf.sprintf "session-%06x%04x" hi lo
+  match Random_id.create () with
+  | Ok value -> "session-" ^ value
+  | Error message -> raise (Entropy_unavailable message)
 ;;
 
 let create ?id ?resumed_from ?cwd ?(metadata = Context.create_sync ()) () =
   let now = Unix.gettimeofday () in
-  { id = Option.value id ~default:(generate_id ())
+  { id =
+      (match id with
+       | Some id -> id
+       | None -> generate_id ())
   ; started_at = now
   ; last_active_at = now
   ; turn_count = 0

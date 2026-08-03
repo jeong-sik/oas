@@ -21,10 +21,16 @@ type t =
 
 (** {1 Lifecycle} *)
 
-(** Generate a unique session ID. *)
+(** Raised when the operating-system entropy source cannot mint a session ID. *)
+exception Entropy_unavailable of string
+
+(** Generate a session ID from operating-system entropy.
+    @raise Entropy_unavailable if the entropy source is unavailable. *)
 val generate_id : unit -> string
 
-(** Create a new session. *)
+(** Create a new session.
+    @raise Entropy_unavailable when [id] is omitted and the entropy source is
+    unavailable. *)
 val create
   :  ?id:string
   -> ?resumed_from:string
@@ -42,7 +48,8 @@ val touch : t -> t
 (** Elapsed seconds since session start. *)
 val elapsed : t -> float
 
-(** Resume a session from a checkpoint. *)
+(** Resume a session from a checkpoint.
+    @raise Entropy_unavailable if the entropy source is unavailable. *)
 val resume_from : Checkpoint.t -> t
 
 (** {1 Serialization} *)
