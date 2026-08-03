@@ -15,6 +15,7 @@ type dep_error =
   | EmptyName
 
 type selection_error =
+  | Blank_selection
   | Duplicate_selection of string
   | Unknown_selection of string
 
@@ -60,19 +61,18 @@ let size set = List.length set.tools
 let names set = List.map (fun (t : Tool.t) -> t.schema.Types.name) set.tools
 
 let select_exact ~names set =
-  let seen = Hashtbl.create (List.length names) in
-  let rec select selected_rev = function
-    | [] -> Ok (of_list (List.rev selected_rev))
-    | name :: rest ->
-      if Hashtbl.mem seen name
-      then Error (Duplicate_selection name)
-      else (
-        Hashtbl.add seen name ();
-        match find name set with
-        | None -> Error (Unknown_selection name)
-        | Some tool -> select (tool :: selected_rev) rest)
-  in
-  select [] names
+  match Tool_surface_names.validate names with
+  | Error Tool_surface_names.Blank_name -> Error Blank_selection
+  | Error (Tool_surface_names.Duplicate_name name) -> Error (Duplicate_selection name)
+  | Ok () ->
+    let rec select selected_rev = function
+      | [] -> Ok (of_list (List.rev selected_rev))
+      | name :: rest ->
+        (match find name set with
+         | None -> Error (Unknown_selection name)
+         | Some tool -> select (tool :: selected_rev) rest)
+    in
+    select [] names
 ;;
 
 let validate set =

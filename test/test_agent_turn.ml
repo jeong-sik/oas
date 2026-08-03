@@ -179,6 +179,23 @@ let test_prepare_turn_unknown_selected_tool_fails_closed () =
   | Ok _ -> Alcotest.fail "unknown selected tool was accepted"
 ;;
 
+let test_prepare_turn_blank_selected_tool_fails_closed () =
+  let blank =
+    Tool.create ~name:" " ~description:"invalid" ~parameters:[] (fun _ ->
+      Ok { Types.content = ""; _meta = None })
+  in
+  let turn_params =
+    { Hooks.default_turn_params with tool_surface = Hooks.Selected_tools [ " " ] }
+  in
+  match
+    Agent_turn.prepare_turn ~tools:(Tool_set.singleton blank) ~messages:[] ~turn_params ()
+  with
+  | Error (Agent_turn.Tool_selection_failed Tool_set.Blank_selection) -> ()
+  | Error error ->
+    Alcotest.failf "unexpected error: %s" (Agent_turn.preparation_error_to_string error)
+  | Ok _ -> Alcotest.fail "blank selected tool was accepted"
+;;
+
 let test_prepare_turn_duplicate_selected_tool_fails_closed () =
   let tool =
     Tool.create ~name:"search" ~description:"search" ~parameters:[] (fun _ ->
@@ -881,6 +898,10 @@ let () =
             "unknown selected tool fails closed"
             `Quick
             test_prepare_turn_unknown_selected_tool_fails_closed
+        ; Alcotest.test_case
+            "blank selected tool fails closed"
+            `Quick
+            test_prepare_turn_blank_selected_tool_fails_closed
         ; Alcotest.test_case
             "duplicate selected tool fails closed"
             `Quick

@@ -133,21 +133,7 @@ let validate_node_kind = function
   | Agent_turn { ordinal } ->
     if ordinal < 0 then Error "agent turn ordinal must be non-negative" else Ok ()
   | Provider_attempt { ordinal; tool_names; _ } ->
-    if ordinal < 0
-    then Error "provider attempt ordinal must be non-negative"
-    else (
-      let seen = Hashtbl.create (List.length tool_names) in
-      let rec validate = function
-        | [] -> Ok ()
-        | name :: rest ->
-          let* () = validate_non_blank "tool_name" name in
-          if Hashtbl.mem seen name
-          then Error (Printf.sprintf "provider attempt tool name %S is duplicated" name)
-          else (
-            Hashtbl.add seen name ();
-            validate rest)
-      in
-      validate tool_names)
+    Execution_provider_attempt_surface.validate ~ordinal ~tool_names
   | Output_block { ordinal; _ } ->
     if ordinal < 0 then Error "output block ordinal must be non-negative" else Ok ()
   | Tool_invocation { provider_tool_use_id = _; tool_name; schedule; completion } ->
@@ -164,7 +150,6 @@ let provider_attempt ~ordinal ~tool_names binding =
   let+ () = validate_node_kind kind in
   kind
 ;;
-
 let make_node ~node_id ~run_id ~parent_node_id ~kind =
   let* () = validate_node_kind kind in
   Ok { node_id; run_id; parent_node_id; kind }
@@ -560,12 +545,7 @@ let node_kind_to_yojson_unchecked = function
   | Agent_turn { ordinal } ->
     `Assoc [ "type", `String "agent_turn"; "ordinal", `Int ordinal ]
   | Provider_attempt { ordinal; target; tool_names } ->
-    `Assoc
-      [ "type", `String "provider_attempt"
-      ; "ordinal", `Int ordinal
-      ; "target", Binding_identity.Redacted_snapshot.to_yojson target
-      ; "tool_names", `List (List.map (fun name -> `String name) tool_names)
-      ]
+    Execution_provider_attempt_surface.to_yojson ~ordinal ~target ~tool_names
   | Output_block { ordinal; block_kind } ->
     `Assoc
       [ "type", `String "output_block"
@@ -588,7 +568,6 @@ let node_kind_to_yojson kind =
   let+ () = validate_node_kind kind in
   node_kind_to_yojson_unchecked kind
 ;;
-
 let node_kind_of_yojson json =
   let* header =
     object_fields
@@ -635,15 +614,8 @@ let node_kind_of_yojson json =
         let* target = Binding_identity.Redacted_snapshot.of_yojson target_json in
         let* tool_names_json = field "tool_names" fields in
         let* tool_names =
-          match tool_names_json with
-          | `List names ->
-            let rec decode_names decoded_rev = function
-              | [] -> Ok (List.rev decoded_rev)
-              | `String name :: rest -> decode_names (name :: decoded_rev) rest
-              | _ :: _ -> Error "provider attempt tool_names must contain only strings"
-            in
-            decode_names [] names
-          | _ -> Error "provider attempt tool_names must be an array"
+          Tool_surface_names.of_yojson tool_names_json
+          |> Result.map_error (fun detail -> "provider attempt " ^ detail)
         in
         Ok (Provider_attempt { ordinal; target; tool_names }))
     | "output_block" ->

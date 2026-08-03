@@ -9,6 +9,7 @@
   execution_cause
   execution_json
   execution_provider_response_snapshot
+  execution_provider_attempt_surface
   execution_tool_schedule
   execution_event
   execution_runtime
@@ -30,8 +31,11 @@
   pipeline_checkpoint
   pipeline_execution_scope
   pipeline_execution_resume
+  pipeline_stage_execute
+  pipeline_tool_surface
   pipeline_terminal_tool
   pipeline_terminal_resume
+  tool_surface_names
   agent_execution_event_writer)
  (libraries
   llm_provider

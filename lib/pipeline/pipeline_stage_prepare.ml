@@ -162,6 +162,7 @@ let preparation_error_to_sdk = function
   | Agent_turn.Tool_selection_failed selection_error ->
     let detail =
       match selection_error with
+      | Tool_set.Blank_selection -> "selected tool name must not be blank"
       | Tool_set.Duplicate_selection name ->
         Printf.sprintf "duplicate selected tool name %S" name
       | Tool_set.Unknown_selection name ->
@@ -269,8 +270,8 @@ let stage_parse ?raw_trace_run ?clock ~turn agent =
     prepare_turn_for_agent agent ~turn_params |> Result.map_error preparation_error_to_sdk
   in
   let ready_tool_names = prep.visible_tool_names in
-  (* TurnReady reports the exact caller-supplied tool list the LLM will see
-     this turn. Downstream substrate observability subscribers use this
+  (* TurnReady reports the exact selected tool list the LLM will see and the
+     executor will accept this turn. Downstream substrate observability uses it
      to verify deterministically
      which tools the autonomous agent actually has access to, before
      making claims about LLM behaviour from a missing tool call.

@@ -25,6 +25,8 @@ type preparation_error =
   | Model_input_projection_failed of string
 
 let preparation_error_to_string = function
+  | Tool_selection_failed Tool_set.Blank_selection ->
+    "selected tool name must not be blank"
   | Tool_selection_failed (Tool_set.Duplicate_selection name) ->
     Printf.sprintf "duplicate selected tool name %S" name
   | Tool_selection_failed (Tool_set.Unknown_selection name) ->

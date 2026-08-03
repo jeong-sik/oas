@@ -304,172 +304,6 @@ let stage_collect ?raw_trace_run ?clock ~turn ~provider_config agent response =
 
 (* ── Stage 5: Execute ────────────────────────────────────── *)
 
-(** Reject provider ToolUse blocks outside the exact surface serialized for
-    this turn. The check runs before the response becomes durable authority. *)
-let validate_response_tool_surface ~visible_tools (response : Types.api_response) =
-  let rec validate = function
-    | [] -> Ok ()
-    | ToolUse { name; _ } :: rest ->
-      if Tool_set.mem name visible_tools
-      then validate rest
-      else
-        Error
-          (Error.Config
-             (InvalidConfig
-                { field = "tool_surface"
-                ; detail =
-                    Printf.sprintf
-                      "provider called tool %S outside the selected turn surface"
-                      name
-                }))
-    | ( Text _
-      | Thinking _
-      | ReasoningDetails _
-      | RedactedThinking _
-      | ToolResult _
-      | Image _
-      | Document _
-      | Audio _ )
-      :: rest -> validate rest
-  in
-  validate response.content
-;;
-
-let select_durable_tool_surface ~tool_names tools =
-  match Tool_set.select_exact ~names:tool_names tools with
-  | Ok selected -> Ok selected
-  | Error selection_error ->
-    let detail =
-      match selection_error with
-      | Tool_set.Duplicate_selection name ->
-        Printf.sprintf "durable provider tool name %S is duplicated" name
-      | Tool_set.Unknown_selection name ->
-        Printf.sprintf "durable provider tool name %S is not registered" name
-    in
-    Error (Error.Config (InvalidConfig { field = "tool_surface"; detail }))
-;;
-
-let%test "selected turn surface rejects a hidden provider ToolUse" =
-  let visible_tool =
-    Tool.create ~name:"search" ~description:"search" ~parameters:[] (fun _ ->
-      Ok { Types.content = ""; _meta = None })
-  in
-  let response : Types.api_response =
-    { id = "response"
-    ; model = "model"
-    ; stop_reason = StopToolUse
-    ; content = [ ToolUse { id = "call"; name = "write"; input = `Assoc [] } ]
-    ; usage = None
-    ; telemetry = None
-    }
-  in
-  match
-    validate_response_tool_surface
-      ~visible_tools:(Tool_set.singleton visible_tool)
-      response
-  with
-  | Error (Error.Config (InvalidConfig { field = "tool_surface"; _ })) -> true
-  | Error _ | Ok () -> false
-;;
-
-(** Handle tool execution and context injection. *)
-let stage_execute
-      ?raw_trace_run
-      ?before_tool_execution
-      ~turn
-      ~response
-      ~available_tools
-      agent
-      tools
-  =
-  (* [stage_output] rejects empty StopToolUse from provider and injected
-     transports. [Nonempty.t] then prevents a silent empty [ToolsExecuted]
-     loop at compile time. *)
-  let tool_uses = Nonempty.to_list tools in
-  Tracing.with_span
-    agent.options.tracer
-    { kind = Tool_exec
-    ; name = "turn:execute"
-    ; agent_name = agent.state.config.name
-    ; turn
-    ; extra = []
-    ; links = []
-    }
-    (fun _tracer ->
-       let results, completion, failure =
-         execute_tools_with_trace
-           agent
-           raw_trace_run
-           ~turn
-           ~tools:available_tools
-           ?before_tool_execution
-           tool_uses
-         |> Pipeline_terminal_tool.unpack_execution_result
-       in
-       let tool_results = Agent_turn.make_tool_results results in
-       let* () =
-         match tool_results with
-         | [] -> Ok ()
-         | _ ->
-           (* Commit completed effects before surfacing a terminal hook or
-              observer failure.  Updating memory first prevents same-process
-              replay even when the caller-owned checkpoint sink itself fails;
-              the checkpoint then makes the same invariant durable. *)
-           update_state agent (fun state ->
-             { state with
-               messages = Util.snoc state.messages (make_message ~role:Tool tool_results)
-             });
-           let base_state = agent.state in
-           persist_turn_checkpoint_for_state agent After_tool_results_appended base_state
-       in
-       match failure with
-       | Some
-           (Agent_tools.Hook_failure
-              (Agent_tools.Hook_execution_failed
-                 { hook_name; stage; tool_name; invocation; detail })) ->
-         Error
-           (Pipeline_common.hook_failed_sdk_error
-              ~hook_name
-              ~stage
-              ~tool_name:(Some tool_name)
-              ~tool_use_id:(Some (Tool_contract.Invocation.tool_use_id invocation))
-              ~detail)
-       | Some (Agent_tools.Observer_failure { exception_; backtrace; _ }) ->
-         Printexc.raise_with_backtrace exception_ backtrace
-       | Some (Agent_tools.Durability_failure { invocation; detail }) ->
-         Pipeline_terminal_tool.durability_failure ~invocation ~detail
-       | None ->
-         let finish = Pipeline_terminal_tool.outcome ~response completion in
-         (match agent.options.context_injector with
-          | None -> finish After_tool_results_appended
-          | Some injector ->
-            let* messages =
-              Agent_turn.apply_context_injection
-                ~context:agent.context
-                ~messages:agent.state.messages
-                ~injector
-                ~tool_uses
-                ~results
-              |> Result.map_error (fun error ->
-                Error.Internal
-                  (Printf.sprintf
-                     "context injector failed%s: %s"
-                     (match error.Agent_turn.tool_name with
-                      | Some name -> " for tool " ^ name
-                      | None -> "")
-                     error.detail))
-            in
-            let injected_state = { agent.state with messages } in
-            set_state agent injected_state;
-            let* () =
-              persist_turn_checkpoint_for_state
-                agent
-                After_context_injection
-                injected_state
-            in
-            finish After_context_injection))
-;;
-
 let replay_settled_before_checkpoint agent =
   Pipeline_terminal_resume.replay
     ~persist_checkpoint:(persist_turn_checkpoint_for_state agent)
@@ -522,7 +356,7 @@ let stage_output
                  (UnrecognizedStopReason
                     { reason = "StopToolUse turn carried no tool block" }))
           | Some tool_uses_nonempty ->
-            stage_execute
+            Pipeline_stage_execute.run
               ?raw_trace_run
               ?before_tool_execution
               ~turn
@@ -736,7 +570,9 @@ let run_new_turn
            Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
          | Guardrails_async.Pass ->
            let* () =
-             validate_response_tool_surface ~visible_tools:prep.visible_tools response
+             Pipeline_tool_surface.validate_response
+               ~visible_tools:prep.visible_tools
+               response
            in
            let* () =
              Pipeline_execution_scope.record_provider_response execution response
@@ -794,8 +630,10 @@ let run_turn
          ([turn_ordinal]), not [agent.state.turn_count], so the resumed turn is
          traced under the exact ordinal the crashed run used (#2709). *)
     ~execute:(fun ~turn ~response ~tool_names tool_uses ->
-      let* available_tools = select_durable_tool_surface ~tool_names agent.tools in
-      stage_execute
+      let* available_tools =
+        Pipeline_tool_surface.select_durable ~tool_names agent.tools
+      in
+      Pipeline_stage_execute.run
         ?raw_trace_run
         ?before_tool_execution
         ~turn

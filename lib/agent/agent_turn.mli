@@ -17,8 +17,9 @@ type turn_preparation =
   ; effective_messages : Types.message list
   ; visible_tools : Tool_set.t
   ; visible_tool_names : string list
-    (** Names of the caller-supplied tools. This is exactly the list the LLM
-        sees this turn. Useful for [Event_bus.TurnReady] subscribers and
+    (** Names selected from the caller-owned tool set for this turn. This is
+        exactly the list the LLM sees and the executor accepts. Useful for
+        [Event_bus.TurnReady] subscribers and
         deterministic substrate observability. Empty list when no
         tools are presented to the LLM.
 
@@ -50,8 +51,9 @@ val prepare_messages
   -> unit
   -> Types.message list
 
-(** Full turn preparation: exact caller-supplied tools plus messages. A failed
-    caller projection is returned before provider measurement or dispatch.
+(** Full turn preparation: exact selected tools plus messages. Selection,
+    named tool choice, and caller projection failures are returned before
+    provider measurement or dispatch.
 
     @since 0.185.0 added optional [config] parameter for provider-facing
       thinking preservation. *)

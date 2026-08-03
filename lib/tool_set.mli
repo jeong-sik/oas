@@ -38,6 +38,7 @@ val size : t -> int
 val names : t -> string list
 
 type selection_error =
+  | Blank_selection
   | Duplicate_selection of string
   | Unknown_selection of string
 
