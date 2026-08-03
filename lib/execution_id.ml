@@ -17,6 +17,7 @@ module Make (Prefix : sig
 
   let fresh () =
     Result.map (fun value -> Prefix.value ^ value) (Llm_provider.Random_id.create ())
+  ;;
 
   let of_string value =
     if String.equal value ""
