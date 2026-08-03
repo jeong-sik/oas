@@ -21,7 +21,8 @@ type t =
 
 (** {1 Lifecycle} *)
 
-(** Generate a unique session ID. *)
+(** Generate a session ID from operating-system entropy. Raises if the OS
+    entropy source is unavailable. *)
 val generate_id : unit -> string
 
 (** Create a new session. *)

@@ -12,10 +12,9 @@ type t =
   }
 
 let generate_id () =
-  let t = Unix.gettimeofday () in
-  let hi = Float.to_int (Float.rem t 1_000_000.) in
-  let lo = Random.int 0xFFFF in
-  Printf.sprintf "session-%06x%04x" hi lo
+  match Random_id.create () with
+  | Ok value -> "session-" ^ value
+  | Error message -> failwith ("Session.generate_id: " ^ message)
 ;;
 
 let create ?id ?resumed_from ?cwd ?(metadata = Context.create_sync ()) () =
