@@ -2070,8 +2070,7 @@ let validate_gemini_part ~position part =
     in
     let* () =
       match gemini_assoc_field "willContinue" function_call with
-      | None | Some `Null | Some (`Bool false) -> Ok ()
-      | Some (`Bool true) -> Error (path ^ ".functionCall:streaming_arguments_unsupported")
+      | None | Some `Null | Some (`Bool _) -> Ok ()
       | Some value ->
         Error
           (Printf.sprintf
