@@ -455,7 +455,7 @@ let test_selected_tool_surface_expands_on_next_turn () =
       ; telemetry = None
       }
     | 3 -> pipeline_response EndTurn
-    | _ -> assert false
+    | _ -> Alcotest.fail "unexpected provider call"
   in
   let transport : Llm_provider.Llm_transport.t =
     { complete_sync =
