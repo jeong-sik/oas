@@ -267,7 +267,8 @@ let rewrite_event_seq event seq =
 ;;
 
 let test_previous_event_schema_is_explicitly_rejected () =
-  let event = List.hd (make_four_events "schema-hard-cut") in
+  let correlation_id = fresh Event.Correlation_id.fresh in
+  let event = List.hd (make_four_events correlation_id) in
   let previous =
     match Event.to_yojson event with
     | `Assoc fields ->

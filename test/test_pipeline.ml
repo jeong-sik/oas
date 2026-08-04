@@ -237,6 +237,8 @@ let test_agent_turn_preparation () =
 let test_base_named_tool_choice_must_be_visible () =
   Eio_main.run
   @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
   let make_tool name =
     Tool.create ~name ~description:name ~parameters:[] (fun _ ->
       Ok { Types.content = name; _meta = None })
@@ -247,21 +249,35 @@ let test_base_named_tool_choice_must_be_visible () =
     }
   in
   let agent =
+    let hooks =
+      { Hooks.empty with
+        before_turn_params =
+          Some
+            (function
+              | Hooks.BeforeTurnParams { current_params; _ } ->
+                Hooks.AdjustParams
+                  { current_params with
+                    tool_surface = Hooks.Selected_tools [ "visible" ]
+                  }
+              | _ -> Alcotest.fail "expected BeforeTurnParams")
+      }
+    in
     Agent.create
       ~config
       ~net:(Eio.Stdenv.net env)
       ~tools:[ make_tool "visible"; make_tool "hidden" ]
+      ~options:{ Agent.default_options with hooks }
       ()
   in
-  let turn_params =
-    { Hooks.default_turn_params with tool_surface = Hooks.Selected_tools [ "visible" ] }
-  in
-  match Internal_pipeline.prepare_turn_for_agent agent ~turn_params with
-  | Error (Agent_turn.Tool_choice_not_visible "hidden") -> ()
+  match Agent.run ~sw agent "use the selected tool surface" with
+  | Error
+      (Error.Config
+         (InvalidConfig
+            { field = "tool_choice"
+            ; detail = "named tool \"hidden\" is outside the selected tool surface"
+            })) -> ()
   | Error error ->
-    Alcotest.failf
-      "unexpected preparation error: %s"
-      (Agent_turn.preparation_error_to_string error)
+    Alcotest.failf "unexpected preparation error: %s" (Error.to_string error)
   | Ok _ -> Alcotest.fail "base named tool choice escaped the selected turn surface"
 ;;
 
