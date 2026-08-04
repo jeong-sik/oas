@@ -7,6 +7,11 @@
     @stability Evolving
     @since 0.93.1 *)
 
+(** Raised when the operating-system entropy source cannot mint a valid
+    OpenTelemetry trace or span identifier. No clock, counter, or PRNG
+    fallback is used. *)
+exception Entropy_unavailable of string
+
 (** {1 Types} *)
 
 type otel_span_kind =
@@ -121,7 +126,12 @@ val create_instance_eio
   -> unit
   -> instance
 
+(** Start a span or raise {!Entropy_unavailable}. Callers that require tracing
+    to be non-interfering should use [Tracing.with_span] with a tracer returned
+    by {!create} or {!create_eio}; those boundaries execute the operation
+    untraced and record [otel.id_entropy_failures] when ID creation fails. *)
 val inst_start_span : instance -> Tracing.span_attrs -> span
+
 val inst_end_span : instance -> span -> ok:bool -> unit
 val inst_add_event : instance -> span -> string -> unit
 val inst_add_attrs : instance -> span -> (string * string) list -> unit
@@ -174,7 +184,11 @@ val end_span : span -> ok:bool -> unit
 val add_event : span -> string -> unit
 val add_attrs : span -> (string * string) list -> unit
 val add_link : span -> trace_id:string -> span_id:string -> unit
+
+(** Run within a span. If the entropy source cannot mint a valid W3C ID, record
+    [otel.id_entropy_failures] and run the operation untraced. *)
 val with_span : Tracing.span_attrs -> (unit -> 'a) -> 'a
+
 val current_span : unit -> span option
 val flush : unit -> span list
 val reset : unit -> unit
@@ -209,12 +223,16 @@ val tracer_of_instance : instance -> Tracing.t
 
     If [config] is omitted, [default_config_from_env ()] is called at creation
     time, which reads [otel_endpoint_env_var] from the environment.
-    [getenv] is forwarded to [default_config_from_env] and is useful for tests. *)
+    [getenv] is forwarded to [default_config_from_env] and is useful for tests.
+    Its [with_span] operation degrades only the observation span on
+    {!Entropy_unavailable}; the wrapped operation still runs. *)
 val create : ?config:config -> ?getenv:(string -> string option) -> unit -> Tracing.t
 
 (** Build a first-class tracer backed by an Eio-mutex instance.
 
     If [config] is omitted, [default_config_from_env ()] is called at creation
     time, which reads [otel_endpoint_env_var] from the environment.
-    [getenv] is forwarded to [default_config_from_env] and is useful for tests. *)
+    [getenv] is forwarded to [default_config_from_env] and is useful for tests.
+    Its [with_span] operation degrades only the observation span on
+    {!Entropy_unavailable}; the wrapped operation still runs. *)
 val create_eio : ?config:config -> ?getenv:(string -> string option) -> unit -> Tracing.t

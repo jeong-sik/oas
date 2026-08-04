@@ -237,7 +237,7 @@ let admit
              if measurement_requires_clock && Option.is_none clock
              then Measurement_clock_required_for_timeout
              else (
-               match Exact_output_call_id.create () with
+               match Random_id.create () with
                | Error detail -> Measurement_operation_start_failed detail
                | Ok raw_operation_id ->
                  let receipt =

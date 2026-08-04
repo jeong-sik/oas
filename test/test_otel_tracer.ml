@@ -189,6 +189,16 @@ let test_start_span_hex_ids () =
   check int "span_id is 16 chars" 16 (String.length span.span_id);
   check bool "trace_id is valid hex" true (is_hex span.trace_id);
   check bool "span_id is valid hex" true (is_hex span.span_id);
+  check
+    bool
+    "trace_id is not all zero"
+    false
+    (String.for_all (Char.equal '0') span.trace_id);
+  check
+    bool
+    "span_id is not all zero"
+    false
+    (String.for_all (Char.equal '0') span.span_id);
   Otel_tracer.end_span span ~ok:true
 ;;
 

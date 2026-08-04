@@ -1030,8 +1030,8 @@ require_code_sequence \
   'val[[:space:]]+start_flow[[:space:]]*:[[:space:]]*flow_snapshot[[:space:]]*->[[:space:]]*\(flow_attempt,[[:space:]]*flow_start_error\)[[:space:]]*result' \
   "$exact_output_interface"
 require_named_function_pattern \
-  "outer exact flow start stopped allocating one OAS-owned identity" \
-  'Exact_output_call_id[.]create' \
+  "outer exact flow start stopped allocating one canonical OAS-owned identity" \
+  'Random_id[.]create' \
   "$exact_output_source" \
   "start_flow"
 require_named_function_pattern \
@@ -1159,7 +1159,7 @@ scan_code \
   "$exact_output_interface"
 scan_named_functions \
   "candidate rejection fabricated a call or execution attempt identity" \
-  'start_attempt|Call_id|Exact_output_call_id' \
+  'start_attempt|Call_id|Random_id' \
   "$exact_output_source" \
   "record_candidate_rejection"
 scan_code \
