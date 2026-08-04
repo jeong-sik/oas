@@ -254,9 +254,7 @@ let test_base_named_tool_choice_must_be_visible () =
       ()
   in
   let turn_params =
-    { Hooks.default_turn_params with
-      tool_surface = Hooks.Selected_tools [ "visible" ]
-    }
+    { Hooks.default_turn_params with tool_surface = Hooks.Selected_tools [ "visible" ] }
   in
   match Internal_pipeline.prepare_turn_for_agent agent ~turn_params with
   | Error (Agent_turn.Tool_choice_not_visible "hidden") -> ()

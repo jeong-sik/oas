@@ -229,9 +229,9 @@ check_boundary() {
     "$EVENT" \
     "the common strict decoder whitelist must admit required completion"
   require_pattern \
-    'schema_version_current = 3' \
+    'schema_version_current = 4' \
     "$EVENT" \
-    "execution events must reject pre-completion schema versions"
+    "execution events must reject pre-tool-surface schema versions"
   require_pattern \
     'Provider_response_snapshot of Llm_provider\.Types\.api_response' \
     "$EVENT" \
@@ -319,7 +319,7 @@ self_test() {
   cp "$EVENT" "$fixture/lib/execution_event.ml"
 
   sed -i.bak \
-    's/schema_version_current = 3/schema_version_current = 2/' \
+    's/schema_version_current = 4/schema_version_current = 3/' \
     "$fixture/lib/execution_event.ml"
   rm -f "$fixture/lib/execution_event.ml.bak"
   if TERMINAL_BOUNDARY_SEARCH_BACKEND=perl \
