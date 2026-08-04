@@ -299,7 +299,8 @@ let test_required_tool_choice_rejects_empty_selected_surface () =
               | Hooks.BeforeTurnParams { current_params; _ } ->
                 Hooks.AdjustParams
                   { current_params with
-                    tool_choice = turn_tool_choice
+                    tool_choice =
+                      Option.value turn_tool_choice ~default:current_params.tool_choice
                   ; tool_surface = Hooks.Selected_tools []
                   }
               | _ -> Alcotest.fail "expected BeforeTurnParams")
