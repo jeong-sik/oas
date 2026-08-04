@@ -22,6 +22,7 @@ type turn_preparation =
 type preparation_error =
   | Tool_selection_failed of Tool_set.selection_error
   | Tool_choice_not_visible of string
+  | Required_tool_choice_without_tools
   | Model_input_projection_failed of string
 
 let preparation_error_to_string = function
@@ -33,6 +34,8 @@ let preparation_error_to_string = function
     Printf.sprintf "selected tool name %S is not registered" name
   | Tool_choice_not_visible name ->
     Printf.sprintf "named tool %S is outside the selected tool surface" name
+  | Required_tool_choice_without_tools ->
+    "required tool choice cannot be used with an empty selected tool surface"
   | Model_input_projection_failed detail -> detail
 ;;
 
@@ -80,6 +83,8 @@ let prepare_turn ~tools ~messages ~turn_params ?model_input_projection () =
     match turn_params.tool_choice with
     | Some (Tool name) when not (Tool_set.mem name visible_tools) ->
       Error (Tool_choice_not_visible name)
+    | Some Any when Tool_set.size visible_tools = 0 ->
+      Error Required_tool_choice_without_tools
     | Some (Tool _ | Auto | Any | None_) | None -> Ok ()
   in
   let tools_json, visible_tool_names = prepare_tools ~tools:visible_tools () in

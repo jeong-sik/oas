@@ -281,6 +281,64 @@ let test_base_named_tool_choice_must_be_visible () =
   | Ok _ -> Alcotest.fail "base named tool choice escaped the selected turn surface"
 ;;
 
+let test_required_tool_choice_rejects_empty_selected_surface () =
+  Eio_main.run
+  @@ fun env ->
+  Eio.Switch.run
+  @@ fun sw ->
+  let make_tool name =
+    Tool.create ~name ~description:name ~parameters:[] (fun _ ->
+      Ok { Types.content = name; _meta = None })
+  in
+  let assert_rejected ~label ~base_tool_choice ~turn_tool_choice =
+    let hooks =
+      { Hooks.empty with
+        before_turn_params =
+          Some
+            (function
+              | Hooks.BeforeTurnParams { current_params; _ } ->
+                Hooks.AdjustParams
+                  { current_params with
+                    tool_choice = turn_tool_choice
+                  ; tool_surface = Hooks.Selected_tools []
+                  }
+              | _ -> Alcotest.fail "expected BeforeTurnParams")
+      }
+    in
+    let agent =
+      Agent.create
+        ~config:
+          { (Types.default_config ~model:"test-model") with
+            tool_choice = base_tool_choice
+          }
+        ~net:(Eio.Stdenv.net env)
+        ~tools:[ make_tool "hidden" ]
+        ~options:{ Agent.default_options with hooks }
+        ()
+    in
+    match Agent.run ~sw agent label with
+    | Error
+        (Error.Config
+           (InvalidConfig
+              { field = "tool_choice"
+              ; detail =
+                  "required tool choice cannot be used with an empty selected tool \
+                   surface"
+              })) -> ()
+    | Error error ->
+      Alcotest.failf "%s: unexpected preparation error: %s" label (Error.to_string error)
+    | Ok _ -> Alcotest.failf "%s: required tool choice reached provider dispatch" label
+  in
+  assert_rejected
+    ~label:"base required choice"
+    ~base_tool_choice:(Some Types.Any)
+    ~turn_tool_choice:None;
+  assert_rejected
+    ~label:"per-turn required choice"
+    ~base_tool_choice:None
+    ~turn_tool_choice:(Some Types.Any)
+;;
+
 let pipeline_response ?telemetry stop_reason : Types.api_response =
   { id = "pipeline-reset-test"
   ; model = "mock-model"
@@ -444,6 +502,29 @@ let test_selected_tool_surface_rejects_hidden_provider_call () =
       ~options
       ()
   in
+  let accepted_transport : Llm_provider.Llm_transport.t =
+    { complete_sync =
+        (fun _request ->
+          { response = Ok (pipeline_response EndTurn); latency_ms = Some 0 })
+    ; complete_stream =
+        (fun ?on_telemetry:_ ~on_event:_ _request -> Ok (pipeline_response EndTurn))
+    }
+  in
+  let accepted_agent =
+    Agent.create
+      ~net:(Eio.Stdenv.net env)
+      ~tools:[ visible; hidden ]
+      ~config:
+        { (Types.default_config ~model:"test-model") with name = "selected-surface" }
+      ~options:{ options with transport = Some accepted_transport }
+      ()
+  in
+  (match Agent.run ~sw accepted_agent "accept visible surface" with
+   | Ok _ -> ()
+   | Error error ->
+     Alcotest.failf "unexpected positive-control error: %s" (Error.to_string error));
+  Alcotest.(check bool) "output validator is wired" true !output_validated;
+  output_validated := false;
   (match Agent.run ~sw agent "call hidden" with
    | Error
        (Error.Config
@@ -3972,6 +4053,10 @@ let () =
             "base named tool choice must be visible"
             `Quick
             test_base_named_tool_choice_must_be_visible
+        ; Alcotest.test_case
+            "required tool choice rejects empty selected surface"
+            `Quick
+            test_required_tool_choice_rejects_empty_selected_surface
         ; Alcotest.test_case "no tools prep" `Quick test_prepare_turn_no_tools
         ; Alcotest.test_case
             "preserves messages"

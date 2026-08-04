@@ -184,6 +184,13 @@ let preparation_error_to_sdk = function
          ; detail =
              Printf.sprintf "named tool %S is outside the selected tool surface" name
          })
+  | Agent_turn.Required_tool_choice_without_tools ->
+    Error.Config
+      (InvalidConfig
+         { field = "tool_choice"
+         ; detail =
+             "required tool choice cannot be used with an empty selected tool surface"
+         })
 ;;
 
 let stage_parse ?raw_trace_run ?clock ~turn agent =

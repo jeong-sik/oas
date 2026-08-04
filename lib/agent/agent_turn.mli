@@ -31,6 +31,7 @@ type turn_preparation =
 type preparation_error =
   | Tool_selection_failed of Tool_set.selection_error
   | Tool_choice_not_visible of string
+  | Required_tool_choice_without_tools
   | Model_input_projection_failed of string
 
 val preparation_error_to_string : preparation_error -> string
