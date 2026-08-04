@@ -2095,7 +2095,7 @@ let validate_gemini_part ~position part =
          "%s.inlineData:not_object(got %s)"
          path
          (Json_util.json_type_name value))
-  | _ -> Error (path ^ ":multiple_payloads")
+  | _ :: _ :: _ -> Error (path ^ ":multiple_payloads")
 ;;
 
 type gemini_payload_failure =
