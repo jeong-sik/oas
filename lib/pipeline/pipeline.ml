@@ -565,16 +565,17 @@ let run_new_turn
           to coerce a tool call (the former
           [handle_missing_required_tool_use]/[validate_completion_contract]
           pass). *)
-        (* Stage 3.5: Async output validation *)
+        let* () =
+          Pipeline_tool_surface.validate_response
+            ~visible_tools:prep.visible_tools
+            response
+        in
+        (* Stage 3.5: Async output validation. Tool-surface authority is checked
+           first so caller validators never observe an unauthorized ToolUse. *)
         (match Guardrails_async.run_output async_guard.output_validators response with
          | Guardrails_async.Fail { validator_name; reason } ->
            Error (Error.Agent (GuardrailViolation { validator = validator_name; reason }))
          | Guardrails_async.Pass ->
-           let* () =
-             Pipeline_tool_surface.validate_response
-               ~visible_tools:prep.visible_tools
-               response
-           in
            let* () =
              Pipeline_execution_scope.record_provider_response execution response
              |> tag_error "response"

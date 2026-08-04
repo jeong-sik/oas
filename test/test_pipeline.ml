@@ -333,6 +333,7 @@ let test_selected_tool_surface_rejects_hidden_provider_call () =
   Eio.Switch.run
   @@ fun sw ->
   let executed = ref false in
+  let output_validated = ref false in
   let make_tool name =
     Tool.create ~name ~description:name ~parameters:[] (fun _ ->
       executed := true;
@@ -372,6 +373,17 @@ let test_selected_tool_surface_rejects_hidden_provider_call () =
   let options =
     { Agent.default_options with
       hooks
+    ; guardrails_async =
+        { Guardrails_async.empty with
+          output_validators =
+            [ { name = "hidden-tool-observer"
+              ; validate =
+                  (fun _response ->
+                    output_validated := true;
+                    Ok ())
+              }
+            ]
+        }
     ; transport = Some transport
     ; provider_config = Some (Provider_mock.to_provider_config ())
     }
@@ -395,6 +407,10 @@ let test_selected_tool_surface_rejects_hidden_provider_call () =
              })) -> ()
    | Error error -> Alcotest.failf "unexpected error: %s" (Error.to_string error)
    | Ok _ -> Alcotest.fail "hidden provider call was accepted");
+  Alcotest.(check bool)
+    "output validator does not observe hidden tool call"
+    false
+    !output_validated;
   Alcotest.(check bool) "handler not executed" false !executed;
   let captured_names =
     List.map Yojson.Safe.Util.(fun json -> json |> member "name" |> to_string) !captured
