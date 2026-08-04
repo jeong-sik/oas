@@ -239,7 +239,7 @@ let test_lookup_gemini () =
   | Some c ->
     check bool "audio" true c.supports_audio_input;
     check bool "video" true c.supports_video_input;
-    check bool "code execution" true c.supports_code_execution;
+    check bool "code execution" false c.supports_code_execution;
     check bool "structured output" true c.supports_structured_output
   | None -> fail "should match gemini"
 ;;

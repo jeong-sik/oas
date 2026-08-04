@@ -23,6 +23,9 @@ let stream_error_to_string = function
   | Types.Stream_ndjson_parse_failed { reason; _ } -> reason
   | Types.Stream_incomplete { reason } -> reason
   | Types.Stream_unknown_event { event_type; _ } -> "unknown_event:" ^ event_type
+  | Types.Stream_unsupported_part { part; _ } -> "unsupported_part:" ^ part
+  | Types.Stream_unsupported_response { response; _ } ->
+    "unsupported_response:" ^ response
 ;;
 
 let fail_unexpected_stream_error err =

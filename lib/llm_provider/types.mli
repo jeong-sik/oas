@@ -597,6 +597,24 @@ type sse_event =
             type the OAS adapter has not yet learned. Emit explicitly so
             the consumer can decide (log + skip vs fail-fast) instead of
             silent data loss. *)
+  | SSEUnsupportedPart of
+      { provider_kind : Provider_kind.t
+      ; part : string
+      ; raw : string
+      }
+  (** The provider emitted a valid content part whose capability is not
+      projected by this adapter. This is distinct from malformed payloads and
+      unknown SSE event types: callers must surface it as a capability
+      mismatch rather than treating it as transport corruption. *)
+  | SSEUnsupportedResponse of
+      { provider_kind : Provider_kind.t
+      ; response : string
+      ; raw : string
+      }
+  (** The provider emitted a valid response-level shape whose capability is not
+      projected by this adapter. This is distinct from an unsupported content
+      part and from malformed payloads; callers must preserve the response
+      boundary when classifying the capability mismatch. *)
   | Connected
   | Timeout of string
   | StreamIncomplete of { reason : string }
@@ -633,6 +651,16 @@ type stream_error =
       malformed payload and must remain distinct at the transport boundary. *)
   | Stream_unknown_event of
       { event_type : string
+      ; raw : string
+      }
+  | Stream_unsupported_part of
+      { provider_kind : Provider_kind.t
+      ; part : string
+      ; raw : string
+      }
+  | Stream_unsupported_response of
+      { provider_kind : Provider_kind.t
+      ; response : string
       ; raw : string
       }
 

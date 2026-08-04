@@ -934,6 +934,16 @@ type sse_event =
       { event_type : string
       ; raw : string
       }
+  | SSEUnsupportedPart of
+      { provider_kind : Provider_kind.t
+      ; part : string
+      ; raw : string
+      }
+  | SSEUnsupportedResponse of
+      { provider_kind : Provider_kind.t
+      ; response : string
+      ; raw : string
+      }
   | Connected
   | Timeout of string
   | StreamIncomplete of { reason : string }
@@ -962,6 +972,16 @@ type stream_error =
   | Stream_incomplete of { reason : string }
   | Stream_unknown_event of
       { event_type : string
+      ; raw : string
+      }
+  | Stream_unsupported_part of
+      { provider_kind : Provider_kind.t
+      ; part : string
+      ; raw : string
+      }
+  | Stream_unsupported_response of
+      { provider_kind : Provider_kind.t
+      ; response : string
       ; raw : string
       }
 

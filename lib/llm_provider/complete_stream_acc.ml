@@ -177,6 +177,11 @@ let accumulate_event (acc : stream_acc) = function
     acc.sse_error := Some (Types.Stream_ndjson_parse_failed { reason; raw })
   | Types.SSEUnknownEventType { event_type; raw } ->
     acc.sse_error := Some (Types.Stream_unknown_event { event_type; raw })
+  | Types.SSEUnsupportedPart { provider_kind; part; raw } ->
+    acc.sse_error := Some (Types.Stream_unsupported_part { provider_kind; part; raw })
+  | Types.SSEUnsupportedResponse { provider_kind; response; raw } ->
+    acc.sse_error
+    := Some (Types.Stream_unsupported_response { provider_kind; response; raw })
   | Types.StreamIncomplete _ -> acc.terminal_incomplete := true
   | Types.MessageStop ->
     (* Explicit terminal sentinel from the provider ([data: [DONE]] for
@@ -930,7 +935,9 @@ let%test "finalize_stream_acc fails closed on InputJsonDelta multi-object args (
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 
@@ -974,7 +981,9 @@ let%test "finalize_stream_acc fails closed on live multi-object tool args" =
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 
@@ -1017,7 +1026,9 @@ let%test "accumulate_event SSEError records typed provider error" =
       ( Types.Stream_parse_failed _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | None -> false
 ;;
 
@@ -1039,7 +1050,9 @@ let%test "accumulate_event SSEParseFailed marks typed parse failure with reason"
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | None -> false
 ;;
 
@@ -1055,8 +1068,40 @@ let%test "accumulate_event SSEUnknownEventType marks typed unknown event with ty
       ( Types.Stream_provider_error _
       | Types.Stream_parse_failed _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | None -> false
+;;
+
+let%test "accumulate_event SSEUnsupportedPart preserves capability fact" =
+  let raw = {|{"candidates":[{"content":{"parts":[{"executableCode":{}}]}}]}|} in
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.SSEUnsupportedPart
+       { provider_kind = Provider_kind.Gemini; part = "executableCode"; raw });
+  match !(acc.sse_error) with
+  | Some
+      (Types.Stream_unsupported_part
+         { provider_kind = Provider_kind.Gemini; part; raw = observed_raw }) ->
+    part = "executableCode" && observed_raw = raw
+  | Some _ | None -> false
+;;
+
+let%test "accumulate_event SSEUnsupportedResponse preserves capability fact" =
+  let raw = {|{"candidates":[{},{}]}|} in
+  let acc = create_stream_acc () in
+  accumulate_event
+    acc
+    (Types.SSEUnsupportedResponse
+       { provider_kind = Provider_kind.Gemini; response = "candidates"; raw });
+  match !(acc.sse_error) with
+  | Some
+      (Types.Stream_unsupported_response
+         { provider_kind = Provider_kind.Gemini; response; raw = observed_raw }) ->
+    response = "candidates" && observed_raw = raw
+  | Some _ | None -> false
 ;;
 
 let%test "accumulate_event NDJSONParseFailed preserves wire-specific error" =
@@ -1071,7 +1116,9 @@ let%test "accumulate_event NDJSONParseFailed preserves wire-specific error" =
       ( Types.Stream_provider_error _
       | Types.Stream_parse_failed _
       | Types.Stream_unknown_event _
-      | Types.Stream_incomplete _ )
+      | Types.Stream_incomplete _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | None -> false
 ;;
 
@@ -1089,7 +1136,9 @@ let%test
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | None -> false
 ;;
 
@@ -1127,7 +1176,9 @@ let%test "finalize_stream_acc fails closed for unknown block kind with text" =
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 
@@ -1149,7 +1200,9 @@ let%test "finalize_stream_acc fails closed for empty unknown block kind" =
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 
@@ -1245,7 +1298,9 @@ let%test "finalize_stream_acc fails closed for media payload without metadata" =
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 
@@ -1275,7 +1330,9 @@ let%test "finalize_stream_acc fails closed on malformed tool_use arguments" =
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 
@@ -1399,7 +1456,9 @@ let%test "finalize_stream_acc tool_use missing id fails closed" =
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 
@@ -1421,7 +1480,9 @@ let%test "finalize_stream_acc tool_use blank id fails closed" =
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 
@@ -1465,7 +1526,9 @@ let%test "finalize_stream_acc tool_result missing id fails closed" =
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 
@@ -1550,7 +1613,9 @@ let%test "finalize_stream_acc fails closed for media payload without metadata" =
       ( Types.Stream_provider_error _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 
@@ -1606,7 +1671,9 @@ let%test "finalize_stream_acc returns Error when sse_error is set" =
       ( Types.Stream_parse_failed _
       | Types.Stream_unknown_event _
       | Types.Stream_incomplete _
-      | Types.Stream_ndjson_parse_failed _ )
+      | Types.Stream_ndjson_parse_failed _
+      | Types.Stream_unsupported_part _
+      | Types.Stream_unsupported_response _ )
   | Ok _ -> false
 ;;
 

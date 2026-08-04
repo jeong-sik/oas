@@ -117,8 +117,13 @@ let%test "clean stream finalizes Ok: Gemini finishReason" =
      Streaming.parse_gemini_sse_chunk
        {|{"candidates":[{"content":{"parts":[{"text":"hi"}]},"finishReason":"STOP"}]}|}
    with
-   | Some chunk -> accumulate_events acc (fst (Streaming.gemini_chunk_to_events st chunk))
-   | None -> ());
+   | Streaming.Gemini_chunk chunk ->
+     (match Streaming.gemini_chunk_to_events st chunk with
+      | Ok (events, _telemetry) -> accumulate_events acc events
+      | Error _ -> ())
+   | Streaming.Gemini_unsupported_part _ -> ()
+   | Streaming.Gemini_unsupported_response _ -> ()
+   | Streaming.Gemini_parse_failed _ -> ());
   match Complete_stream_acc.finalize_stream_acc acc with
   | Ok _ -> true
   | Error _ -> false
@@ -422,6 +427,8 @@ let complete_stream_http
         | Types.SSEParseFailed _ -> `Wire_error active_wire_format
         (* Event types exist only in SSE; NDJSON has no event field. *)
         | Types.SSEUnknownEventType _ -> `Wire_error Http_client.Sse
+        | Types.SSEUnsupportedPart _ -> `Capability_mismatch
+        | Types.SSEUnsupportedResponse _ -> `Capability_mismatch
         | Types.NDJSONParseFailed _ -> `Wire_error Http_client.Ndjson
         | Types.Connected -> `Skip
         | Types.Timeout _ -> `Wire_error active_wire_format
@@ -585,7 +592,12 @@ let complete_stream_http
                        stream_idle_state := Http_client.Streaming_unknown;
                        terminal_state
                        := Telemetry_event.Terminal_error
-                            Complete_stream_error.provider_reported_terminal_label)
+                            Complete_stream_error.provider_reported_terminal_label
+                     | `Capability_mismatch ->
+                       stream_idle_state := Http_client.Streaming_unknown;
+                       terminal_state
+                       := Telemetry_event.Terminal_error
+                            Complete_stream_error.capability_mismatch_terminal_label)
                   events;
                 (* No thinking-only wall-clock cutoff: active reasoning
                      deltas ARE stream liveness. [stream_idle_timeout_s]
@@ -702,12 +714,34 @@ let complete_stream_http
                                     (get_state ())
                              | Provider_http_codec.Gemini_generate_content ->
                                (match Streaming.parse_gemini_sse_chunk data with
-                                | Some chunk ->
-                                  Streaming.gemini_chunk_to_events (get_state ()) chunk
-                                | None ->
-                                  ( [ Types.SSEParseFailed
-                                        { raw = data
-                                        ; reason = "gemini_sse_chunk_parse_failure"
+                                | Streaming.Gemini_chunk chunk ->
+                                  (match
+                                     Streaming.gemini_chunk_to_events (get_state ()) chunk
+                                   with
+                                   | Ok events -> events
+                                   | Error { reason } ->
+                                     [ Types.SSEParseFailed { raw = data; reason } ], None)
+                                | Streaming.Gemini_parse_failed { reason; raw } ->
+                                  [ Types.SSEParseFailed { raw; reason } ], None
+                                | Streaming.Gemini_unsupported_part { part; raw } ->
+                                  ( [ Types.SSEUnsupportedPart
+                                        { provider_kind = Provider_kind.Gemini
+                                        ; part =
+                                            Streaming.gemini_unsupported_part_wire_name
+                                              part
+                                        ; raw
+                                        }
+                                    ]
+                                  , None )
+                                | Streaming.Gemini_unsupported_response { response; raw }
+                                  ->
+                                  ( [ Types.SSEUnsupportedResponse
+                                        { provider_kind = Provider_kind.Gemini
+                                        ; response =
+                                            Streaming
+                                            .gemini_unsupported_response_wire_name
+                                              response
+                                        ; raw
                                         }
                                     ]
                                   , None ))
@@ -812,7 +846,10 @@ let complete_stream_http
                              | Types.Stream_unknown_event _
                              | Types.Stream_incomplete _ ->
                                Complete_stream_error.wire_error_terminal_label
-                                 active_wire_format)
+                                 active_wire_format
+                             | Types.Stream_unsupported_part _
+                             | Types.Stream_unsupported_response _ ->
+                               Complete_stream_error.capability_mismatch_terminal_label)
                      | Telemetry_event.Terminal_error _
                      | Telemetry_event.Terminal_cancelled -> ());
                     Error

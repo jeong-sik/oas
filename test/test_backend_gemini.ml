@@ -37,6 +37,20 @@ let to_int json = Yojson.Safe.Util.to_int json
 let to_list json = Yojson.Safe.Util.to_list json
 let to_bool json = Yojson.Safe.Util.to_bool json
 
+let parse_gemini_chunk data =
+  match Streaming.parse_gemini_sse_chunk data with
+  | Streaming.Gemini_chunk chunk -> Some chunk
+  | Streaming.Gemini_unsupported_part _ -> None
+  | Streaming.Gemini_unsupported_response _ -> None
+  | Streaming.Gemini_parse_failed _ -> None
+;;
+
+let gemini_events state chunk =
+  match Streaming.gemini_chunk_to_events state chunk with
+  | Ok events -> events
+  | Error { reason } -> fail ("unexpected Gemini stream decode failure: " ^ reason)
+;;
+
 let content_has_reasoning =
   List.exists (function
     | Types.Thinking _ | ReasoningDetails _ | RedactedThinking _ -> true
@@ -1092,11 +1106,11 @@ let test_gemini_stream_text () =
     }]
   }|}
   in
-  match Streaming.parse_gemini_sse_chunk data with
+  match parse_gemini_chunk data with
   | Some chunk ->
     check int "one part" 1 (List.length chunk.gem_parts);
     let state = Streaming.create_openai_stream_state () in
-    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = gemini_events state chunk in
     check bool "has events" true (List.length events > 0)
   | None -> fail "expected Some chunk"
 ;;
@@ -1112,10 +1126,10 @@ let test_gemini_stream_thinking () =
     }]
   }|}
   in
-  match Streaming.parse_gemini_sse_chunk data with
+  match parse_gemini_chunk data with
   | Some chunk ->
     let state = Streaming.create_openai_stream_state () in
-    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = gemini_events state chunk in
     let has_thinking =
       List.exists
         (function
@@ -1140,10 +1154,10 @@ let test_gemini_stream_function_call () =
     }]
   }|}
   in
-  match Streaming.parse_gemini_sse_chunk data with
+  match parse_gemini_chunk data with
   | Some chunk ->
     let state = Streaming.create_openai_stream_state () in
-    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = gemini_events state chunk in
     (match events with
      | [ Types.ContentBlockStart { content_type = "tool_use"; tool_id = Some id; _ }
        ; Types.ContentBlockDelta _
@@ -1155,7 +1169,7 @@ let test_gemini_stream_function_call () =
 let test_gemini_stream_repeated_idless_calls_stay_distinct () =
   let chunk =
     match
-      Streaming.parse_gemini_sse_chunk
+      parse_gemini_chunk
         {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{"q":"same"}}}]}}]}|}
     with
     | Some chunk -> chunk
@@ -1163,7 +1177,7 @@ let test_gemini_stream_repeated_idless_calls_stay_distinct () =
   in
   let state = Streaming.create_openai_stream_state () in
   let start_id () =
-    match fst (Streaming.gemini_chunk_to_events state chunk) with
+    match fst (gemini_events state chunk) with
     | ContentBlockStart { content_type = "tool_use"; tool_id = Some id; _ } :: _ -> id
     | _ -> fail "expected identified Gemini tool start"
   in
@@ -1182,10 +1196,10 @@ let test_gemini_stream_finish () =
     "usageMetadata": {"promptTokenCount": 10, "candidatesTokenCount": 3}
   }|}
   in
-  match Streaming.parse_gemini_sse_chunk data with
+  match parse_gemini_chunk data with
   | Some chunk ->
     let state = Streaming.create_openai_stream_state () in
-    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = gemini_events state chunk in
     let has_delta =
       List.exists
         (function
@@ -1203,7 +1217,7 @@ let test_gemini_capabilities_named () =
   check bool "thinking" true caps.supports_extended_thinking;
   check bool "audio" true caps.supports_audio_input;
   check bool "video" true caps.supports_video_input;
-  check bool "code_execution" true caps.supports_code_execution;
+  check bool "code_execution" false caps.supports_code_execution;
   check bool "caching" true caps.supports_caching;
   match caps.max_context_tokens with
   | Some n -> check int "1M context" 1_000_000 n
@@ -1298,9 +1312,9 @@ let test_gemini_stream_thinking_delta_index () =
   }|}
   in
   let state = Streaming.create_openai_stream_state () in
-  (match Streaming.parse_gemini_sse_chunk data1 with
+  (match parse_gemini_chunk data1 with
    | Some chunk ->
-     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+     let events, _tel = gemini_events state chunk in
      (* ContentBlockStart at index 0, ContentBlockDelta at index 0 *)
      (match events with
       | [ ContentBlockStart { index = start_idx; content_type = "thinking"; _ }
@@ -1321,9 +1335,9 @@ let test_gemini_stream_thinking_delta_index () =
     }]
   }|}
   in
-  (match Streaming.parse_gemini_sse_chunk data2 with
+  (match parse_gemini_chunk data2 with
    | Some chunk ->
-     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+     let events, _tel = gemini_events state chunk in
      (match events with
       | [ ContentBlockDelta { index; delta = ThinkingDelta _; _ } ] ->
         check int "subsequent thinking index" 0 index
@@ -1340,9 +1354,9 @@ let test_gemini_stream_thinking_delta_index () =
     }]
   }|}
   in
-  match Streaming.parse_gemini_sse_chunk data3 with
+  match parse_gemini_chunk data3 with
   | Some chunk ->
-    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = gemini_events state chunk in
     (match events with
      | [ ContentBlockStart { index = start_idx; content_type = "text"; _ }
        ; ContentBlockDelta { index = delta_idx; delta = TextDelta "answer"; _ }
@@ -1368,9 +1382,9 @@ let test_gemini_stream_tool_first_then_text () =
     }]
   }|}
   in
-  (match Streaming.parse_gemini_sse_chunk data1 with
+  (match parse_gemini_chunk data1 with
    | Some chunk ->
-     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+     let events, _tel = gemini_events state chunk in
      (match events with
       | [ ContentBlockStart { index; content_type = "tool_use"; _ }
         ; ContentBlockDelta { index = d_idx; delta = InputJsonSnapshot _; _ }
@@ -1390,9 +1404,9 @@ let test_gemini_stream_tool_first_then_text () =
     }]
   }|}
   in
-  (match Streaming.parse_gemini_sse_chunk data2 with
+  (match parse_gemini_chunk data2 with
    | Some chunk ->
-     let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+     let events, _tel = gemini_events state chunk in
      (match events with
       | [ ContentBlockStart { index = s_idx; content_type = "text"; _ }
         ; ContentBlockDelta { index = d_idx; delta = TextDelta "here are the results"; _ }
@@ -1412,9 +1426,9 @@ let test_gemini_stream_tool_first_then_text () =
     }]
   }|}
   in
-  match Streaming.parse_gemini_sse_chunk data3 with
+  match parse_gemini_chunk data3 with
   | Some chunk ->
-    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = gemini_events state chunk in
     (match events with
      | [ ContentBlockDelta { index; delta = TextDelta " for your query"; _ } ] ->
        check int "subsequent text index" 1 index
@@ -1438,10 +1452,10 @@ let test_gemini_stream_function_call_preserves_thought_signature () =
     }]
   }|}
   in
-  match Streaming.parse_gemini_sse_chunk data with
+  match parse_gemini_chunk data with
   | None -> fail "expected Some chunk"
   | Some chunk ->
-    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = gemini_events state chunk in
     (match events with
      | [ ContentBlockStart
            { index = redacted_idx
@@ -1513,10 +1527,10 @@ let test_gemini_stream_textual_parts_preserve_thought_signatures () =
     }]
   }|}
   in
-  match Streaming.parse_gemini_sse_chunk data with
+  match parse_gemini_chunk data with
   | None -> fail "expected Some chunk"
   | Some chunk ->
-    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = gemini_events state chunk in
     (match events with
      | [ ContentBlockStart
            { index = 0
@@ -1572,10 +1586,10 @@ let test_gemini_stream_signed_inline_image () =
   let data =
     {|{"candidates":[{"content":{"role":"model","parts":[{"inlineData":{"mimeType":"image/png","data":"iVBORw0KGgo="},"thoughtSignature":"sig-stream-image"}]},"finishReason":"STOP"}]}|}
   in
-  match Streaming.parse_gemini_sse_chunk data with
+  match parse_gemini_chunk data with
   | None -> fail "expected signed image chunk"
   | Some chunk ->
-    let events, _ = Streaming.gemini_chunk_to_events state chunk in
+    let events, _ = gemini_events state chunk in
     (match events with
      | [ ContentBlockStart
            { index = 0; content_type = "redacted_thinking"; tool_id = Some carrier; _ }
@@ -1606,7 +1620,7 @@ let test_gemini_stream_signed_inline_image () =
 ;;
 
 let parse_gemini_chunk_exn data =
-  match Streaming.parse_gemini_sse_chunk data with
+  match parse_gemini_chunk data with
   | Some chunk -> chunk
   | None -> fail "expected Gemini SSE chunk"
 ;;
@@ -1621,7 +1635,7 @@ let test_gemini_stream_interleaved_thinking_tool_text_finalizes () =
   let acc = Complete_stream_acc.create_stream_acc () in
   let feed data =
     let chunk = parse_gemini_chunk_exn data in
-    let events, _tel = Streaming.gemini_chunk_to_events state chunk in
+    let events, _tel = gemini_events state chunk in
     List.iter (Complete_stream_acc.accumulate_event acc) events
   in
   feed

@@ -152,19 +152,62 @@ val responses_sse_to_events
     We reuse {!openai_stream_state} for block tracking since the
     state management pattern is identical. *)
 
+type gemini_terminal_reason =
+  | Gemini_candidate_finish_reason of string
+  | Gemini_prompt_block_reason of string
+
 type gemini_chunk =
-  { gem_model : string
+  { gem_model : string option
   ; gem_parts : Yojson.Safe.t list
-  ; gem_finish_reason : string option
+  ; gem_finish_reason : gemini_terminal_reason option
   ; gem_usage : api_usage option
   }
 
-val parse_gemini_sse_chunk : string -> gemini_chunk option
+type gemini_unsupported_part =
+  | Gemini_executable_code
+  | Gemini_code_execution_result
+  | Gemini_tool_call
+  | Gemini_tool_response
+  | Gemini_function_response
+  | Gemini_file_data
+  | Gemini_audio_transcription
+  | Gemini_streaming_function_call_arguments
+  | Gemini_streaming_function_call_continuation
+
+type gemini_unsupported_response = Gemini_multiple_candidates of { count : int }
+
+type gemini_sse_parse_result =
+  | Gemini_chunk of gemini_chunk
+  | Gemini_unsupported_part of
+      { part : gemini_unsupported_part
+      ; raw : string
+      }
+  | Gemini_unsupported_response of
+      { response : gemini_unsupported_response
+      ; raw : string
+      }
+  | Gemini_parse_failed of
+      { reason : string
+      ; raw : string
+      }
+
+(** Parse one Gemini SSE data payload without collapsing malformed JSON or
+    malformed candidate/part shapes into an absent chunk. Official Part kinds
+    that OAS does not project are returned as [Gemini_unsupported_part], not
+    relabelled as malformed bytes. Official response shapes that OAS does not
+    project are returned as [Gemini_unsupported_response]. Callers must surface
+    either capability fact with the raw payload. *)
+val parse_gemini_sse_chunk : string -> gemini_sse_parse_result
+
+val gemini_unsupported_part_wire_name : gemini_unsupported_part -> string
+val gemini_unsupported_response_wire_name : gemini_unsupported_response -> string
+
+type gemini_chunk_to_events_error = { reason : string }
 
 val gemini_chunk_to_events
   :  openai_stream_state
   -> gemini_chunk
-  -> sse_event list * Telemetry_event.t option
+  -> (sse_event list * Telemetry_event.t option, gemini_chunk_to_events_error) result
 
 (** {1 Ollama NDJSON Streaming}
 

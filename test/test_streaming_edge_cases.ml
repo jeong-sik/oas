@@ -79,6 +79,20 @@ let require_ollama_chunk label = function
     fail (Printf.sprintf "%s: unexpected parse failure: %s" label reason)
 ;;
 
+let parse_gemini_chunk data =
+  match S.parse_gemini_sse_chunk data with
+  | S.Gemini_chunk chunk -> Some chunk
+  | S.Gemini_unsupported_part _ -> None
+  | S.Gemini_unsupported_response _ -> None
+  | S.Gemini_parse_failed _ -> None
+;;
+
+let require_gemini_events label state chunk =
+  match S.gemini_chunk_to_events state chunk with
+  | Ok events -> events
+  | Error { reason } -> fail (Printf.sprintf "%s: %s" label reason)
+;;
+
 let test_anthropic_sse_parser_edges () =
   (match
      S.parse_sse_event
@@ -543,42 +557,439 @@ let test_openai_event_edge_branches () =
 let test_gemini_parse_edge_shapes () =
   (match
      S.parse_gemini_sse_chunk
-       {|{"modelVersion":"gem","candidates":[],"usageMetadata":null}|}
+       {|{"candidates":[{"content":{"parts":[{"text":"no model"}]}}]}|}
+   with
+   | S.Gemini_chunk chunk ->
+     check (option string) "absent modelVersion" None chunk.gem_model
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "absent optional modelVersion was rejected: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "absent modelVersion is not a Part kind"
+   | S.Gemini_unsupported_response _ -> fail "absent modelVersion is not a response kind");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"modelVersion":"","candidates":[{"content":{"parts":[{"text":"empty model"}]}}]}|}
+   with
+   | S.Gemini_chunk chunk ->
+     check (option string) "empty modelVersion remains distinct" (Some "") chunk.gem_model
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "empty modelVersion was rejected instead of preserved: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "empty modelVersion is not a Part kind"
+   | S.Gemini_unsupported_response _ -> fail "empty modelVersion is not a response kind");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"modelVersion":"gemini-wire-model","candidates":[{"content":{"parts":[{"text":"done"}]},"finishReason":"STOP"}]}|}
+   with
+   | S.Gemini_chunk chunk ->
+     let events, _ =
+       require_gemini_events
+         "response model propagation"
+         (S.create_openai_stream_state ~model:"requested-model" ())
+         chunk
+     in
+     let acc = Llm_provider.Complete_stream_acc.create_stream_acc () in
+     List.iter (Llm_provider.Complete_stream_acc.accumulate_event acc) events;
+     (match Llm_provider.Complete_stream_acc.finalize_stream_acc acc with
+      | Ok response ->
+        check
+          string
+          "wire model reaches final response"
+          "gemini-wire-model"
+          response.model
+      | Error _ -> fail "terminal Gemini chunk did not finalize")
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "model propagation fixture was rejected: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "model propagation has no unsupported Part"
+   | S.Gemini_unsupported_response _ ->
+     fail "model propagation has no unsupported response");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"text":"partial"}]},"finishReason":""}]}|}
+   with
+   | S.Gemini_chunk chunk ->
+     (match chunk.gem_finish_reason with
+      | None -> ()
+      | Some _ -> fail "empty finishReason became a terminal reason")
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "empty finishReason was rejected: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "empty finishReason is not a Part kind"
+   | S.Gemini_unsupported_response _ -> fail "empty finishReason is not a response kind");
+  (match
+     parse_gemini_chunk {|{"modelVersion":"gem","candidates":[],"usageMetadata":null}|}
    with
    | None -> ()
    | Some _ -> fail "empty candidates should be rejected by missing content");
   (match
-     S.parse_gemini_sse_chunk
+     parse_gemini_chunk
        {|{"modelVersion":"gem","candidates":{"unexpected":true},"usageMetadata":null}|}
    with
    | None -> ()
    | Some _ -> fail "non-list candidates should be rejected by missing content");
-  let non_list_parts =
-    require_some
-      "non-list parts"
-      (S.parse_gemini_sse_chunk
-         {|{"modelVersion":"gem","candidates":[{"content":{"parts":{"bad":true}}}],"usageMetadata":null}|})
-  in
-  check int "non-list parts ignored" 0 (List.length non_list_parts.gem_parts);
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"text":"a"}]}},{"content":{"parts":[{"text":"b"}]}}]}|}
+   with
+   | S.Gemini_unsupported_response { response; raw } ->
+     (match response with
+      | S.Gemini_multiple_candidates { count } ->
+        check int "multiple candidates count" 2 count;
+        check
+          string
+          "multiple candidates wire field"
+          "candidates"
+          (S.gemini_unsupported_response_wire_name response);
+        check bool "multiple candidates raw preserved" true (String.length raw > 0))
+   | S.Gemini_chunk _ -> fail "multiple Gemini candidates must not be dropped"
+   | S.Gemini_unsupported_part _ -> fail "multiple candidates are not a Part kind"
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "multiple candidates were collapsed into malformed: %s" reason);
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"modelVersion":"gem","candidates":[{"content":{"parts":{"bad":true}}}],"usageMetadata":null}|}
+   with
+   | S.Gemini_parse_failed { reason; _ } ->
+     check
+       string
+       "non-list parts reason"
+       "gemini.candidates[0].content.parts:not_array(got object)"
+       reason
+   | S.Gemini_chunk _ -> fail "non-list parts must be rejected"
+   | S.Gemini_unsupported_part _ -> fail "non-list parts are not a Part kind"
+   | S.Gemini_unsupported_response _ -> fail "non-list parts are not a response kind");
   match S.parse_gemini_sse_chunk "{not-json" with
-  | None -> ()
-  | Some _ -> fail "invalid gemini json should return None"
+  | S.Gemini_parse_failed { raw; reason } ->
+    check string "invalid gemini raw" "{not-json" raw;
+    check bool "invalid gemini reason" true (String.length reason > 0)
+  | S.Gemini_chunk _ -> fail "invalid gemini json should be rejected"
+  | S.Gemini_unsupported_part _ -> fail "invalid JSON is not a Part kind"
+  | S.Gemini_unsupported_response _ -> fail "invalid JSON is not a response kind"
+;;
+
+let check_gemini_refusal label expected_reason payload =
+  match S.parse_gemini_sse_chunk payload with
+  | S.Gemini_chunk chunk ->
+    check
+      bool
+      (label ^ ": terminal reason preserved")
+      true
+      (chunk.gem_finish_reason = expected_reason);
+    let events, _ = require_gemini_events label (S.create_openai_stream_state ()) chunk in
+    (match events with
+     | [ MessageStart { model = "gem"; _ }
+       ; MessageDelta { stop_reason = Some Refusal; _ }
+       ] -> ()
+     | _ -> failf "%s: expected a typed refusal" label)
+  | S.Gemini_parse_failed { reason; _ } ->
+    failf "%s: valid policy block was rejected: %s" label reason
+  | S.Gemini_unsupported_part _ ->
+    failf "%s: policy block is not an unsupported Part" label
+  | S.Gemini_unsupported_response _ ->
+    failf "%s: policy block is not an unsupported response" label
+;;
+
+let test_gemini_policy_blocks_are_not_wire_failures () =
+  check_gemini_refusal
+    "prompt policy block"
+    (Some (S.Gemini_prompt_block_reason "OTHER"))
+    {|{"modelVersion":"gem","promptFeedback":{"blockReason":"OTHER"},"candidates":[]}|};
+  check_gemini_refusal
+    "safety prompt policy block"
+    (Some (S.Gemini_prompt_block_reason "SAFETY"))
+    {|{"modelVersion":"gem","promptFeedback":{"blockReason":"SAFETY"},"candidates":[]}|};
+  check_gemini_refusal
+    "omitted empty candidates policy block"
+    (Some (S.Gemini_prompt_block_reason "SAFETY"))
+    {|{"modelVersion":"gem","promptFeedback":{"blockReason":"SAFETY"}}|};
+  check_gemini_refusal
+    "candidate policy block"
+    (Some (S.Gemini_candidate_finish_reason "PROHIBITED_CONTENT"))
+    {|{"modelVersion":"gem","candidates":[{"finishReason":"PROHIBITED_CONTENT"}]}|}
+;;
+
+let test_gemini_supported_metadata_and_function_call_shapes () =
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"text":"ok","partMetadata":{},"mediaResolution":{},"videoMetadata":{}}]}}]}|}
+   with
+   | S.Gemini_chunk _ -> ()
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "official Part metadata was rejected: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "Part metadata is not a payload kind"
+   | S.Gemini_unsupported_response _ -> fail "Part metadata is not a response kind");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup"}}]}}]}|}
+   with
+   | S.Gemini_chunk chunk ->
+     let events, _ =
+       require_gemini_events
+         "argument-free function call"
+         (S.create_openai_stream_state ())
+         chunk
+     in
+     check
+       bool
+       "missing args becomes the empty object"
+       true
+       (List.exists
+          (function
+            | ContentBlockDelta { delta = InputJsonSnapshot "{}"; _ } -> true
+            | _ -> false)
+          events)
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "optional functionCall.args was rejected: %s" reason
+   | S.Gemini_unsupported_part _ -> fail "argument-free function call is supported"
+   | S.Gemini_unsupported_response _ ->
+     fail "argument-free function call is not a response");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{},"willContinue":false}}]}}]}|}
+   with
+   | S.Gemini_chunk _ -> ()
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "terminal willContinue=false was rejected: %s" reason
+   | S.Gemini_unsupported_part _ ->
+     fail "terminal willContinue=false is not incremental arguments"
+   | S.Gemini_unsupported_response _ ->
+     fail "terminal willContinue=false is not a response kind");
+  (match
+     S.parse_gemini_sse_chunk
+       {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","willContinue":true}}]}}]}|}
+   with
+   | S.Gemini_unsupported_part { part; _ } ->
+     check
+       string
+       "streaming continuation remains explicit"
+       "functionCall.willContinue"
+       (S.gemini_unsupported_part_wire_name part)
+   | S.Gemini_chunk _ -> fail "streaming continuation must not be dropped"
+   | S.Gemini_parse_failed { reason; _ } ->
+     failf "official streaming continuation was called malformed: %s" reason
+   | S.Gemini_unsupported_response _ ->
+     fail "streaming continuation is not a response kind");
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","partialArgs":[],"willContinue":true}}]}}]}|}
+  with
+  | S.Gemini_unsupported_part { part; _ } ->
+    check
+      string
+      "streaming function args remain explicit"
+      "functionCall.partialArgs"
+      (S.gemini_unsupported_part_wire_name part)
+  | S.Gemini_chunk _ -> fail "streaming function args must not be dropped"
+  | S.Gemini_parse_failed { reason; _ } ->
+    failf "official streaming function args were called malformed: %s" reason
+  | S.Gemini_unsupported_response _ ->
+    fail "streaming function args are not a response kind"
+;;
+
+let test_gemini_part_shape_failure_is_explicit () =
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"unknownPart":{}}]}}]}|}
+  with
+  | S.Gemini_parse_failed { raw; reason } ->
+    check bool "unknown part raw preserved" true (String.length raw > 0);
+    check
+      string
+      "unknown part reason"
+      "gemini.candidates[0].content.parts[0].unknownPart:unsupported_field"
+      reason
+  | S.Gemini_chunk _ -> fail "unknown Gemini part must not be accepted"
+  | S.Gemini_unsupported_part _ ->
+    fail "unknown fields must remain malformed, not official unsupported Parts"
+  | S.Gemini_unsupported_response _ -> fail "unknown fields are not a response kind"
+;;
+
+let test_gemini_official_unsupported_part_is_not_malformed () =
+  let raw =
+    {|{"candidates":[{"content":{"parts":[{"executableCode":{"language":"PYTHON","code":"print(1)"}}]}}]}|}
+  in
+  (match S.parse_gemini_sse_chunk raw with
+   | S.Gemini_unsupported_part { part; raw = observed_raw } ->
+     check
+       string
+       "typed unsupported Part"
+       "executableCode"
+       (S.gemini_unsupported_part_wire_name part);
+     check string "unsupported Part raw preserved" raw observed_raw
+   | S.Gemini_parse_failed _ -> fail "official unsupported Part must not be malformed"
+   | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted"
+   | S.Gemini_unsupported_response _ -> fail "unsupported Part is not a response kind");
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"functionResponse":{"name":"lookup","response":{}}}]}}]}|}
+  with
+  | S.Gemini_unsupported_part { part; _ } ->
+    check
+      string
+      "typed function response Part"
+      "functionResponse"
+      (S.gemini_unsupported_part_wire_name part)
+  | S.Gemini_parse_failed _ -> fail "official functionResponse must not be malformed"
+  | S.Gemini_chunk _ -> fail "unsupported functionResponse must not be dropped"
+  | S.Gemini_unsupported_response _ -> fail "functionResponse is not a response kind"
+;;
+
+let test_gemini_unsupported_part_shape_is_explicit () =
+  let result_raw =
+    {|{"candidates":[{"content":{"parts":[{"codeExecutionResult":{"outcome":"OUTCOME_OK","output":"1"}}]}}]}|}
+  in
+  (match S.parse_gemini_sse_chunk result_raw with
+   | S.Gemini_unsupported_part { part; raw } ->
+     check
+       string
+       "typed code execution result Part"
+       "codeExecutionResult"
+       (S.gemini_unsupported_part_wire_name part);
+     check string "code execution result raw preserved" result_raw raw
+   | S.Gemini_parse_failed _ -> fail "official code execution result must be typed"
+   | S.Gemini_chunk _ -> fail "unsupported Part must not be silently accepted"
+   | S.Gemini_unsupported_response _ -> fail "unsupported Part is not a response kind");
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"executableCode":{"language":"PYTHON"}}]}}]}|}
+  with
+  | S.Gemini_parse_failed { reason; _ } ->
+    check
+      string
+      "malformed executable code reason"
+      "gemini.candidates[0].content.parts[0].executableCode.code:missing"
+      reason
+  | S.Gemini_unsupported_part _ -> fail "malformed executableCode must remain malformed"
+  | S.Gemini_chunk _ -> fail "malformed executableCode must not be accepted"
+  | S.Gemini_unsupported_response _ ->
+    fail "malformed executableCode is not a response kind"
+;;
+
+let test_gemini_builtin_tool_parts_are_typed () =
+  let tool_call_raw =
+    {|{"candidates":[{"content":{"parts":[{"thoughtSignature":"sig","toolCall":{"toolType":"GOOGLE_SEARCH_WEB","args":{"queries":["seoul"]},"id":"call-1"}}]}}]}|}
+  in
+  (match S.parse_gemini_sse_chunk tool_call_raw with
+   | S.Gemini_unsupported_part { part; raw } ->
+     check string "typed toolCall" "toolCall" (S.gemini_unsupported_part_wire_name part);
+     check string "toolCall raw preserved" tool_call_raw raw
+   | S.Gemini_parse_failed _ -> fail "official toolCall must be typed"
+   | S.Gemini_chunk _ -> fail "unsupported toolCall must not be silently accepted"
+   | S.Gemini_unsupported_response _ -> fail "toolCall is not a response kind");
+  let tool_response_raw =
+    {|{"candidates":[{"content":{"parts":[{"thoughtSignature":"sig","toolResponse":{"toolType":"GOOGLE_SEARCH_WEB","response":{"search_suggestions":"x"},"id":"call-1"}}]}}]}|}
+  in
+  (match S.parse_gemini_sse_chunk tool_response_raw with
+   | S.Gemini_unsupported_part { part; raw } ->
+     check
+       string
+       "typed toolResponse"
+       "toolResponse"
+       (S.gemini_unsupported_part_wire_name part);
+     check string "toolResponse raw preserved" tool_response_raw raw
+   | S.Gemini_parse_failed _ -> fail "official toolResponse must be typed"
+   | S.Gemini_chunk _ -> fail "unsupported toolResponse must not be silently accepted"
+   | S.Gemini_unsupported_response _ -> fail "toolResponse is not a response kind");
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"toolCall":{"toolType":"GOOGLE_SEARCH_WEB"}}]}}]}|}
+  with
+  | S.Gemini_parse_failed { reason; _ } ->
+    check
+      string
+      "malformed toolCall reason"
+      "gemini.candidates[0].content.parts[0].toolCall.id:missing"
+      reason
+  | S.Gemini_unsupported_part _ -> fail "malformed toolCall must remain malformed"
+  | S.Gemini_chunk _ -> fail "malformed toolCall must not be accepted"
+  | S.Gemini_unsupported_response _ -> fail "malformed toolCall is not a response kind"
+;;
+
+let test_gemini_malformed_part_precedes_unsupported_part () =
+  match
+    S.parse_gemini_sse_chunk
+      {|{"candidates":[{"content":{"parts":[{"executableCode":{"language":"PYTHON","code":"print(1)"}},{"unknownPart":{}}]}}]}|}
+  with
+  | S.Gemini_parse_failed { reason; _ } ->
+    check
+      string
+      "malformed sibling reason"
+      "gemini.candidates[0].content.parts[1].unknownPart:unsupported_field"
+      reason
+  | S.Gemini_unsupported_part _ ->
+    fail "malformed sibling must not be hidden by unsupported Part"
+  | S.Gemini_chunk _ -> fail "malformed sibling must not be accepted"
+  | S.Gemini_unsupported_response _ -> fail "malformed sibling is not a response kind"
 ;;
 
 let gemini_chunk ?(parts = []) ?finish_reason ?usage () : S.gemini_chunk =
-  { gem_model = "gemini-test"
+  { gem_model = Some "gemini-test"
   ; gem_parts = parts
-  ; gem_finish_reason = finish_reason
+  ; gem_finish_reason =
+      Option.map (fun reason -> S.Gemini_candidate_finish_reason reason) finish_reason
   ; gem_usage = usage
   }
+;;
+
+let test_gemini_model_identity_is_single_and_fail_closed () =
+  let state = S.create_openai_stream_state ~provider:"gemini" ~model:"gem" () in
+  let text_part text = `Assoc [ "text", `String text ] in
+  let first_events, _ =
+    require_gemini_events
+      "first model observation"
+      state
+      (gemini_chunk ~parts:[ text_part "first" ] ())
+  in
+  check
+    bool
+    "first model observation emits MessageStart"
+    true
+    (List.exists
+       (function
+         | MessageStart _ -> true
+         | _ -> false)
+       first_events);
+  let repeated_events, _ =
+    require_gemini_events
+      "repeated model observation"
+      state
+      (gemini_chunk ~parts:[ text_part "second" ] ())
+  in
+  check
+    bool
+    "repeated identical model does not emit MessageStart"
+    false
+    (List.exists
+       (function
+         | MessageStart _ -> true
+         | _ -> false)
+       repeated_events);
+  let changed_chunk =
+    { (gemini_chunk ~parts:[ text_part "changed" ] ()) with
+      gem_model = Some "different-gemini-model"
+    }
+  in
+  match S.gemini_chunk_to_events state changed_chunk with
+  | Error { reason } ->
+    check
+      string
+      "changed model is an explicit stream failure"
+      "gemini_sse_chunk_decode_failure: gemini.modelVersion changed within one streamed \
+       response"
+      reason
+  | Ok _ -> fail "changed modelVersion must not be silently accepted"
 ;;
 
 let test_gemini_event_edge_branches () =
   let state = S.create_openai_stream_state ~provider:"gemini" ~model:"gem" () in
   let thought_part = `Assoc [ "thought", `Bool true; "text", `String "plan" ] in
-  ignore (S.gemini_chunk_to_events state (gemini_chunk ~parts:[ thought_part ] ()));
+  ignore
+    (require_gemini_events
+       "thought chunk"
+       state
+       (gemini_chunk ~parts:[ thought_part ] ()));
   let no_thought_events, telemetry =
-    S.gemini_chunk_to_events state (gemini_chunk ~parts:[ `Assoc [] ] ())
+    require_gemini_events
+      "empty text chunk"
+      state
+      (gemini_chunk ~parts:[ `Assoc [ "text", `String "" ] ] ())
   in
   check_event_count "no-thought chunk emits no events" 0 no_thought_events;
   (match telemetry with
@@ -586,46 +997,55 @@ let test_gemini_event_edge_branches () =
      check string "provider" "gemini" r.provider
    | _ -> fail "expected gemini thinking completion telemetry");
   let restarted_events, _ =
-    S.gemini_chunk_to_events state (gemini_chunk ~parts:[ thought_part ] ())
+    require_gemini_events
+      "restarted thought chunk"
+      state
+      (gemini_chunk ~parts:[ thought_part ] ())
   in
   check_event_count "thinking after done restarts and emits delta" 1 restarted_events;
-  let empty_text_with_call =
+  let function_call_part =
     `Assoc
-      [ "text", `String ""
-      ; ( "functionCall"
+      [ ( "functionCall"
         , `Assoc [ "name", `String "lookup"; "args", `Assoc [ "q", `String "seoul" ] ] )
       ]
   in
   let tool_events, _ =
-    S.gemini_chunk_to_events
+    require_gemini_events
+      "function call"
       (S.create_openai_stream_state ())
-      (gemini_chunk ~parts:[ empty_text_with_call ] ())
+      (gemini_chunk ~parts:[ function_call_part ] ())
   in
-  check_event_count "empty text can still carry function call" 2 tool_events;
-  let empty_text_without_call =
-    `Assoc [ "text", `String ""; "functionCall", `String "not-an-object" ]
-  in
-  let ignored_events, _ =
-    S.gemini_chunk_to_events
-      (S.create_openai_stream_state ())
-      (gemini_chunk ~parts:[ empty_text_without_call ] ())
-  in
-  check_event_count "non-object functionCall ignored" 0 ignored_events;
+  check_event_count "function call emits message, tool start, and arguments" 3 tool_events;
+  let empty_text_without_call = `Assoc [ "functionCall", `String "not-an-object" ] in
+  (match
+     S.gemini_chunk_to_events
+       (S.create_openai_stream_state ())
+       (gemini_chunk ~parts:[ empty_text_without_call ] ())
+   with
+   | Error { reason } ->
+     check bool "non-object functionCall rejected" true (String.length reason > 0)
+   | Ok _ -> fail "non-object functionCall must not be ignored");
   let max_tokens_events, _ =
-    S.gemini_chunk_to_events
+    require_gemini_events
+      "max tokens chunk"
       (S.create_openai_stream_state ())
       (gemini_chunk ~finish_reason:"MAX_TOKENS" ~usage:(usage ()) ())
   in
   (match max_tokens_events with
-   | [ MessageDelta { stop_reason = Some MaxTokens; usage = Some _ } ] -> ()
+   | [ MessageStart { model = "gemini-test"; _ }
+     ; MessageDelta { stop_reason = Some MaxTokens; usage = Some _ }
+     ] -> ()
    | _ -> fail "expected gemini max-tokens finish");
   let unknown_events, _ =
-    S.gemini_chunk_to_events
+    require_gemini_events
+      "safety finish chunk"
       (S.create_openai_stream_state ())
       (gemini_chunk ~finish_reason:"SAFETY" ())
   in
   match unknown_events with
-  | [ MessageDelta { stop_reason = Some Refusal; _ } ] -> ()
+  | [ MessageStart { model = "gemini-test"; _ }
+    ; MessageDelta { stop_reason = Some Refusal; _ }
+    ] -> ()
   | _ -> fail "expected gemini unknown finish"
 ;;
 
@@ -802,6 +1222,35 @@ let () =
         ] )
     ; ( "gemini_sse"
       , [ test_case "parse edge shapes" `Quick test_gemini_parse_edge_shapes
+        ; test_case
+            "policy blocks are typed refusals"
+            `Quick
+            test_gemini_policy_blocks_are_not_wire_failures
+        ; test_case
+            "supported metadata and function calls"
+            `Quick
+            test_gemini_supported_metadata_and_function_call_shapes
+        ; test_case "part shape failure" `Quick test_gemini_part_shape_failure_is_explicit
+        ; test_case
+            "official unsupported Part is typed"
+            `Quick
+            test_gemini_official_unsupported_part_is_not_malformed
+        ; test_case
+            "unsupported Part shape is explicit"
+            `Quick
+            test_gemini_unsupported_part_shape_is_explicit
+        ; test_case
+            "built-in tool Parts are typed"
+            `Quick
+            test_gemini_builtin_tool_parts_are_typed
+        ; test_case
+            "malformed sibling is not hidden"
+            `Quick
+            test_gemini_malformed_part_precedes_unsupported_part
+        ; test_case
+            "model identity is single and fail-closed"
+            `Quick
+            test_gemini_model_identity_is_single_and_fail_closed
         ; test_case "event edge branches" `Quick test_gemini_event_edge_branches
         ] )
     ; ( "ollama_ndjson"
