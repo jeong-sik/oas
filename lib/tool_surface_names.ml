@@ -25,5 +25,6 @@ let of_yojson = function
       | _ :: _ -> Error "tool_names must contain only strings"
     in
     decode [] names
-  | _ -> Error "tool_names must be an array"
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _ ->
+    Error "tool_names must be an array"
 ;;
