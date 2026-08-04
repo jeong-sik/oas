@@ -87,6 +87,15 @@ The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical
 `Llm_provider.Provider_config.t` values.
 
+## [0.231.13](https://github.com/jeong-sik/oas/compare/v0.231.12...v0.231.13) (2026-08-04)
+
+
+### Bug Fixes
+
+* **llm:** preserve terminal stop semantics ([#2927](https://github.com/jeong-sik/oas/issues/2927)) ([d57904d](https://github.com/jeong-sik/oas/commit/d57904d07d50ed640446e504870fe9f6a9f0fd3a))
+* **session:** reuse OS entropy ID generator ([#2928](https://github.com/jeong-sik/oas/issues/2928)) ([dd3c04a](https://github.com/jeong-sik/oas/commit/dd3c04ae5933be96ab4b75e12760cce9b7158df6))
+* **streaming:** fail closed on malformed Gemini SSE parts ([#2930](https://github.com/jeong-sik/oas/issues/2930)) ([715bcb5](https://github.com/jeong-sik/oas/commit/715bcb513d8b5f4a8fb8f143ebf7a08424aaece1))
+
 ## [0.231.12](https://github.com/jeong-sik/oas/compare/v0.231.11...v0.231.12) (2026-08-02)
 
 
