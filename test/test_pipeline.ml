@@ -234,6 +234,39 @@ let test_agent_turn_preparation () =
     prep.visible_tool_names
 ;;
 
+let test_base_named_tool_choice_must_be_visible () =
+  Eio_main.run
+  @@ fun env ->
+  let make_tool name =
+    Tool.create ~name ~description:name ~parameters:[] (fun _ ->
+      Ok { Types.content = name; _meta = None })
+  in
+  let config =
+    { (Types.default_config ~model:"test-model") with
+      tool_choice = Some (Types.Tool "hidden")
+    }
+  in
+  let agent =
+    Agent.create
+      ~config
+      ~net:(Eio.Stdenv.net env)
+      ~tools:[ make_tool "visible"; make_tool "hidden" ]
+      ()
+  in
+  let turn_params =
+    { Hooks.default_turn_params with
+      tool_surface = Hooks.Selected_tools [ "visible" ]
+    }
+  in
+  match Internal_pipeline.prepare_turn_for_agent agent ~turn_params with
+  | Error (Agent_turn.Tool_choice_not_visible "hidden") -> ()
+  | Error error ->
+    Alcotest.failf
+      "unexpected preparation error: %s"
+      (Agent_turn.preparation_error_to_string error)
+  | Ok _ -> Alcotest.fail "base named tool choice escaped the selected turn surface"
+;;
+
 let pipeline_response ?telemetry stop_reason : Types.api_response =
   { id = "pipeline-reset-test"
   ; model = "mock-model"
@@ -3921,6 +3954,10 @@ let () =
         ] )
     ; ( "turn_mechanics"
       , [ Alcotest.test_case "turn preparation" `Quick test_agent_turn_preparation
+        ; Alcotest.test_case
+            "base named tool choice must be visible"
+            `Quick
+            test_base_named_tool_choice_must_be_visible
         ; Alcotest.test_case "no tools prep" `Quick test_prepare_turn_no_tools
         ; Alcotest.test_case
             "preserves messages"

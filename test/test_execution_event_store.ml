@@ -266,6 +266,20 @@ let rewrite_event_seq event seq =
   | _ -> fail "event encoder did not return an object"
 ;;
 
+let test_previous_event_schema_is_explicitly_rejected () =
+  let event = List.hd (make_four_events "schema-hard-cut") in
+  let previous =
+    match Event.to_yojson event with
+    | `Assoc fields ->
+      `Assoc (("schema_version", `Int 3) :: List.remove_assoc "schema_version" fields)
+    | _ -> fail "event encoder did not return an object"
+  in
+  match Event.of_yojson previous with
+  | Error "unsupported execution event schema_version: 3" -> ()
+  | Error detail -> failf "unexpected previous-schema error: %s" detail
+  | Ok _ -> fail "previous execution event schema was accepted"
+;;
+
 let test_append_reopen_idempotency_and_paging () =
   Eio_main.run
   @@ fun env ->
@@ -1647,6 +1661,10 @@ let () =
             "old store format is explicitly rejected"
             `Quick
             test_old_store_format_is_explicitly_rejected
+        ; test_case
+            "previous event schema is explicitly rejected"
+            `Quick
+            test_previous_event_schema_is_explicitly_rejected
         ; test_case
             "torn tail is explicitly truncated"
             `Quick

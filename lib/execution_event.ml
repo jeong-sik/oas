@@ -920,7 +920,7 @@ let payload_of_yojson json =
   | value -> Error ("unknown execution payload: " ^ value)
 ;;
 
-let schema_version_current = 3
+let schema_version_current = 4
 
 let to_yojson event =
   `Assoc

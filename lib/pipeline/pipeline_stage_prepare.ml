@@ -141,6 +141,14 @@ let%test "last_tool_results_from routes through canonical projection (with json)
 ;;
 
 let prepare_turn_for_agent agent ~turn_params =
+  let turn_params =
+    { turn_params with
+      tool_choice =
+        (match turn_params.tool_choice with
+         | Some _ as choice -> choice
+         | None -> agent.state.config.tool_choice)
+    }
+  in
   Agent_turn.prepare_turn
     ~tools:agent.tools
     ~messages:agent.state.messages
