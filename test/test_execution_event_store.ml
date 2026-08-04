@@ -426,7 +426,7 @@ let test_old_store_format_is_explicitly_rejected () =
     let authority = Eio.Path.(dir / "events.v1.commit") in
     let wal_before = Eio.Path.load wal in
     let old_authority =
-      Eio.Path.load authority |> authority_with_format_version ~version:1
+      Eio.Path.load authority |> authority_with_format_version ~version:2
     in
     Eio.Path.with_open_out ~create:(`Or_truncate 0o600) authority (fun file ->
       Eio.Flow.copy_string old_authority file;
@@ -435,7 +435,7 @@ let test_old_store_format_is_explicitly_rejected () =
       match Journal.open_durable_writer ~sw ~codec ~dir with
       | Error
           (Journal.Persistence_failure
-             (Store.Unsupported_store_version { expected = 2; actual = 1 })) -> ()
+             (Store.Unsupported_store_version { expected = 3; actual = 2 })) -> ()
       | Error error ->
         fail ("unexpected journal failure: " ^ Journal.error_to_string error)
       | Ok _ -> fail "old recursive execution store was reopened");

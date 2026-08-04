@@ -240,8 +240,9 @@ let lock_name = ".writer.lock"
 let frame_magic = "OASE"
 let frame_version = 1
 
-(* Version 2 hard-cuts recursive work to exact tool attempts; WAL framing is unchanged. *)
-let store_format_version = 2
+(* Version 3 hard-cuts provider-attempt surfaces to the event schema; format 2
+   is intentionally not reopened. WAL framing is unchanged. *)
+let store_format_version = 3
 let frame_header_size = 48
 
 module Active_path_map = Map.Make (String)
