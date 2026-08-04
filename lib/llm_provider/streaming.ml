@@ -2095,6 +2095,7 @@ let validate_gemini_part ~position part =
          "%s.inlineData:not_object(got %s)"
          path
          (Json_util.json_type_name value))
+  | [ (key, _) ] -> Error (Printf.sprintf "%s.%s:unsupported_payload" path key)
   | _ :: _ :: _ -> Error (path ^ ":multiple_payloads")
 ;;
 
