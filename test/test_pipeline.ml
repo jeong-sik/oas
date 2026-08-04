@@ -290,7 +290,7 @@ let test_required_tool_choice_rejects_empty_selected_surface () =
     Tool.create ~name ~description:name ~parameters:[] (fun _ ->
       Ok { Types.content = name; _meta = None })
   in
-  let assert_rejected ~label ~base_tool_choice ~turn_tool_choice =
+  let assert_rejected ~label ~base_tool_choice ~turn_tool_choice_override =
     let hooks =
       { Hooks.empty with
         before_turn_params =
@@ -300,7 +300,9 @@ let test_required_tool_choice_rejects_empty_selected_surface () =
                 Hooks.AdjustParams
                   { current_params with
                     tool_choice =
-                      Option.value turn_tool_choice ~default:current_params.tool_choice
+                      (match turn_tool_choice_override with
+                       | `Preserve -> current_params.tool_choice
+                       | `Replace tool_choice -> tool_choice)
                   ; tool_surface = Hooks.Selected_tools []
                   }
               | _ -> Alcotest.fail "expected BeforeTurnParams")
@@ -333,11 +335,11 @@ let test_required_tool_choice_rejects_empty_selected_surface () =
   assert_rejected
     ~label:"base required choice"
     ~base_tool_choice:(Some Types.Any)
-    ~turn_tool_choice:None;
+    ~turn_tool_choice_override:`Preserve;
   assert_rejected
     ~label:"per-turn required choice"
     ~base_tool_choice:None
-    ~turn_tool_choice:(Some Types.Any)
+    ~turn_tool_choice_override:(`Replace (Some Types.Any))
 ;;
 
 let pipeline_response ?telemetry stop_reason : Types.api_response =
