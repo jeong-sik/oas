@@ -140,7 +140,7 @@ let%test "last_tool_results_from routes through canonical projection (with json)
   | _ -> false
 ;;
 
-let prepare_turn_for_agent agent ~turn_params =
+let prepare_turn_for_agent agent ~(turn_params : Hooks.turn_params) =
   let effective_turn_params : Hooks.turn_params =
     { turn_params with
       tool_choice =
