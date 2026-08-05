@@ -336,6 +336,54 @@ let test_nullable_property_validation_uses_authoritative_schema () =
   | Tool_input_validation.Valid _ -> fail "nullable string accepted an integer"
 ;;
 
+let test_const_and_enum_validation_use_json_semantics () =
+  let schema =
+    authoritative_schema_exn
+      (`Assoc
+          [ "type", `String "object"
+          ; ( "properties"
+            , `Assoc
+                [ ( "fixed"
+                  , `Assoc
+                      [ ( "const"
+                        , `Assoc
+                            [ "first", `Int 1
+                            ; "nested", `List [ `Float 2.0; `Intlit "300" ]
+                            ] )
+                      ] )
+                ; ( "choice"
+                  , `Assoc
+                      [ ( "enum"
+                        , `List [ `Assoc [ "enabled", `Bool true; "count", `Intlit "4" ] ]
+                        )
+                      ] )
+                ] )
+          ; "required", `List [ `String "fixed"; `String "choice" ]
+          ])
+  in
+  let reordered_equivalent =
+    `Assoc
+      [ "fixed", `Assoc [ "nested", `List [ `Int 2; `Float 300.0 ]; "first", `Float 1.0 ]
+      ; "choice", `Assoc [ "count", `Float 4.0; "enabled", `Bool true ]
+      ]
+  in
+  (match Tool_input_validation.validate schema reordered_equivalent with
+   | Tool_input_validation.Valid exact ->
+     check json "equivalent JSON accepted unchanged" reordered_equivalent exact
+   | Tool_input_validation.Invalid _ ->
+     fail "object key order or equivalent JSON numbers changed const/enum meaning");
+  match
+    Tool_input_validation.validate
+      schema
+      (`Assoc
+          [ "fixed", `Assoc [ "first", `Int 1; "nested", `List [ `Int 2; `Int 301 ] ]
+          ; "choice", `Assoc [ "enabled", `Bool true; "count", `Int 4 ]
+          ])
+  with
+  | Tool_input_validation.Invalid _ -> ()
+  | Tool_input_validation.Valid _ -> fail "a numerically different const was accepted"
+;;
+
 let test_explicit_non_object_root_schema_is_rejected () =
   let input_schema : Yojson.Safe.t =
     `Assoc [ "type", `String "array"; "items", `Assoc [ "type", `String "string" ] ]
@@ -613,6 +661,10 @@ let () =
             "nullable validation uses the authoritative schema"
             `Quick
             test_nullable_property_validation_uses_authoritative_schema
+        ; test_case
+            "const and enum use JSON semantic equality"
+            `Quick
+            test_const_and_enum_validation_use_json_semantics
         ; test_case
             "explicit non-object root schema is rejected"
             `Quick
