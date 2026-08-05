@@ -203,7 +203,8 @@ val tool_schema_to_json : tool_schema -> Yojson.Safe.t
     [None] and a present one must be a tool argument schema
     ({!input_schema_of_json}). A payload whose ["parameters"] array disagrees
     with the projection of its ["input_schema"] is refused, because no value of
-    this type could have carried that pair. A schema written by
+    this type could have carried that pair. Top-level and parameter objects must
+    contain exactly their declared fields with no duplicate keys. A schema written by
     {!tool_schema_to_json} therefore round-trips unchanged. *)
 val tool_schema_of_json : Yojson.Safe.t -> (tool_schema, string) result
 

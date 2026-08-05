@@ -179,6 +179,38 @@ let json_shape_to_string = function
   | Json_object -> "an object"
 ;;
 
+let duplicate_object_keys fields =
+  let rec collect acc = function
+    | first :: (second :: _ as rest) when String.equal first second ->
+      collect (first :: acc) rest
+    | _ :: rest -> collect acc rest
+    | [] -> acc
+  in
+  fields
+  |> List.map fst
+  |> List.sort String.compare
+  |> collect []
+  |> List.sort_uniq String.compare
+;;
+
+let exact_object_fields ~scope ~required ?(optional = []) fields =
+  let expected = List.sort_uniq String.compare (required @ optional) in
+  let actual = List.map fst fields |> List.sort_uniq String.compare in
+  let missing = List.filter (fun name -> not (List.mem name actual)) required in
+  let unknown = List.filter (fun name -> not (List.mem name expected)) actual in
+  let duplicates = duplicate_object_keys fields in
+  match missing, unknown, duplicates with
+  | [], [], [] -> Ok ()
+  | _ ->
+    Error
+      (Printf.sprintf
+         "%s fields mismatch (missing=[%s], unknown=[%s], duplicates=[%s])"
+         scope
+         (String.concat ", " missing)
+         (String.concat ", " unknown)
+         (String.concat ", " duplicates))
+;;
+
 (* Total field readers. [Yojson.Safe.Util.to_string] and friends raise
    [Type_error] on a shape mismatch, which would escape the [result] these
    decoders advertise; matching the constructor keeps the failure in the
@@ -209,11 +241,11 @@ let json_bool_field ~scope fields name =
   | None -> Error (Printf.sprintf "%s is missing field %s" scope name)
 ;;
 
-(* An absent key and an explicit [null] both mean "unset"; any other shape is a
-   caller mistake rather than an absent value. *)
+(* The manual encoder omits an unset optional field. An explicit [null] is not
+   that encoding and is rejected instead of being treated as an absent key. *)
 let json_optional_bool_field ~scope fields name =
   match List.assoc_opt name fields with
-  | None | Some `Null -> Ok None
+  | None -> Ok None
   | Some (`Bool value) -> Ok (Some value)
   | Some other ->
     Error
@@ -231,6 +263,12 @@ let tool_param_of_json (json : Yojson.Safe.t) : (tool_param, string) result =
   match json with
   | `Assoc fields ->
     let scope = tool_param_scope in
+    let* () =
+      exact_object_fields
+        ~scope
+        ~required:[ "name"; "description"; "param_type"; "required" ]
+        fields
+    in
     let* name = json_string_field ~scope fields "name" in
     let* description = json_string_field ~scope fields "description" in
     let* param_type_name = json_string_field ~scope fields "param_type" in
@@ -417,20 +455,6 @@ let input_schema_error_to_string = function
       (json_shape_to_string shape)
   | Input_schema_duplicate_keys { path; keys } ->
     Printf.sprintf "%s has duplicate keys: %s" path (String.concat ", " keys)
-;;
-
-let duplicate_object_keys fields =
-  let rec collect acc = function
-    | first :: (second :: _ as rest) when String.equal first second ->
-      collect (first :: acc) rest
-    | _ :: rest -> collect acc rest
-    | [] -> acc
-  in
-  fields
-  |> List.map fst
-  |> List.sort String.compare
-  |> collect []
-  |> List.sort_uniq String.compare
 ;;
 
 (* Yojson parses a duplicate key into a repeated assoc entry, so uniqueness is
@@ -630,6 +654,13 @@ let tool_schema_of_json (json : Yojson.Safe.t) : (tool_schema, string) result =
          (json_shape_to_string (json_shape_of_json other)))
   | `Assoc fields ->
     let scope = tool_schema_scope in
+    let* () =
+      exact_object_fields
+        ~scope
+        ~required:[ "name"; "description"; "parameters" ]
+        ~optional:[ "strict"; "input_schema" ]
+        fields
+    in
     let* name = json_string_field ~scope fields "name" in
     let* description = json_string_field ~scope fields "description" in
     let* strict = json_optional_bool_field ~scope fields "strict" in

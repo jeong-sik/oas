@@ -220,6 +220,38 @@ let test_decode_rejects_a_missing_name () =
        (`Assoc [ "description", `String "Read a file"; "parameters", `List [] ]))
 ;;
 
+let test_decode_rejects_duplicate_and_unknown_top_level_fields () =
+  check
+    string
+    "duplicate is named"
+    "tool_schema fields mismatch (missing=[], unknown=[], duplicates=[name])"
+    (check_decode_error
+       "duplicate name"
+       (`Assoc
+           [ "name", `String "first"
+           ; "name", `String "second"
+           ; "description", `String "Read a file"
+           ; "parameters", `List []
+           ]));
+  check
+    string
+    "unknown is named"
+    "tool_schema fields mismatch (missing=[], unknown=[legacy_schema], duplicates=[])"
+    (check_decode_error
+       "unknown field"
+       (with_fields [ "parameters", `List []; "legacy_schema", `Assoc [] ]))
+;;
+
+let test_decode_rejects_explicit_null_strict () =
+  check
+    string
+    "manual absence is key omission"
+    "tool_schema.strict must be a boolean, got null"
+    (check_decode_error
+       "strict null"
+       (with_fields [ "parameters", `List []; "strict", `Null ]))
+;;
+
 (* [Some `Null] used to be representable and collapsed back to [None] on the
    derived round-trip. It is now unreachable, and a payload that spells it out
    is refused rather than silently reinterpreted as "no schema". *)
@@ -264,7 +296,6 @@ let test_decode_rejects_parameters_that_disagree_with_input_schema () =
                 ; "required", `Bool false
                 ]
             ] )
-      ; "strict", `Null
       ; "input_schema", input_schema
       ]
   in
@@ -355,6 +386,32 @@ let test_tool_param_decode_is_total () =
     cases
 ;;
 
+let test_tool_param_decode_rejects_duplicate_and_unknown_fields () =
+  let common =
+    [ "name", `String "city"
+    ; "description", `String ""
+    ; "param_type", `String "string"
+    ; "required", `Bool true
+    ]
+  in
+  check
+    string
+    "duplicate param field is named"
+    "tool_param fields mismatch (missing=[], unknown=[], duplicates=[required])"
+    (match Types.tool_param_of_json (`Assoc (common @ [ "required", `Bool false ])) with
+     | Ok _ -> fail "duplicate param field was accepted"
+     | Error detail -> detail);
+  check
+    string
+    "unknown param field is named"
+    "tool_param fields mismatch (missing=[], unknown=[default], duplicates=[])"
+    (match
+       Types.tool_param_of_json (`Assoc (common @ [ "default", `String "Paris" ]))
+     with
+     | Ok _ -> fail "unknown param field was accepted"
+     | Error detail -> detail)
+;;
+
 let () =
   run
     "tool_schema_decode_boundary"
@@ -400,6 +457,11 @@ let () =
             test_decode_rejects_a_name_that_is_not_a_string
         ; test_case "missing name" `Quick test_decode_rejects_a_missing_name
         ; test_case
+            "duplicate and unknown top-level fields"
+            `Quick
+            test_decode_rejects_duplicate_and_unknown_top_level_fields
+        ; test_case "strict null" `Quick test_decode_rejects_explicit_null_strict
+        ; test_case
             "input_schema not an object"
             `Quick
             test_decode_rejects_input_schema_that_is_not_an_object
@@ -413,6 +475,11 @@ let () =
             test_decode_validates_parameters_even_with_input_schema
         ] )
     ; ( "tool_param_of_json totality"
-      , [ test_case "malformed params" `Quick test_tool_param_decode_is_total ] )
+      , [ test_case "malformed params" `Quick test_tool_param_decode_is_total
+        ; test_case
+            "duplicate and unknown fields"
+            `Quick
+            test_tool_param_decode_rejects_duplicate_and_unknown_fields
+        ] )
     ]
 ;;
