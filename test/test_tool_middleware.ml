@@ -23,7 +23,12 @@ let tool_schema name json_schema : Types.tool_schema =
 
 let test_pass_no_params () =
   let schema : Types.tool_schema =
-    { name = "noop"; description = ""; parameters = []; strict = None }
+    { name = "noop"
+    ; description = ""
+    ; parameters = []
+    ; strict = None
+    ; input_schema = None
+    }
   in
   match Tool_middleware.validate_input ~tool_name:"noop" ~schema (`Assoc []) with
   | Tool_middleware.Pass -> ()

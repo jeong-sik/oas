@@ -36,9 +36,15 @@ type t =
   ; handler : execution_env_tool_handler
   }
 
+(** [?input_schema] is the authoritative wire form sent to providers verbatim
+    by {!schema_to_json}; omitting it derives the wire form from [~parameters].
+    When supplied it must be the schema [~parameters] was derived from — see
+    [Types.tool_schema.input_schema]. [Mcp_schema.tool_of_input_schema_result]
+    derives both from one schema and is the preferred entry point. *)
 val create
   :  ?descriptor:descriptor
   -> ?strict:bool
+  -> ?input_schema:Yojson.Safe.t
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
@@ -48,6 +54,7 @@ val create
 val create_with_context
   :  ?descriptor:descriptor
   -> ?strict:bool
+  -> ?input_schema:Yojson.Safe.t
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
@@ -62,6 +69,7 @@ val create_with_context
 val create_with_execution_env
   :  ?descriptor:descriptor
   -> ?strict:bool
+  -> ?input_schema:Yojson.Safe.t
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
@@ -85,6 +93,10 @@ val execution_mode : t -> Tool_contract.execution_mode
 val completion : t -> Tool_contract.completion
 
 val descriptor_to_yojson : descriptor option -> Yojson.Safe.t
+
+(** Provider-facing tool definition. ["input_schema"] is the authoritative
+    schema verbatim when the tool carries one, and
+    [Types.params_to_input_schema] of the parameters otherwise. *)
 val schema_to_json : t -> Yojson.Safe.t
 
 (** Wrap a tool to inject default arguments when not provided.

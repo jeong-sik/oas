@@ -46,14 +46,22 @@ type t =
   }
 
 (** Create a tool with a simple handler *)
-let create ?descriptor ?strict ~name ~description ~parameters handler =
-  let schema = { name; description; parameters; strict } in
+let create ?descriptor ?strict ?input_schema ~name ~description ~parameters handler =
+  let schema = { name; description; parameters; strict; input_schema } in
   { schema; descriptor; handler = (fun _execution_env input -> handler input) }
 ;;
 
 (** Create a tool with a context-aware handler *)
-let create_with_context ?descriptor ?strict ~name ~description ~parameters handler =
-  let schema = { name; description; parameters; strict } in
+let create_with_context
+      ?descriptor
+      ?strict
+      ?input_schema
+      ~name
+      ~description
+      ~parameters
+      handler
+  =
+  let schema = { name; description; parameters; strict; input_schema } in
   let handler execution_env input =
     match Execution_env.context execution_env with
     | Some context -> handler context input
@@ -67,8 +75,16 @@ let create_with_context ?descriptor ?strict ~name ~description ~parameters handl
   { schema; descriptor; handler }
 ;;
 
-let create_with_execution_env ?descriptor ?strict ~name ~description ~parameters handler =
-  let schema = { name; description; parameters; strict } in
+let create_with_execution_env
+      ?descriptor
+      ?strict
+      ?input_schema
+      ~name
+      ~description
+      ~parameters
+      handler
+  =
+  let schema = { name; description; parameters; strict; input_schema } in
   { schema; descriptor; handler }
 ;;
 
@@ -106,7 +122,13 @@ let schema_to_json tool =
   `Assoc
     ([ "name", `String tool.schema.name
      ; "description", `String tool.schema.description
-     ; "input_schema", Types.params_to_input_schema tool.schema.parameters
+       (* The authoritative schema goes to the provider verbatim. Deriving it
+          back from [parameters] would drop minimum/maximum/default/enum and
+          nested properties, which the model then never sees. *)
+     ; ( "input_schema"
+       , match tool.schema.input_schema with
+         | Some schema -> schema
+         | None -> Types.params_to_input_schema tool.schema.parameters )
      ]
      @
      match tool.schema.strict with

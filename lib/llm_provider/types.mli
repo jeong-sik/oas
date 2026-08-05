@@ -112,11 +112,30 @@ type tool_schema =
     (** Per-function JSON Schema strict validation. [Some true] opts the tool
         into strict mode (OpenAI, DeepSeek Beta, Kimi, MiMo); [None] omits the
         field so providers apply their default. *)
+  ; input_schema : Yojson.Safe.t option
+    (** Authoritative wire form emitted to providers verbatim when [Some]; when
+        [None] the wire form is derived from [parameters] by
+        {!params_to_input_schema}. [parameters] stays the derived view used for
+        validation and introspection, so [Some schema] must always satisfy
+        [parameters = Mcp_schema.json_schema_to_params schema]. Build both
+        through [Mcp_schema.tool_of_input_schema_result] or
+        [Tool_middleware.tool_schema_of_json_result] rather than filling the
+        two fields independently.
+
+        {!params_to_input_schema} keeps only type, description and required,
+        so a caller-supplied schema carrying [minimum], [maximum], [default],
+        [enum] or nested properties reaches the model only through this
+        field. *)
   }
 [@@deriving yojson, show]
 
 val tool_schema_to_json : tool_schema -> Yojson.Safe.t
+
+(** Inverse of {!tool_schema_to_json}. [input_schema] is read by direct assoc
+    lookup, so an omitted key decodes to [None] and a present [null] decodes to
+    [Some `Null] — the round-trip is lossless for every [Yojson.Safe.t]. *)
 val tool_schema_of_json : Yojson.Safe.t -> (tool_schema, string) result
+
 val result_all : ('a, 'e) result list -> ('a list, 'e) result
 
 type tool_choice =

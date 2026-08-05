@@ -99,6 +99,7 @@ let sample_tool_schema : Types.tool_schema =
         }
       ]
   ; strict = None
+  ; input_schema = None
   }
 ;;
 

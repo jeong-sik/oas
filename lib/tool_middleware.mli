@@ -35,8 +35,9 @@ val validate_input
 
 (** Build a [Types.tool_schema] from a name and raw JSON Schema.
     Description defaults to [""].
-    Extracts parameters via {!Mcp_schema.json_schema_to_params}. Raises
-    [Invalid_argument] when the schema cannot be converted. *)
+    Extracts parameters via {!Mcp_schema.json_schema_to_params} and keeps the
+    supplied schema as [input_schema], so the two views are derived from one
+    source. Raises [Invalid_argument] when the schema cannot be converted. *)
 val tool_schema_of_json
   :  name:string
   -> ?description:string

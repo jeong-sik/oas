@@ -151,18 +151,40 @@ let mcp_tool_of_sdk_tool (t : Sdk_types.tool) : mcp_tool =
   }
 ;;
 
-(** Convert {!mcp_tool} to SDK {!Tool.t} with the given call handler. *)
-let mcp_tool_to_sdk_tool_result ~call_fn mcp_tool =
-  match json_schema_to_params_result mcp_tool.input_schema with
-  | Error detail ->
-    Error (Printf.sprintf "tool %S schema invalid: %s" mcp_tool.name detail)
+(** Build a {!Tool.t} from one authoritative JSON Schema. The parameter view is
+    derived from that same schema, so [parameters] and [input_schema] cannot
+    disagree, and the schema reaches providers verbatim — keeping [minimum],
+    [maximum], [default], [enum] and nested properties that
+    {!Types.params_to_input_schema} would drop. *)
+let tool_of_input_schema_result
+      ?descriptor
+      ?strict
+      ~name
+      ~description
+      ~input_schema
+      call_fn
+  =
+  match json_schema_to_params_result input_schema with
+  | Error detail -> Error (Printf.sprintf "tool %S schema invalid: %s" name detail)
   | Ok params ->
     Ok
       (Tool.create
-         ~name:mcp_tool.name
-         ~description:mcp_tool.description
+         ?descriptor
+         ?strict
+         ~input_schema
+         ~name
+         ~description
          ~parameters:params
          call_fn)
+;;
+
+(** Convert {!mcp_tool} to SDK {!Tool.t} with the given call handler. *)
+let mcp_tool_to_sdk_tool_result ~call_fn mcp_tool =
+  tool_of_input_schema_result
+    ~name:mcp_tool.name
+    ~description:mcp_tool.description
+    ~input_schema:mcp_tool.input_schema
+    call_fn
 ;;
 
 let mcp_tool_to_sdk_tool ~call_fn mcp_tool =

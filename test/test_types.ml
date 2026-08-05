@@ -421,7 +421,12 @@ let test_tool_param_manual_json_helpers () =
        (Agent_sdk.Util.contains_substring_ci ~haystack:msg ~needle:"param_type")
    | Ok _ -> Alcotest.fail "expected bad param type");
   let tool_schema =
-    { Types.name = "search"; description = "Search"; parameters = params; strict = None }
+    { Types.name = "search"
+    ; description = "Search"
+    ; parameters = params
+    ; strict = None
+    ; input_schema = None
+    }
   in
   let manual_json = Types.tool_schema_to_json tool_schema in
   (* strict = None must not emit the field, and must round-trip back to None. *)
@@ -1292,6 +1297,7 @@ let () =
                     }
                   ]
               ; strict = None
+              ; input_schema = None
               }
             in
             let json = Types.tool_schema_to_yojson schema in

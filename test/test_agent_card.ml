@@ -45,6 +45,7 @@ let base_info : Agent_card.agent_info =
               }
             ]
         ; strict = None
+        ; input_schema = None
         }
       ]
   ; supported_providers = []

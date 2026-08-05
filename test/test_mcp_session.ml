@@ -11,6 +11,7 @@ let sample_tool_schema : Types.tool_schema =
         }
       ]
   ; strict = None
+  ; input_schema = None
   }
 ;;
 
@@ -35,6 +36,7 @@ let multi_param_tool : Types.tool_schema =
         }
       ]
   ; strict = None
+  ; input_schema = None
   }
 ;;
 
@@ -346,6 +348,7 @@ let () =
                     }
                   ]
               ; strict = None
+              ; input_schema = None
               }
             in
             let info = make_info ~tool_schemas:[ all_types_tool ] () in

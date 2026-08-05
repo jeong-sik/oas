@@ -156,6 +156,7 @@ let sample_tool_schema : Types.tool_schema =
         }
       ]
   ; strict = None
+  ; input_schema = None
   }
 ;;
 
@@ -757,7 +758,12 @@ let () =
                 ]
             in
             let tool : Types.tool_schema =
-              { name = "multi"; description = "test"; parameters = params; strict = None }
+              { name = "multi"
+              ; description = "test"
+              ; parameters = params
+              ; strict = None
+              ; input_schema = None
+              }
             in
             let cp = make_checkpoint ~tools:[ tool ] () in
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in

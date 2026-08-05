@@ -25,6 +25,22 @@ type mcp_resource_contents = Sdk_types.resource_contents
 type mcp_prompt = Sdk_types.prompt
 type mcp_prompt_result = Sdk_types.prompt_result
 
+(** {1 Tool construction} *)
+
+(** Build a tool from one authoritative JSON Schema: [parameters] are derived
+    from [~input_schema] here, so the two views cannot disagree, and the schema
+    reaches providers verbatim instead of being rebuilt from the lossy
+    parameter view. Fails with the offending property and reason when the
+    schema cannot be parsed. *)
+val tool_of_input_schema_result
+  :  ?descriptor:Tool.descriptor
+  -> ?strict:bool
+  -> name:string
+  -> description:string
+  -> input_schema:Yojson.Safe.t
+  -> Tool.tool_handler
+  -> (Tool.t, string) result
+
 val mcp_tool_of_sdk_tool : Sdk_types.tool -> mcp_tool
 val mcp_tool_to_sdk_tool : call_fn:Tool.tool_handler -> mcp_tool -> Tool.t
 

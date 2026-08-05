@@ -25,7 +25,16 @@ let validate_input ~tool_name ~(schema : Types.tool_schema) args =
 
 let tool_schema_of_json_result ~name ?(description = "") json_schema =
   match Mcp_schema.json_schema_to_params_result json_schema with
-  | Ok parameters -> Ok { Types.name; description; parameters; strict = None }
+  | Ok parameters ->
+    (* [parameters] is the derived view; the caller's schema is kept as the
+       authoritative wire form so its constraints survive to the provider. *)
+    Ok
+      { Types.name
+      ; description
+      ; parameters
+      ; strict = None
+      ; input_schema = Some json_schema
+      }
   | Error detail -> Error detail
 ;;
 

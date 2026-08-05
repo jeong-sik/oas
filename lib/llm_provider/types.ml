@@ -179,6 +179,27 @@ let params_to_input_schema (params : tool_param list) : Yojson.Safe.t =
     ]
 ;;
 
+(* [Yojson.Safe.t] carries no derived converters, so the deriving attributes on
+   [tool_schema.input_schema] name these three explicitly. The encoding is the
+   identity on the carried schema; [`Null] stands for absence. A tool argument
+   schema is a JSON object, so [Some `Null] is not a value the deriving
+   constructors can produce. *)
+let input_schema_to_yojson : Yojson.Safe.t option -> Yojson.Safe.t = function
+  | None -> `Null
+  | Some schema -> schema
+;;
+
+let input_schema_of_yojson : Yojson.Safe.t -> (Yojson.Safe.t option, string) result =
+  function
+  | `Null -> Ok None
+  | schema -> Ok (Some schema)
+;;
+
+let pp_input_schema fmt = function
+  | None -> Format.pp_print_string fmt "None"
+  | Some schema -> Format.fprintf fmt "Some %s" (Yojson.Safe.to_string schema)
+;;
+
 (** Tool definition *)
 type tool_schema =
   { name : string
@@ -188,6 +209,19 @@ type tool_schema =
     (** Per-function JSON Schema strict validation. [Some true] opts the tool
         into strict mode (OpenAI, DeepSeek Beta, Kimi, MiMo); [None] omits the
         field so providers apply their default. *)
+  ; input_schema :
+      (Yojson.Safe.t option
+      [@to_yojson input_schema_to_yojson]
+      [@of_yojson input_schema_of_yojson]
+      [@printer pp_input_schema])
+    (** Authoritative wire form emitted to providers verbatim when [Some]; when
+        [None] the wire form is derived from [parameters] by
+        {!params_to_input_schema}. [parameters] stays the derived view used for
+        validation and introspection, so [Some schema] must always satisfy
+        [parameters = Mcp_schema.json_schema_to_params schema]. Build both
+        through {!Mcp_schema.tool_of_input_schema_result} or
+        {!Tool_middleware.tool_schema_of_json_result} rather than filling the
+        two fields independently. *)
   }
 [@@deriving yojson, show]
 
@@ -199,9 +233,15 @@ let tool_schema_to_json (s : tool_schema) : Yojson.Safe.t =
      ]
      (* Emit "strict" only when set so [None] round-trips to an absent field
         and providers keep their own default. *)
+     @ (match s.strict with
+        | Some b -> [ "strict", `Bool b ]
+        | None -> [])
+     (* Same absence encoding for the authoritative schema: an absent key means
+        the wire form is derived from [parameters]. Absence rather than [null]
+        keeps the round-trip lossless for every [Yojson.Safe.t]. *)
      @
-     match s.strict with
-     | Some b -> [ "strict", `Bool b ]
+     match s.input_schema with
+     | Some schema -> [ "input_schema", schema ]
      | None -> [])
 ;;
 
@@ -214,19 +254,35 @@ let result_all items =
   loop [] items
 ;;
 
+(* [Yojson.Safe.Util.member] answers [`Null] for an absent key, so it cannot
+   tell an omitted "input_schema" from a present one holding [null]. The assoc
+   lookup keeps those two distinct and makes the round-trip lossless. *)
+let tool_schema_input_schema_of_json (json : Yojson.Safe.t)
+  : (Yojson.Safe.t option, string) result
+  =
+  match json with
+  | `Assoc fields -> Ok (List.assoc_opt "input_schema" fields)
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+    Error "tool_schema must be a JSON object"
+;;
+
 let tool_schema_of_json (json : Yojson.Safe.t) : (tool_schema, string) result =
   let open Yojson.Safe.Util in
-  match
-    json |> member "parameters" |> to_list |> List.map tool_param_of_json |> result_all
-  with
+  match tool_schema_input_schema_of_json json with
   | Error e -> Error e
-  | Ok parameters ->
-    Ok
-      { name = json |> member "name" |> to_string
-      ; description = json |> member "description" |> to_string
-      ; parameters
-      ; strict = json |> member "strict" |> to_bool_option
-      }
+  | Ok input_schema ->
+    (match
+       json |> member "parameters" |> to_list |> List.map tool_param_of_json |> result_all
+     with
+     | Error e -> Error e
+     | Ok parameters ->
+       Ok
+         { name = json |> member "name" |> to_string
+         ; description = json |> member "description" |> to_string
+         ; parameters
+         ; strict = json |> member "strict" |> to_bool_option
+         ; input_schema
+         })
 ;;
 
 (** Tool choice mode *)
