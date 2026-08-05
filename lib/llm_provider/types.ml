@@ -124,6 +124,11 @@ type tool_param =
   }
 [@@deriving yojson, show]
 
+(* Keep the generated decoder private behind an exact object-field boundary.
+   The generated record decoder is total, but it does not own this protocol's
+   duplicate/unknown-field contract. *)
+let tool_param_of_yojson_fields = tool_param_of_yojson
+
 let param_type_of_string = function
   | "string" -> Ok String
   | "integer" -> Ok Integer
@@ -257,6 +262,21 @@ let json_optional_bool_field ~scope fields name =
 ;;
 
 let tool_param_scope = "tool_param"
+
+let tool_param_of_yojson json =
+  match json with
+  | `Assoc fields ->
+    (match
+       exact_object_fields
+         ~scope:tool_param_scope
+         ~required:[ "name"; "description"; "param_type"; "required" ]
+         fields
+     with
+     | Error _ as error -> error
+     | Ok () -> tool_param_of_yojson_fields json)
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+    tool_param_of_yojson_fields json
+;;
 
 let tool_param_of_json (json : Yojson.Safe.t) : (tool_param, string) result =
   let ( let* ) = Result.bind in
@@ -592,19 +612,32 @@ let tool_schema_of_input_schema_with_parameters
 let tool_schema_of_yojson_fields = tool_schema_of_yojson
 
 let tool_schema_of_yojson json =
-  match tool_schema_of_yojson_fields json with
-  | Error _ as error -> error
-  | Ok { name; description; parameters; strict; input_schema } ->
-    (match input_schema with
-     | None -> Ok (tool_schema_of_params ?strict ~name ~description ~parameters ())
-     | Some input_schema ->
-       tool_schema_of_input_schema_with_parameters
-         ?strict
-         ~name
-         ~description
-         ~parameters
-         ~input_schema
-         ())
+  let decode () =
+    match tool_schema_of_yojson_fields json with
+    | Error _ as error -> error
+    | Ok { name; description; parameters; strict; input_schema } ->
+      (match input_schema with
+       | None -> Ok (tool_schema_of_params ?strict ~name ~description ~parameters ())
+       | Some input_schema ->
+         tool_schema_of_input_schema_with_parameters
+           ?strict
+           ~name
+           ~description
+           ~parameters
+           ~input_schema
+           ())
+  in
+  match json with
+  | `Assoc fields ->
+    (match
+       exact_object_fields
+         ~scope:"tool_schema"
+         ~required:[ "name"; "description"; "parameters"; "strict"; "input_schema" ]
+         fields
+     with
+     | Error _ as error -> error
+     | Ok () -> decode ())
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ -> decode ()
 ;;
 
 let tool_schema_to_json (s : tool_schema) : Yojson.Safe.t =

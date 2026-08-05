@@ -412,6 +412,70 @@ let test_tool_param_decode_rejects_duplicate_and_unknown_fields () =
      | Error detail -> detail)
 ;;
 
+let derived_schema_error label json =
+  match Types.tool_schema_of_yojson json with
+  | Ok _ -> failf "%s: derived schema decoder accepted an ambiguous object" label
+  | Error detail -> detail
+;;
+
+let derived_param_error label json =
+  match Types.tool_param_of_yojson json with
+  | Ok _ -> failf "%s: derived param decoder accepted an ambiguous object" label
+  | Error detail -> detail
+;;
+
+let replace_assoc_field name value fields =
+  (name, value) :: List.filter (fun (key, _) -> not (String.equal key name)) fields
+;;
+
+let test_derived_decoders_reject_duplicate_and_unknown_fields () =
+  let parameter : Types.tool_param =
+    { name = "city"; description = ""; param_type = Types.String; required = true }
+  in
+  let parameter_fields =
+    match Types.tool_param_to_yojson parameter with
+    | `Assoc fields -> fields
+    | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+      fail "derived tool_param encoding must be an object"
+  in
+  check
+    string
+    "derived param duplicate is named"
+    "tool_param fields mismatch (missing=[], unknown=[], duplicates=[required])"
+    (derived_param_error
+       "duplicate derived param field"
+       (`Assoc (parameter_fields @ [ "required", `Bool false ])));
+  let schema =
+    Types.tool_schema_of_params
+      ~name:"weather"
+      ~description:"Read weather"
+      ~parameters:[ parameter ]
+      ()
+  in
+  let schema_fields =
+    match Types.tool_schema_to_yojson schema with
+    | `Assoc fields -> fields
+    | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+      fail "derived tool_schema encoding must be an object"
+  in
+  check
+    string
+    "derived schema unknown field is named"
+    "tool_schema fields mismatch (missing=[], unknown=[legacy_schema], duplicates=[])"
+    (derived_schema_error
+       "unknown derived schema field"
+       (`Assoc (("legacy_schema", `Assoc []) :: schema_fields)));
+  let unknown_parameter = `Assoc (("default", `String "Paris") :: parameter_fields) in
+  check
+    string
+    "nested derived param unknown field is named"
+    "tool_param fields mismatch (missing=[], unknown=[default], duplicates=[])"
+    (derived_schema_error
+       "unknown nested derived param field"
+       (`Assoc
+           (replace_assoc_field "parameters" (`List [ unknown_parameter ]) schema_fields)))
+;;
+
 let () =
   run
     "tool_schema_decode_boundary"
@@ -480,6 +544,12 @@ let () =
             "duplicate and unknown fields"
             `Quick
             test_tool_param_decode_rejects_duplicate_and_unknown_fields
+        ] )
+    ; ( "derived decoder exact fields"
+      , [ test_case
+            "duplicate and unknown fields"
+            `Quick
+            test_derived_decoders_reject_duplicate_and_unknown_fields
         ] )
     ]
 ;;

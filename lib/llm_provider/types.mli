@@ -102,8 +102,11 @@ type tool_param =
 val param_type_of_string : string -> (param_type, string) result
 val tool_param_to_json : tool_param -> Yojson.Safe.t
 
-(** Total: a payload that is not an object, or whose fields have the wrong JSON
-    shape, is reported as [Error] rather than raising [Yojson.Safe.Util.Type_error]. *)
+(** Total exact inverse for the manual JSON encoding. The derived
+    {!tool_param_of_yojson} boundary applies the same duplicate/unknown-field
+    rejection to its own encoding. A payload that is not an object, or whose
+    fields have the wrong JSON shape, is reported as [Error] rather than
+    raising [Yojson.Safe.Util.Type_error]. *)
 val tool_param_of_json : Yojson.Safe.t -> (tool_param, string) result
 
 val params_to_input_schema : tool_param list -> Yojson.Safe.t
@@ -204,8 +207,10 @@ val tool_schema_to_json : tool_schema -> Yojson.Safe.t
     ({!input_schema_of_json}). A payload whose ["parameters"] array disagrees
     with the projection of its ["input_schema"] is refused, because no value of
     this type could have carried that pair. Top-level and parameter objects must
-    contain exactly their declared fields with no duplicate keys. A schema written by
-    {!tool_schema_to_json} therefore round-trips unchanged. *)
+    contain exactly their declared fields with no duplicate keys. The derived
+    {!tool_schema_of_yojson} boundary enforces the same rule for its own
+    encoding. A schema written by {!tool_schema_to_json} therefore round-trips
+    unchanged. *)
 val tool_schema_of_json : Yojson.Safe.t -> (tool_schema, string) result
 
 val result_all : ('a, 'e) result list -> ('a list, 'e) result
