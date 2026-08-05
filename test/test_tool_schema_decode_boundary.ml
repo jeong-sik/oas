@@ -214,7 +214,7 @@ let test_decode_rejects_a_missing_name () =
   check
     string
     "names the missing field"
-    "tool_schema is missing field name"
+    "tool_schema fields mismatch (missing=[name], unknown=[], duplicates=[])"
     (check_decode_error
        "missing name"
        (`Assoc [ "description", `String "Read a file"; "parameters", `List [] ]))
