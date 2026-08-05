@@ -565,7 +565,8 @@ let validate_tool_argument_root_schema schema =
      | Some (`String _) ->
        Error "tool input schema root type must describe object arguments"
      | Some _ -> Error "tool input schema root type must be a string or string array")
-  | _ -> Error "tool input schema must be a JSON object"
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+    Error "tool input schema must be a JSON object"
 ;;
 
 (* [Yojson.Safe.t] carries no derived converters, so the deriving attributes on

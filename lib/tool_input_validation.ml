@@ -50,16 +50,15 @@ let matches_type (expected : Types.param_type) (value : Yojson.Safe.t) : bool =
   | _ -> false
 ;;
 
-let matches_json_schema_type type_name value =
-  match type_name, value with
-  | "null", `Null -> true
-  | "string", `String _ -> true
-  | "integer", (`Int _ | `Intlit _) -> true
-  | "number", (`Float _ | `Int _ | `Intlit _) -> true
-  | "boolean", `Bool _ -> true
-  | "array", `List _ -> true
-  | "object", `Assoc _ -> true
-  | _ -> false
+let matches_json_schema_type type_name = function
+  | `Null -> String.equal type_name "null"
+  | `String _ -> String.equal type_name "string"
+  | `Int _ | `Intlit _ ->
+    String.equal type_name "integer" || String.equal type_name "number"
+  | `Float _ -> String.equal type_name "number"
+  | `Bool _ -> String.equal type_name "boolean"
+  | `List _ -> String.equal type_name "array"
+  | `Assoc _ -> String.equal type_name "object"
 ;;
 
 let property_type_names = function
@@ -71,10 +70,11 @@ let property_type_names = function
          (List.filter_map
             (function
               | `String value -> Some value
-              | _ -> None)
+              | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _ ->
+                None)
             values)
      | None | Some _ -> None)
-  | _ -> None
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
 ;;
 
 let property_matches property value =
@@ -98,7 +98,7 @@ let property_matches property value =
       | Some _ -> false
     in
     type_matches && const_matches && enum_matches
-  | _ -> true
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> true
 ;;
 
 let expected_property_type property =
@@ -115,7 +115,7 @@ let authoritative_schema_parts = function
         List.filter_map
           (function
             | `String value -> Some value
-            | _ -> None)
+            | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _ -> None)
           values
       | None | Some _ -> []
     in
@@ -125,7 +125,7 @@ let authoritative_schema_parts = function
       | None | Some _ -> []
     in
     required, properties
-  | _ -> [], []
+  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> [], []
 ;;
 
 let validate_authoritative input_schema input =
