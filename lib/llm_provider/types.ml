@@ -199,9 +199,9 @@ let exact_object_fields ~scope ~required ?(optional = []) fields =
   let missing = List.filter (fun name -> not (List.mem name actual)) required in
   let unknown = List.filter (fun name -> not (List.mem name expected)) actual in
   let duplicates = duplicate_object_keys fields in
-  match missing, unknown, duplicates with
-  | [], [], [] -> Ok ()
-  | _ ->
+  if List.is_empty missing && List.is_empty unknown && List.is_empty duplicates
+  then Ok ()
+  else
     Error
       (Printf.sprintf
          "%s fields mismatch (missing=[%s], unknown=[%s], duplicates=[%s])"
