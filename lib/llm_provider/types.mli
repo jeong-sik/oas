@@ -129,8 +129,11 @@ val json_shape_to_string : json_shape -> string
 val json_schema_type_to_param_type_result : string -> (param_type, string) result
 
 (** Derive the parameter view of a JSON Schema. Keeps only the parts a
-    {!tool_param} can carry — name, type, description, required — which is why
-    it is a projection of the schema and not a substitute for it. *)
+    {!tool_param} can carry — name, one representable type, description, and
+    required — which is why it is a projection of the schema and not a
+    substitute for it. Valid properties expressed only through [$ref],
+    [anyOf], [oneOf], or an unrepresentable union are omitted from this view;
+    they remain unchanged in the authoritative schema. *)
 val json_schema_to_params_result : Yojson.Safe.t -> (tool_param list, string) result
 
 (** Why a JSON value was refused as a tool argument schema. *)
@@ -187,9 +190,12 @@ val tool_schema_of_params
 
 (** Build a schema from one authoritative JSON Schema — the only way
     [input_schema] is ever [Some]. [parameters] is derived from [~input_schema]
-    here, so the two cannot disagree. Fails when the value is not a tool
-    argument schema ({!input_schema_of_json}) or when a property cannot be
-    projected onto a {!tool_param}. *)
+    here, so the two cannot disagree. Properties that cannot be represented by
+    the deliberately lossy {!tool_param} view (for example [$ref], [anyOf], or
+    multi-type unions) remain only in the authoritative schema instead of
+    making the tool unusable. Fails when the value is not a tool argument
+    schema ({!input_schema_of_json}), explicitly describes non-object tool
+    arguments, or contains a malformed projectable field. *)
 val tool_schema_of_input_schema
   :  ?strict:bool
   -> name:string

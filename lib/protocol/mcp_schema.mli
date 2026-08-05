@@ -30,8 +30,9 @@ type mcp_prompt_result = Sdk_types.prompt_result
 (** Build a tool from one authoritative JSON Schema: [parameters] are derived
     from [~input_schema] here, so the two views cannot disagree, and the schema
     reaches providers verbatim instead of being rebuilt from the lossy
-    parameter view. Fails with the offending property and reason when the
-    schema cannot be parsed. *)
+    parameter view. Valid properties that have no {!Types.tool_param}
+    representation remain only in that authoritative schema. Fails with the
+    offending field and reason when the schema boundary is malformed. *)
 val tool_of_input_schema_result
   :  ?descriptor:Tool.descriptor
   -> ?strict:bool

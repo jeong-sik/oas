@@ -23,10 +23,13 @@ type validation_result =
   | Valid of Yojson.Safe.t
   | Invalid of field_error list
 
-(** Validate [input] against the parameter schema of [tool]. Tool input is
-    always an object, including tools with no parameters. Missing required
-    fields and exact JSON type mismatches return [Invalid]. A successful result
-    contains the same value passed by the caller. *)
+(** Validate [input] against the authoritative schema's root [required] and
+    property [type]/[enum]/[const] constraints when [tool] carries one,
+    otherwise against its parameter view. Tool input is always an object,
+    including tools with no parameters. Missing required fields and exact JSON
+    type mismatches return [Invalid]. Nullable type arrays keep [null] valid
+    instead of being collapsed by the lossy parameter projection. A successful
+    result contains the same value passed by the caller. *)
 val validate : Types.tool_schema -> Yojson.Safe.t -> validation_result
 
 (** Format field errors as a structured, LLM-readable feedback string.

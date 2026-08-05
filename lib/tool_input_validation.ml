@@ -30,8 +30,6 @@ let describe_json_value = function
   | `List _ -> "array"
   | `Assoc _ -> "object"
   | `Intlit s -> Printf.sprintf "integer(%s)" s
-  | `Tuple _ -> "tuple"
-  | `Variant _ -> "variant"
 ;;
 
 let string_of_param_type = Types.param_type_to_string
@@ -52,34 +50,157 @@ let matches_type (expected : Types.param_type) (value : Yojson.Safe.t) : bool =
   | _ -> false
 ;;
 
-(* ── Validation ──────────────────────────────────────────── *)
+let matches_json_schema_type type_name value =
+  match type_name, value with
+  | "null", `Null -> true
+  | "string", `String _ -> true
+  | "integer", (`Int _ | `Intlit _) -> true
+  | "number", (`Float _ | `Int _ | `Intlit _) -> true
+  | "boolean", `Bool _ -> true
+  | "array", `List _ -> true
+  | "object", `Assoc _ -> true
+  | _ -> false
+;;
 
-let validate (schema : Types.tool_schema) (input : Yojson.Safe.t) : validation_result =
-  let params = schema.parameters in
+let property_type_names = function
+  | `Assoc fields ->
+    (match List.assoc_opt "type" fields with
+     | Some (`String type_name) -> Some [ type_name ]
+     | Some (`List values) ->
+       Some
+         (List.filter_map
+            (function
+              | `String value -> Some value
+              | _ -> None)
+            values)
+     | None | Some _ -> None)
+  | _ -> None
+;;
+
+let property_matches property value =
+  match property with
+  | `Assoc fields ->
+    let type_matches =
+      match property_type_names property with
+      | None -> true
+      | Some type_names ->
+        List.exists (fun type_name -> matches_json_schema_type type_name value) type_names
+    in
+    let const_matches =
+      match List.assoc_opt "const" fields with
+      | None -> true
+      | Some expected -> expected = value
+    in
+    let enum_matches =
+      match List.assoc_opt "enum" fields with
+      | None -> true
+      | Some (`List values) -> List.exists (( = ) value) values
+      | Some _ -> false
+    in
+    type_matches && const_matches && enum_matches
+  | _ -> true
+;;
+
+let expected_property_type property =
+  match property_type_names property with
+  | Some (_ :: _ as type_names) -> String.concat " or " type_names
+  | Some [] | None -> "declared schema"
+;;
+
+let authoritative_schema_parts = function
+  | `Assoc fields ->
+    let required =
+      match List.assoc_opt "required" fields with
+      | Some (`List values) ->
+        List.filter_map
+          (function
+            | `String value -> Some value
+            | _ -> None)
+          values
+      | None | Some _ -> []
+    in
+    let properties =
+      match List.assoc_opt "properties" fields with
+      | Some (`Assoc values) -> values
+      | None | Some _ -> []
+    in
+    required, properties
+  | _ -> [], []
+;;
+
+let validate_authoritative input_schema input =
   match input with
   | `Assoc fields ->
+    let required, properties = authoritative_schema_parts input_schema in
+    let names =
+      List.map fst properties
+      @ List.filter (fun name -> not (List.mem_assoc name properties)) required
+    in
     let errors =
       List.filter_map
-        (fun (p : Types.tool_param) ->
-           let path = "/" ^ p.name in
-           match List.assoc_opt p.name fields with
-           | None when p.required ->
-             Some { path; expected = string_of_param_type p.param_type; actual = Missing }
-           | None -> None
-           | Some value when matches_type p.param_type value -> None
-           | Some value ->
+        (fun name ->
+           let path = "/" ^ name in
+           let property = List.assoc_opt name properties in
+           match List.assoc_opt name fields, property with
+           | None, _ when List.mem name required ->
              Some
                { path
-               ; expected = string_of_param_type p.param_type
+               ; expected =
+                   Option.fold ~none:"required" ~some:expected_property_type property
+               ; actual = Missing
+               }
+           | None, _ -> None
+           | Some value, Some property when not (property_matches property value) ->
+             Some
+               { path
+               ; expected = expected_property_type property
                ; actual = Received (describe_json_value value)
-               })
-        params
+               }
+           | Some _, _ -> None)
+        names
     in
     if errors = [] then Valid input else Invalid errors
   | other ->
     Invalid
       [ { path = "/"; expected = "object"; actual = Received (describe_json_value other) }
       ]
+;;
+
+(* ── Validation ──────────────────────────────────────────── *)
+
+let validate (schema : Types.tool_schema) (input : Yojson.Safe.t) : validation_result =
+  match schema.input_schema with
+  | Some input_schema -> validate_authoritative input_schema input
+  | None ->
+    let params = schema.parameters in
+    (match input with
+     | `Assoc fields ->
+       let errors =
+         List.filter_map
+           (fun (p : Types.tool_param) ->
+              let path = "/" ^ p.name in
+              match List.assoc_opt p.name fields with
+              | None when p.required ->
+                Some
+                  { path; expected = string_of_param_type p.param_type; actual = Missing }
+              | None -> None
+              | Some value when matches_type p.param_type value -> None
+              | Some value ->
+                Some
+                  { path
+                  ; expected = string_of_param_type p.param_type
+                  ; actual = Received (describe_json_value value)
+                  })
+           params
+       in
+       if errors = [] then Valid input else Invalid errors
+     | other ->
+       Invalid
+         [ { path = "/"
+           ; expected = "object"
+           ; actual = Received (describe_json_value other)
+           }
+         ])
 ;;
 
 (* ── Error formatting ────────────────────────────────────── *)

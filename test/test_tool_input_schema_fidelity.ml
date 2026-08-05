@@ -242,6 +242,120 @@ let test_invalid_schema_names_the_failing_property () =
        && Util.contains_substring_ci ~haystack:detail ~needle:"decimal")
 ;;
 
+let test_composed_properties_do_not_block_authoritative_schema () =
+  let input_schema : Yojson.Safe.t =
+    `Assoc
+      [ "type", `String "object"
+      ; ( "$defs"
+        , `Assoc
+            [ ( "location"
+              , `Assoc
+                  [ "type", `String "object"
+                  ; "properties", `Assoc [ "city", `Assoc [ "type", `String "string" ] ]
+                  ] )
+            ] )
+      ; ( "properties"
+        , `Assoc
+            [ "location", `Assoc [ "$ref", `String "#/$defs/location" ]
+            ; ( "label"
+              , `Assoc
+                  [ ( "anyOf"
+                    , `List
+                        [ `Assoc [ "type", `String "string" ]
+                        ; `Assoc [ "type", `String "null" ]
+                        ] )
+                  ] )
+            ; ( "choice"
+              , `Assoc
+                  [ ( "oneOf"
+                    , `List
+                        [ `Assoc [ "const", `String "left" ]
+                        ; `Assoc [ "const", `String "right" ]
+                        ] )
+                  ] )
+            ; "fixed", `Assoc [ "const", `String "current" ]
+            ; "mode", `Assoc [ "enum", `List [ `String "fast"; `String "safe" ] ]
+            ] )
+      ; "required", `List [ `String "location" ]
+      ]
+  in
+  match
+    Types.tool_schema_of_input_schema
+      ~name:"composed"
+      ~description:"Composed schema"
+      ~input_schema
+      ()
+  with
+  | Error detail -> failf "valid composed schema rejected: %s" detail
+  | Ok schema ->
+    check
+      (option json)
+      "authoritative schema preserved"
+      (Some input_schema)
+      schema.input_schema;
+    check
+      (list string)
+      "only inferable properties enter the lossy parameter view"
+      [ "fixed"; "mode" ]
+      (List.map (fun (param : Types.tool_param) -> param.name) schema.parameters)
+;;
+
+let authoritative_schema_exn input_schema =
+  match
+    Types.tool_schema_of_input_schema
+      ~name:"authoritative"
+      ~description:"Authoritative schema"
+      ~input_schema
+      ()
+  with
+  | Ok schema -> schema
+  | Error detail -> failf "authoritative schema rejected: %s" detail
+;;
+
+let test_nullable_property_validation_uses_authoritative_schema () =
+  let schema =
+    authoritative_schema_exn
+      (`Assoc
+          [ "type", `String "object"
+          ; ( "properties"
+            , `Assoc
+                [ "label", `Assoc [ "type", `List [ `String "string"; `String "null" ] ] ]
+            )
+          ; "required", `List [ `String "label" ]
+          ])
+  in
+  let expect_valid label input =
+    match Tool_input_validation.validate schema input with
+    | Tool_input_validation.Valid exact -> check json label input exact
+    | Tool_input_validation.Invalid _ -> failf "%s: expected valid" label
+  in
+  expect_valid "nullable accepts null" (`Assoc [ "label", `Null ]);
+  expect_valid "nullable accepts string" (`Assoc [ "label", `String "ready" ]);
+  match Tool_input_validation.validate schema (`Assoc [ "label", `Int 1 ]) with
+  | Tool_input_validation.Invalid _ -> ()
+  | Tool_input_validation.Valid _ -> fail "nullable string accepted an integer"
+;;
+
+let test_explicit_non_object_root_schema_is_rejected () =
+  let input_schema : Yojson.Safe.t =
+    `Assoc [ "type", `String "array"; "items", `Assoc [ "type", `String "string" ] ]
+  in
+  match
+    Types.tool_schema_of_input_schema
+      ~name:"array_arguments"
+      ~description:"Invalid tool argument root"
+      ~input_schema
+      ()
+  with
+  | Error detail ->
+    check
+      bool
+      "error names object root contract"
+      true
+      (Util.contains_substring_ci ~haystack:detail ~needle:"object")
+  | Ok _ -> fail "an explicitly array-valued tool input schema was accepted"
+;;
+
 (* [Types.tool_schema] is [private], so there is no expression that pairs a
    [Some schema] with a [parameters] list of the caller's choosing: the two
    constructors below are the only producers and each derives one view from
@@ -491,6 +605,18 @@ let () =
             "invalid schema names the failing property"
             `Quick
             test_invalid_schema_names_the_failing_property
+        ; test_case
+            "composed properties keep the authoritative schema"
+            `Quick
+            test_composed_properties_do_not_block_authoritative_schema
+        ; test_case
+            "nullable validation uses the authoritative schema"
+            `Quick
+            test_nullable_property_validation_uses_authoritative_schema
+        ; test_case
+            "explicit non-object root schema is rejected"
+            `Quick
+            test_explicit_non_object_root_schema_is_rejected
         ; test_case
             "input_schema constructor derives its parameters"
             `Quick

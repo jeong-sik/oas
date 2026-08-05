@@ -1,4 +1,4 @@
-(** Exact validator for the current checkpoint-v9 persistence schema. *)
+(** Exact validator for the current checkpoint-v10 persistence schema. *)
 
 open Result_syntax
 
@@ -684,7 +684,7 @@ let validate_common_checkpoint_fields ~scope fields =
   validate_unique_object ~scope:(scope ^ ".context") context
 ;;
 
-let validate_v9_json json =
+let validate_v10_json json =
   let scope = checkpoint_scope in
   let* fields =
     validate_object_shape ~scope ~required:current_checkpoint_fields ~optional:[] json

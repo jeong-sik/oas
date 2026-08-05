@@ -378,41 +378,58 @@ let property_type_from_union name values =
          | Error _, _ -> acc
          | Ok selected, `String type_name ->
            (match json_schema_type_member_to_param_type_option type_name with
-            | Ok (Some param_type) ->
-              (match selected with
-               | None -> Ok (Some param_type)
-               | Some selected_param_type when selected_param_type = param_type ->
-                 Ok selected
-               | Some _ ->
-                 Error
-                   (Printf.sprintf
-                      "property %S type array must contain exactly one non-null type"
-                      name))
+            | Ok (Some param_type) -> Ok (param_type :: selected)
             | Ok None -> Ok selected
             | Error _ as error -> error)
          | Ok _, _ ->
            Error (Printf.sprintf "property %S type array must contain only strings" name))
-      (Ok None)
+      (Ok [])
       values
   in
   match result with
-  | Ok (Some param_type) -> Ok param_type
-  | Ok None ->
-    Error
-      (Printf.sprintf
-         "property %S type array must include a supported non-null type"
-         name)
+  | Ok values ->
+    (match List.sort_uniq compare values with
+     | [ param_type ] -> Ok (Some param_type)
+     | [] | _ :: _ :: _ -> Ok None)
   | Error _ as error -> error
+;;
+
+let param_type_of_json_value = function
+  | `String _ -> Some String
+  | `Int _ | `Intlit _ -> Some Integer
+  | `Float _ -> Some Number
+  | `Bool _ -> Some Boolean
+  | `List _ -> Some Array
+  | `Assoc _ -> Some Object
+  | `Null -> None
+;;
+
+let infer_uniform_param_type values =
+  values
+  |> List.filter_map param_type_of_json_value
+  |> List.sort_uniq compare
+  |> function
+  | [ param_type ] -> Some param_type
+  | [] | _ :: _ :: _ -> None
 ;;
 
 let property_type name prop =
   match prop with
   | `Assoc fields ->
     (match List.assoc_opt "type" fields with
-     | Some (`String type_name) -> json_schema_type_to_param_type_result type_name
+     | Some (`String type_name) ->
+       (match json_schema_type_member_to_param_type_option type_name with
+        | Ok param_type -> Ok param_type
+        | Error _ as error -> error)
      | Some (`List values) -> property_type_from_union name values
-     | Some _ -> Error (Printf.sprintf "property %S type must be a string" name)
-     | None -> Error (Printf.sprintf "property %S is missing type" name))
+     | Some _ ->
+       Error (Printf.sprintf "property %S type must be a string or string array" name)
+     | None ->
+       (match List.assoc_opt "const" fields, List.assoc_opt "enum" fields with
+        | Some value, _ -> Ok (param_type_of_json_value value)
+        | None, Some (`List values) -> Ok (infer_uniform_param_type values)
+        | None, Some _ -> Error (Printf.sprintf "property %S enum must be an array" name)
+        | None, None -> Ok None))
   | _ -> Error (Printf.sprintf "property %S must be a JSON object" name)
 ;;
 
@@ -438,9 +455,12 @@ let json_schema_to_params_result schema =
          (fun (name, prop) acc ->
             let* params = acc in
             let* param_type = property_type name prop in
-            let* description = property_description prop in
-            let required = List.mem name required_list in
-            Ok ({ name; description; param_type; required } :: params))
+            match param_type with
+            | None -> Ok params
+            | Some param_type ->
+              let* description = property_description prop in
+              let required = List.mem name required_list in
+              Ok ({ name; description; param_type; required } :: params))
          pairs
          (Ok [])
      | Some _ -> Error "properties must be a JSON object")
@@ -522,6 +542,32 @@ let input_schema_of_json (json : Yojson.Safe.t)
     Error (Input_schema_not_an_object (json_shape_of_json other))
 ;;
 
+let validate_tool_argument_root_schema schema =
+  match schema with
+  | `Assoc fields ->
+    (match List.assoc_opt "type" fields with
+     | None | Some (`String "object") -> Ok ()
+     | Some (`List values) ->
+       let type_names =
+         List.fold_right
+           (fun value acc ->
+              match value, acc with
+              | `String type_name, Ok names -> Ok (type_name :: names)
+              | _, Ok _ -> Error "tool input schema root type must contain only strings"
+              | _, (Error _ as error) -> error)
+           values
+           (Ok [])
+       in
+       (match type_names with
+        | Ok names when List.sort_uniq String.compare names = [ "object" ] -> Ok ()
+        | Ok _ -> Error "tool input schema root type must describe object arguments"
+        | Error _ as error -> error)
+     | Some (`String _) ->
+       Error "tool input schema root type must describe object arguments"
+     | Some _ -> Error "tool input schema root type must be a string or string array")
+  | _ -> Error "tool input schema must be a JSON object"
+;;
+
 (* [Yojson.Safe.t] carries no derived converters, so the deriving attributes on
    [tool_schema.input_schema] name these three explicitly. [@default None]
    represents absence by omitting the field; a present field is decoded here
@@ -582,10 +628,13 @@ let tool_schema_of_input_schema ?strict ~name ~description ~input_schema ()
   match input_schema_of_json input_schema with
   | Error error -> Error (input_schema_error_to_string error)
   | Ok schema ->
-    (match json_schema_to_params_result schema with
-     | Error detail -> Error detail
-     | Ok parameters ->
-       Ok { name; description; parameters; strict; input_schema = Some schema })
+    (match validate_tool_argument_root_schema schema with
+     | Error _ as error -> error
+     | Ok () ->
+       (match json_schema_to_params_result schema with
+        | Error detail -> Error detail
+        | Ok parameters ->
+          Ok { name; description; parameters; strict; input_schema = Some schema }))
 ;;
 
 let tool_schema_of_input_schema_with_parameters
@@ -1032,15 +1081,7 @@ module Reasoning_source = struct
                 | Error _ -> None))
           | Some _ | None -> None)
        | _ -> None)
-    | `Null
-    | `Bool _
-    | `Int _
-    | `Intlit _
-    | `Float _
-    | `String _
-    | `List _
-    | `Tuple _
-    | `Variant _ -> None
+    | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> None
   ;;
 
   let entry source = key, to_json source

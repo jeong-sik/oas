@@ -180,13 +180,13 @@ let () =
   run
     "Checkpoint"
     [ ( "version"
-      , [ test_case "checkpoint_version is 9" `Quick (fun () ->
-            check int "version" 9 Checkpoint.checkpoint_version)
+      , [ test_case "checkpoint_version is 10" `Quick (fun () ->
+            check int "version" 10 Checkpoint.checkpoint_version)
         ; test_case "version field in to_json" `Quick (fun () ->
             let cp = make_checkpoint () in
             let json = Checkpoint.to_json cp in
             let v = Yojson.Safe.Util.(json |> member "version" |> to_int) in
-            check int "version" 9 v)
+            check int "version" 10 v)
         ; test_case "wrong version returns Error" `Quick (fun () ->
             let cp = make_checkpoint () in
             let json = Checkpoint.to_json cp in
@@ -243,6 +243,17 @@ let () =
             | Error (Error.Serialization (Error.VersionMismatch { got = 8; _ })) -> ()
             | Error error -> fail ("unexpected error: " ^ Error.to_string error)
             | Ok _ -> fail "checkpoint v8 must be rejected")
+        ; test_case "released v9 is rejected" `Quick (fun () ->
+            let json =
+              match Checkpoint.to_json (make_checkpoint ()) with
+              | `Assoc fields ->
+                `Assoc (("version", `Int 9) :: List.remove_assoc "version" fields)
+              | _ -> fail "current checkpoint serializer must return an object"
+            in
+            match Checkpoint.of_json json with
+            | Error (Error.Serialization (Error.VersionMismatch { got = 9; _ })) -> ()
+            | Error error -> fail ("unexpected error: " ^ Error.to_string error)
+            | Ok _ -> fail "checkpoint v9 must be rejected")
         ; test_case "missing version is rejected explicitly" `Quick (fun () ->
             match Checkpoint.of_json (`Assoc []) with
             | Error (Error.Serialization (Error.JsonParseError { detail })) ->
@@ -739,6 +750,36 @@ let () =
             let p1 = List.hd t.parameters in
             check string "param name" "city" p1.name;
             check bool "required" true p1.required)
+        ; test_case "authoritative schema is a v10 wire" `Quick (fun () ->
+            let input_schema : Yojson.Safe.t =
+              `Assoc
+                [ "type", `String "object"
+                ; "properties", `Assoc [ "city", `Assoc [ "type", `String "string" ] ]
+                ]
+            in
+            let tool =
+              match
+                Types.tool_schema_of_input_schema
+                  ~name:"weather"
+                  ~description:"Weather"
+                  ~input_schema
+                  ()
+              with
+              | Ok schema -> schema
+              | Error detail -> fail detail
+            in
+            let json = Checkpoint.to_json (make_checkpoint ~tools:[ tool ] ()) in
+            let open Yojson.Safe.Util in
+            check int "new wire version" 10 (json |> member "version" |> to_int);
+            check
+              string
+              "authoritative schema persisted"
+              (Yojson.Safe.to_string input_schema)
+              (json
+               |> member "tools"
+               |> index 0
+               |> member "input_schema"
+               |> Yojson.Safe.to_string))
         ; test_case "empty tools roundtrip" `Quick (fun () ->
             let cp = make_checkpoint ~tools:[] () in
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in
@@ -1348,7 +1389,7 @@ let () =
               | other -> other
             in
             check bool "error" true (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "current v9 rejects unknown nested message field" `Quick (fun () ->
+        ; test_case "current v10 rejects unknown nested message field" `Quick (fun () ->
             let message : Types.message =
               { role = Types.User
               ; content = [ Types.Text "hello" ]
@@ -1369,7 +1410,7 @@ let () =
               "unknown message field"
               true
               (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "current v9 rejects normalized empty metadata" `Quick (fun () ->
+        ; test_case "current v10 rejects normalized empty metadata" `Quick (fun () ->
             let message : Types.message =
               { role = Types.User
               ; content = [ Types.Text "hello" ]
@@ -1386,7 +1427,7 @@ let () =
                    (update_first_json (append_json_field "metadata" (`Assoc [])))
             in
             check bool "empty metadata" true (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "current v9 preserves blank reasoning content" `Quick (fun () ->
+        ; test_case "current v10 preserves blank reasoning content" `Quick (fun () ->
             let message : Types.message =
               { role = Types.Assistant
               ; content =
@@ -1433,7 +1474,7 @@ let () =
                |> index 0
                |> member "reasoning_content"
                |> to_string))
-        ; test_case "current v9 rejects duplicate nested content field" `Quick (fun () ->
+        ; test_case "current v10 rejects duplicate nested content field" `Quick (fun () ->
             let message : Types.message =
               { role = Types.User
               ; content = [ Types.Text "hello" ]
@@ -1459,7 +1500,7 @@ let () =
               "duplicate content field"
               true
               (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "current v9 rejects unknown nested tool field" `Quick (fun () ->
+        ; test_case "current v10 rejects unknown nested tool field" `Quick (fun () ->
             let bad =
               make_checkpoint ~tools:[ sample_tool_schema ] ()
               |> Checkpoint.to_json
@@ -1472,7 +1513,7 @@ let () =
               "unknown tool field"
               true
               (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "current v9 rejects noncanonical response format" `Quick (fun () ->
+        ; test_case "current v10 rejects noncanonical response format" `Quick (fun () ->
             let bad =
               make_checkpoint ()
               |> Checkpoint.to_json
@@ -1483,7 +1524,7 @@ let () =
               "legacy response format"
               true
               (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "current v9 rejects malformed nested MCP headers" `Quick (fun () ->
+        ; test_case "current v10 rejects malformed nested MCP headers" `Quick (fun () ->
             let session : Mcp_session.info =
               { server_name = "http-tools"
               ; command = "http"
@@ -1503,7 +1544,7 @@ let () =
                    (update_first_json (replace_json_field "http_headers" (`Assoc [])))
             in
             check bool "malformed headers" true (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "current v9 rejects duplicate context keys" `Quick (fun () ->
+        ; test_case "current v10 rejects duplicate context keys" `Quick (fun () ->
             let bad =
               make_checkpoint ()
               |> Checkpoint.to_json
@@ -1512,7 +1553,7 @@ let () =
                    (`Assoc [ "channel", `String "one"; "channel", `String "two" ])
             in
             check bool "duplicate context" true (Result.is_error (Checkpoint.of_json bad)))
-        ; test_case "current v9 rejects normalized reasoning effort" `Quick (fun () ->
+        ; test_case "current v10 rejects normalized reasoning effort" `Quick (fun () ->
             let bad =
               make_checkpoint ()
               |> Checkpoint.to_json
