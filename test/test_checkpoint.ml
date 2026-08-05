@@ -141,23 +141,22 @@ let checkpoint_json_with_tool_result ?(extra_fields = []) outcome =
 
 (* Helper: a sample tool_schema *)
 let sample_tool_schema : Types.tool_schema =
-  { name = "get_weather"
-  ; description = "Get weather for a city"
-  ; parameters =
-      [ { name = "city"
+  Types.tool_schema_of_params
+    ~name:"get_weather"
+    ~description:"Get weather for a city"
+    ~parameters:
+      [ { Types.name = "city"
         ; description = "City name"
         ; param_type = Types.String
         ; required = true
         }
-      ; { name = "units"
+      ; { Types.name = "units"
         ; description = "Temperature units"
         ; param_type = Types.String
         ; required = false
         }
       ]
-  ; strict = None
-  ; input_schema = None
-  }
+    ()
 ;;
 
 let sample_echo_tool =
@@ -758,12 +757,11 @@ let () =
                 ]
             in
             let tool : Types.tool_schema =
-              { name = "multi"
-              ; description = "test"
-              ; parameters = params
-              ; strict = None
-              ; input_schema = None
-              }
+              Types.tool_schema_of_params
+                ~name:"multi"
+                ~description:"test"
+                ~parameters:params
+                ()
             in
             let cp = make_checkpoint ~tools:[ tool ] () in
             let cp2 = Result.get_ok (Checkpoint.of_json (Checkpoint.to_json cp)) in

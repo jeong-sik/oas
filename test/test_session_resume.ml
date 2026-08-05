@@ -89,18 +89,17 @@ let sample_usage : Types.usage_stats =
 ;;
 
 let sample_tool_schema : Types.tool_schema =
-  { name = "get_weather"
-  ; description = "Get weather for a location"
-  ; parameters =
+  Types.tool_schema_of_params
+    ~name:"get_weather"
+    ~description:"Get weather for a location"
+    ~parameters:
       [ { Types.name = "location"
         ; description = "City name"
         ; param_type = Types.String
         ; required = true
         }
       ]
-  ; strict = None
-  ; input_schema = None
-  }
+    ()
 ;;
 
 (* ── Session.resume_from tests ───────────────────────────────── *)

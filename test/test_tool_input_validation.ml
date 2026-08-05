@@ -12,13 +12,8 @@ let make_param ?(required = true) ~param_type name =
   { Types.name; description = ""; param_type; required }
 ;;
 
-let make_schema params =
-  { Types.name = "test_tool"
-  ; description = "test"
-  ; parameters = params
-  ; strict = None
-  ; input_schema = None
-  }
+let make_schema parameters =
+  Types.tool_schema_of_params ~name:"test_tool" ~description:"test" ~parameters ()
 ;;
 
 (* ── Required field tests ──────────────────────────────── *)

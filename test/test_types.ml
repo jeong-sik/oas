@@ -421,12 +421,7 @@ let test_tool_param_manual_json_helpers () =
        (Agent_sdk.Util.contains_substring_ci ~haystack:msg ~needle:"param_type")
    | Ok _ -> Alcotest.fail "expected bad param type");
   let tool_schema =
-    { Types.name = "search"
-    ; description = "Search"
-    ; parameters = params
-    ; strict = None
-    ; input_schema = None
-    }
+    Types.tool_schema_of_params ~name:"search" ~description:"Search" ~parameters:params ()
   in
   let manual_json = Types.tool_schema_to_json tool_schema in
   (* strict = None must not emit the field, and must round-trip back to None. *)
@@ -440,7 +435,15 @@ let test_tool_param_manual_json_helpers () =
      Alcotest.(check bool) "strict stays None" true (decoded.strict = None)
    | Error msg -> Alcotest.fail msg);
   (* strict = Some true must emit "strict": true and round-trip to Some true. *)
-  let strict_json = Types.tool_schema_to_json { tool_schema with strict = Some true } in
+  let strict_json =
+    Types.tool_schema_to_json
+      (Types.tool_schema_of_params
+         ~strict:true
+         ~name:tool_schema.name
+         ~description:tool_schema.description
+         ~parameters:tool_schema.parameters
+         ())
+  in
   Alcotest.(check bool)
     "strict emitted when Some"
     true
@@ -1282,23 +1285,22 @@ let () =
     ; ( "tool_schema_yojson"
       , [ Alcotest.test_case "roundtrip" `Quick (fun () ->
             let schema : Types.tool_schema =
-              { name = "calc"
-              ; description = "Calculate"
-              ; parameters =
-                  [ { name = "expr"
+              Types.tool_schema_of_params
+                ~name:"calc"
+                ~description:"Calculate"
+                ~parameters:
+                  [ { Types.name = "expr"
                     ; description = "Expression"
                     ; param_type = Types.String
                     ; required = true
                     }
-                  ; { name = "precision"
+                  ; { Types.name = "precision"
                     ; description = "Decimal places"
                     ; param_type = Types.Integer
                     ; required = false
                     }
                   ]
-              ; strict = None
-              ; input_schema = None
-              }
+                ()
             in
             let json = Types.tool_schema_to_yojson schema in
             match Types.tool_schema_of_yojson json with

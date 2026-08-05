@@ -23,19 +23,11 @@ let validate_input ~tool_name ~(schema : Types.tool_schema) args =
 
 (* ── Schema conversion ────────────────────────────────────── *)
 
+(* The caller's schema is kept as the authoritative wire form so its
+   constraints survive to the provider; the constructor derives the parameter
+   view from it, so the two views cannot disagree. *)
 let tool_schema_of_json_result ~name ?(description = "") json_schema =
-  match Mcp_schema.json_schema_to_params_result json_schema with
-  | Ok parameters ->
-    (* [parameters] is the derived view; the caller's schema is kept as the
-       authoritative wire form so its constraints survive to the provider. *)
-    Ok
-      { Types.name
-      ; description
-      ; parameters
-      ; strict = None
-      ; input_schema = Some json_schema
-      }
-  | Error detail -> Error detail
+  Types.tool_schema_of_input_schema ~name ~description ~input_schema:json_schema ()
 ;;
 
 let tool_schema_of_json ~name ?(description = "") json_schema : Types.tool_schema =

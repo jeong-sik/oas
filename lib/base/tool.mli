@@ -36,25 +36,37 @@ type t =
   ; handler : execution_env_tool_handler
   }
 
-(** [?input_schema] is the authoritative wire form sent to providers verbatim
-    by {!schema_to_json}; omitting it derives the wire form from [~parameters].
-    When supplied it must be the schema [~parameters] was derived from — see
-    [Types.tool_schema.input_schema]. [Mcp_schema.tool_of_input_schema_result]
-    derives both from one schema and is the preferred entry point. *)
+(** Build a tool from the parameter view. {!schema_to_json} then derives the
+    wire form with [Types.params_to_input_schema], which keeps only type,
+    description and required. Use {!of_input_schema_result} when the caller has
+    a JSON Schema — that is the only path an authoritative schema can take, and
+    it cannot be combined with [~parameters]. *)
 val create
   :  ?descriptor:descriptor
   -> ?strict:bool
-  -> ?input_schema:Yojson.Safe.t
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
   -> tool_handler
   -> t
 
+(** Build a tool from one authoritative JSON Schema, sent to providers verbatim
+    by {!schema_to_json}. The parameter view used for validation is derived
+    from that same schema by [Types.tool_schema_of_input_schema], so the two
+    cannot disagree. Fails when the value is not a tool argument schema or when
+    a property cannot be projected onto a [Types.tool_param]. *)
+val of_input_schema_result
+  :  ?descriptor:descriptor
+  -> ?strict:bool
+  -> name:string
+  -> description:string
+  -> input_schema:Yojson.Safe.t
+  -> tool_handler
+  -> (t, string) result
+
 val create_with_context
   :  ?descriptor:descriptor
   -> ?strict:bool
-  -> ?input_schema:Yojson.Safe.t
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list
@@ -69,7 +81,6 @@ val create_with_context
 val create_with_execution_env
   :  ?descriptor:descriptor
   -> ?strict:bool
-  -> ?input_schema:Yojson.Safe.t
   -> name:string
   -> description:string
   -> parameters:Types.tool_param list

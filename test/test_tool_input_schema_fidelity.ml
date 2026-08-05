@@ -219,6 +219,42 @@ let test_invalid_schema_names_the_failing_property () =
        && Util.contains_substring_ci ~haystack:detail ~needle:"decimal")
 ;;
 
+(* [Types.tool_schema] is [private], so there is no expression that pairs a
+   [Some schema] with a [parameters] list of the caller's choosing: the two
+   constructors below are the only producers and each derives one view from
+   the other. That impossibility is enforced at compile time and cannot be
+   asserted at run time; what is asserted here is what the constructors
+   actually produce. *)
+
+let test_input_schema_constructor_derives_its_parameters () =
+  match
+    Types.tool_schema_of_input_schema
+      ~name:"read_file"
+      ~description:"Read a file"
+      ~input_schema:rich_input_schema
+      ()
+  with
+  | Error detail -> failf "tool_schema_of_input_schema: %s" detail
+  | Ok schema ->
+    check_parameters_derived_from_schema "Types.tool_schema_of_input_schema" schema
+;;
+
+let test_params_constructor_leaves_no_authoritative_schema () =
+  let parameters =
+    [ { Types.name = "expr"
+      ; description = "Expression"
+      ; param_type = Types.String
+      ; required = true
+      }
+    ]
+  in
+  let schema =
+    Types.tool_schema_of_params ~name:"calc" ~description:"Calculate" ~parameters ()
+  in
+  check (option json) "no authoritative schema" None schema.input_schema;
+  check bool "parameters kept verbatim" true (schema.parameters = parameters)
+;;
+
 (* ── tool_schema JSON round-trips ─────────────────────────── *)
 
 let sample_parameters =
@@ -244,14 +280,23 @@ let check_derived_roundtrip label (schema : Types.tool_schema) =
 
 let test_tool_schema_json_roundtrip () =
   let without =
-    { Types.name = "read_file"
-    ; description = "Read a file"
-    ; parameters = sample_parameters
-    ; strict = None
-    ; input_schema = None
-    }
+    Types.tool_schema_of_params
+      ~name:"read_file"
+      ~description:"Read a file"
+      ~parameters:sample_parameters
+      ()
   in
-  let with_schema = { without with Types.input_schema = Some rich_input_schema } in
+  let with_schema =
+    match
+      Types.tool_schema_of_input_schema
+        ~name:"read_file"
+        ~description:"Read a file"
+        ~input_schema:rich_input_schema
+        ()
+    with
+    | Ok schema -> schema
+    | Error detail -> failf "tool_schema_of_input_schema: %s" detail
+  in
   check
     bool
     "input_schema omitted when None"
@@ -268,13 +313,6 @@ let test_tool_schema_json_roundtrip () =
   check_manual_roundtrip "manual with input_schema" with_schema;
   check_derived_roundtrip "derived without input_schema" without;
   check_derived_roundtrip "derived with input_schema" with_schema
-;;
-
-let test_tool_schema_of_json_rejects_non_object () =
-  match Types.tool_schema_of_json (`List []) with
-  | Ok _ -> fail "expected a non-object tool_schema to be rejected"
-  | Error detail ->
-    check string "reports the shape" "tool_schema must be a JSON object" detail
 ;;
 
 let () =
@@ -303,13 +341,17 @@ let () =
             "invalid schema names the failing property"
             `Quick
             test_invalid_schema_names_the_failing_property
+        ; test_case
+            "input_schema constructor derives its parameters"
+            `Quick
+            test_input_schema_constructor_derives_its_parameters
+        ; test_case
+            "params constructor leaves no authoritative schema"
+            `Quick
+            test_params_constructor_leaves_no_authoritative_schema
         ] )
     ; ( "round-trip"
-      , [ test_case "tool_schema json round-trip" `Quick test_tool_schema_json_roundtrip
-        ; test_case
-            "tool_schema_of_json rejects non-object"
-            `Quick
-            test_tool_schema_of_json_rejects_non_object
-        ] )
+      , [ test_case "tool_schema json round-trip" `Quick test_tool_schema_json_roundtrip ]
+      )
     ]
 ;;

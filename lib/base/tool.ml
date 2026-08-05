@@ -46,22 +46,24 @@ type t =
   }
 
 (** Create a tool with a simple handler *)
-let create ?descriptor ?strict ?input_schema ~name ~description ~parameters handler =
-  let schema = { name; description; parameters; strict; input_schema } in
+let create ?descriptor ?strict ~name ~description ~parameters handler =
+  let schema = Types.tool_schema_of_params ?strict ~name ~description ~parameters () in
   { schema; descriptor; handler = (fun _execution_env input -> handler input) }
 ;;
 
+(** Build a tool from one authoritative JSON Schema. The parameter view is
+    derived from that schema by {!Types.tool_schema_of_input_schema}, so the
+    two cannot disagree, and the schema reaches providers verbatim. *)
+let of_input_schema_result ?descriptor ?strict ~name ~description ~input_schema handler =
+  match Types.tool_schema_of_input_schema ?strict ~name ~description ~input_schema () with
+  | Error detail -> Error detail
+  | Ok schema ->
+    Ok { schema; descriptor; handler = (fun _execution_env input -> handler input) }
+;;
+
 (** Create a tool with a context-aware handler *)
-let create_with_context
-      ?descriptor
-      ?strict
-      ?input_schema
-      ~name
-      ~description
-      ~parameters
-      handler
-  =
-  let schema = { name; description; parameters; strict; input_schema } in
+let create_with_context ?descriptor ?strict ~name ~description ~parameters handler =
+  let schema = Types.tool_schema_of_params ?strict ~name ~description ~parameters () in
   let handler execution_env input =
     match Execution_env.context execution_env with
     | Some context -> handler context input
@@ -75,16 +77,8 @@ let create_with_context
   { schema; descriptor; handler }
 ;;
 
-let create_with_execution_env
-      ?descriptor
-      ?strict
-      ?input_schema
-      ~name
-      ~description
-      ~parameters
-      handler
-  =
-  let schema = { name; description; parameters; strict; input_schema } in
+let create_with_execution_env ?descriptor ?strict ~name ~description ~parameters handler =
+  let schema = Types.tool_schema_of_params ?strict ~name ~description ~parameters () in
   { schema; descriptor; handler }
 ;;
 

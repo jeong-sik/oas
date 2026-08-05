@@ -143,17 +143,110 @@ let tool_param_to_json (p : tool_param) : Yojson.Safe.t =
     ]
 ;;
 
+(** Exact JSON shape of a value. Decoders report what arrived by naming this
+    variant instead of re-inspecting the value, so a new [Yojson.Safe.t]
+    constructor breaks the build rather than falling into a catch-all. *)
+type json_shape =
+  | Json_null
+  | Json_bool
+  | Json_int
+  | Json_intlit
+  | Json_float
+  | Json_string
+  | Json_list
+  | Json_object
+[@@deriving show, eq]
+
+let json_shape_of_json : Yojson.Safe.t -> json_shape = function
+  | `Null -> Json_null
+  | `Bool _ -> Json_bool
+  | `Int _ -> Json_int
+  | `Intlit _ -> Json_intlit
+  | `Float _ -> Json_float
+  | `String _ -> Json_string
+  | `List _ -> Json_list
+  | `Assoc _ -> Json_object
+;;
+
+let json_shape_to_string = function
+  | Json_null -> "null"
+  | Json_bool -> "a boolean"
+  | Json_int -> "an integer"
+  | Json_intlit -> "an integer literal"
+  | Json_float -> "a number"
+  | Json_string -> "a string"
+  | Json_list -> "an array"
+  | Json_object -> "an object"
+;;
+
+(* Total field readers. [Yojson.Safe.Util.to_string] and friends raise
+   [Type_error] on a shape mismatch, which would escape the [result] these
+   decoders advertise; matching the constructor keeps the failure in the
+   return type. *)
+let json_string_field ~scope fields name =
+  match List.assoc_opt name fields with
+  | Some (`String value) -> Ok value
+  | Some other ->
+    Error
+      (Printf.sprintf
+         "%s.%s must be a string, got %s"
+         scope
+         name
+         (json_shape_to_string (json_shape_of_json other)))
+  | None -> Error (Printf.sprintf "%s is missing field %s" scope name)
+;;
+
+let json_bool_field ~scope fields name =
+  match List.assoc_opt name fields with
+  | Some (`Bool value) -> Ok value
+  | Some other ->
+    Error
+      (Printf.sprintf
+         "%s.%s must be a boolean, got %s"
+         scope
+         name
+         (json_shape_to_string (json_shape_of_json other)))
+  | None -> Error (Printf.sprintf "%s is missing field %s" scope name)
+;;
+
+(* An absent key and an explicit [null] both mean "unset"; any other shape is a
+   caller mistake rather than an absent value. *)
+let json_optional_bool_field ~scope fields name =
+  match List.assoc_opt name fields with
+  | None | Some `Null -> Ok None
+  | Some (`Bool value) -> Ok (Some value)
+  | Some other ->
+    Error
+      (Printf.sprintf
+         "%s.%s must be a boolean, got %s"
+         scope
+         name
+         (json_shape_to_string (json_shape_of_json other)))
+;;
+
+let tool_param_scope = "tool_param"
+
 let tool_param_of_json (json : Yojson.Safe.t) : (tool_param, string) result =
-  let open Yojson.Safe.Util in
-  match param_type_of_string (json |> member "param_type" |> to_string) with
-  | Error s -> Error (Printf.sprintf "unknown param_type: %s" s)
-  | Ok param_type ->
-    Ok
-      { name = json |> member "name" |> to_string
-      ; description = json |> member "description" |> to_string
-      ; param_type
-      ; required = json |> member "required" |> to_bool
-      }
+  let ( let* ) = Result.bind in
+  match json with
+  | `Assoc fields ->
+    let scope = tool_param_scope in
+    let* name = json_string_field ~scope fields "name" in
+    let* description = json_string_field ~scope fields "description" in
+    let* param_type_name = json_string_field ~scope fields "param_type" in
+    let* param_type =
+      match param_type_of_string param_type_name with
+      | Ok param_type -> Ok param_type
+      | Error unknown -> Error (Printf.sprintf "unknown param_type: %s" unknown)
+    in
+    let* required = json_bool_field ~scope fields "required" in
+    Ok { name; description; param_type; required }
+  | (`Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _) as other ->
+    Error
+      (Printf.sprintf
+         "%s must be a JSON object, got %s"
+         tool_param_scope
+         (json_shape_to_string (json_shape_of_json other)))
 ;;
 
 let params_to_input_schema (params : tool_param list) : Yojson.Safe.t =
@@ -179,11 +272,216 @@ let params_to_input_schema (params : tool_param list) : Yojson.Safe.t =
     ]
 ;;
 
+(* ── JSON Schema -> parameter view ────────────────────────────────
+   The derivation lives here rather than in the MCP bridge because
+   {!tool_schema_of_input_schema} below is the only admissible way to store an
+   authoritative schema, and it has to derive the parameter view itself for the
+   two to stay in agreement. [Mcp_schema] re-exports these. *)
+
+let json_schema_type_to_param_type_result value =
+  match param_type_of_string value with
+  | Ok param_type -> Ok param_type
+  | Error unsupported ->
+    Error (Printf.sprintf "unsupported JSON Schema type %S" unsupported)
+;;
+
+let json_schema_type_member_to_param_type_option type_name =
+  match type_name with
+  | "null" -> Ok None
+  | value ->
+    (match json_schema_type_to_param_type_result value with
+     | Ok param_type -> Ok (Some param_type)
+     | Error _ as error -> error)
+;;
+
+let required_list_of_schema schema =
+  match schema with
+  | `Assoc fields ->
+    (match List.assoc_opt "required" fields with
+     | None | Some `Null -> Ok []
+     | Some (`List items) ->
+       List.fold_right
+         (fun item acc ->
+            match item, acc with
+            | `String value, Ok values -> Ok (value :: values)
+            | _, Ok _ -> Error "required must contain only strings"
+            | _, (Error _ as error) -> error)
+         items
+         (Ok [])
+     | Some _ -> Error "required must be an array of strings")
+  | _ -> Error "schema must be a JSON object"
+;;
+
+let property_type_from_union name values =
+  let result =
+    List.fold_left
+      (fun acc item ->
+         match acc, item with
+         | Error _, _ -> acc
+         | Ok selected, `String type_name ->
+           (match json_schema_type_member_to_param_type_option type_name with
+            | Ok (Some param_type) ->
+              (match selected with
+               | None -> Ok (Some param_type)
+               | Some selected_param_type when selected_param_type = param_type ->
+                 Ok selected
+               | Some _ ->
+                 Error
+                   (Printf.sprintf
+                      "property %S type array must contain exactly one non-null type"
+                      name))
+            | Ok None -> Ok selected
+            | Error _ as error -> error)
+         | Ok _, _ ->
+           Error (Printf.sprintf "property %S type array must contain only strings" name))
+      (Ok None)
+      values
+  in
+  match result with
+  | Ok (Some param_type) -> Ok param_type
+  | Ok None ->
+    Error
+      (Printf.sprintf
+         "property %S type array must include a supported non-null type"
+         name)
+  | Error _ as error -> error
+;;
+
+let property_type name prop =
+  match prop with
+  | `Assoc fields ->
+    (match List.assoc_opt "type" fields with
+     | Some (`String type_name) -> json_schema_type_to_param_type_result type_name
+     | Some (`List values) -> property_type_from_union name values
+     | Some _ -> Error (Printf.sprintf "property %S type must be a string" name)
+     | None -> Error (Printf.sprintf "property %S is missing type" name))
+  | _ -> Error (Printf.sprintf "property %S must be a JSON object" name)
+;;
+
+let property_description prop =
+  match prop with
+  | `Assoc fields ->
+    (match List.assoc_opt "description" fields with
+     | Some (`String value) -> Ok value
+     | None | Some `Null -> Ok ""
+     | Some _ -> Error "description must be a string")
+  | _ -> Error "property must be a JSON object"
+;;
+
+let json_schema_to_params_result schema =
+  let ( let* ) = Result.bind in
+  let* required_list = required_list_of_schema schema in
+  match schema with
+  | `Assoc fields ->
+    (match List.assoc_opt "properties" fields with
+     | None | Some `Null -> Ok []
+     | Some (`Assoc pairs) ->
+       List.fold_right
+         (fun (name, prop) acc ->
+            let* params = acc in
+            let* param_type = property_type name prop in
+            let* description = property_description prop in
+            let required = List.mem name required_list in
+            Ok ({ name; description; param_type; required } :: params))
+         pairs
+         (Ok [])
+     | Some _ -> Error "properties must be a JSON object")
+  | _ -> Error "schema must be a JSON object"
+;;
+
+(* ── Tool argument schema boundary ────────────────────────────────
+   A provider tool argument schema is a JSON object with unique keys. Anything
+   else — an explicit null, a scalar, an array, or an object Yojson parsed with
+   a repeated key — is a caller mistake, and is rejected here so it can never
+   be stored. Because non-objects cannot be stored, [Some `Null] is
+   unrepresentable and the [`Null]-means-absent encoding below is unambiguous. *)
+
+(** Why a JSON value was refused as a tool argument schema. *)
+type input_schema_error =
+  | Input_schema_not_an_object of json_shape
+  | Input_schema_duplicate_keys of
+      { path : string
+      ; keys : string list
+      }
+[@@deriving show, eq]
+
+(* Path shown for the schema root; nested paths extend it with ".key" and
+   "[index]" so a rejection names the offending object. *)
+let input_schema_root_path = "input_schema"
+
+let input_schema_error_to_string = function
+  | Input_schema_not_an_object shape ->
+    Printf.sprintf
+      "%s must be a JSON object, got %s"
+      input_schema_root_path
+      (json_shape_to_string shape)
+  | Input_schema_duplicate_keys { path; keys } ->
+    Printf.sprintf "%s has duplicate keys: %s" path (String.concat ", " keys)
+;;
+
+let duplicate_object_keys fields =
+  let rec collect acc = function
+    | first :: (second :: _ as rest) when String.equal first second ->
+      collect (first :: acc) rest
+    | _ :: rest -> collect acc rest
+    | [] -> acc
+  in
+  fields
+  |> List.map fst
+  |> List.sort String.compare
+  |> collect []
+  |> List.sort_uniq String.compare
+;;
+
+(* Yojson parses a duplicate key into a repeated assoc entry, so uniqueness is
+   not implied by the type and has to be checked. A duplicate nested inside
+   "properties" is as ambiguous as one at the root, hence the full walk. *)
+let rec check_unique_object_keys ~path (json : Yojson.Safe.t)
+  : (unit, input_schema_error) result
+  =
+  match json with
+  | `Assoc fields ->
+    (match duplicate_object_keys fields with
+     | _ :: _ as keys -> Error (Input_schema_duplicate_keys { path; keys })
+     | [] ->
+       List.fold_left
+         (fun acc (key, value) ->
+            match acc with
+            | Error _ -> acc
+            | Ok () -> check_unique_object_keys ~path:(path ^ "." ^ key) value)
+         (Ok ())
+         fields)
+  | `List items ->
+    List.fold_left
+      (fun (index, acc) value ->
+         ( index + 1
+         , match acc with
+           | Error _ -> acc
+           | Ok () ->
+             check_unique_object_keys ~path:(Printf.sprintf "%s[%d]" path index) value ))
+      (0, Ok ())
+      items
+    |> snd
+  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `Null | `String _ -> Ok ()
+;;
+
+(** Accept a value as a tool argument schema, or say exactly why not. *)
+let input_schema_of_json (json : Yojson.Safe.t)
+  : (Yojson.Safe.t, input_schema_error) result
+  =
+  match json with
+  | `Assoc _ ->
+    (match check_unique_object_keys ~path:input_schema_root_path json with
+     | Ok () -> Ok json
+     | Error _ as error -> error)
+  | (`Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _) as other ->
+    Error (Input_schema_not_an_object (json_shape_of_json other))
+;;
+
 (* [Yojson.Safe.t] carries no derived converters, so the deriving attributes on
    [tool_schema.input_schema] name these three explicitly. The encoding is the
-   identity on the carried schema; [`Null] stands for absence. A tool argument
-   schema is a JSON object, so [Some `Null] is not a value the deriving
-   constructors can produce. *)
+   identity on the carried schema; [`Null] stands for absence, which is
+   unambiguous because {!input_schema_of_json} refuses to store [`Null]. *)
 let input_schema_to_yojson : Yojson.Safe.t option -> Yojson.Safe.t = function
   | None -> `Null
   | Some schema -> schema
@@ -192,7 +490,10 @@ let input_schema_to_yojson : Yojson.Safe.t option -> Yojson.Safe.t = function
 let input_schema_of_yojson : Yojson.Safe.t -> (Yojson.Safe.t option, string) result =
   function
   | `Null -> Ok None
-  | schema -> Ok (Some schema)
+  | json ->
+    (match input_schema_of_json json with
+     | Ok schema -> Ok (Some schema)
+     | Error error -> Error (input_schema_error_to_string error))
 ;;
 
 let pp_input_schema fmt = function
@@ -216,14 +517,71 @@ type tool_schema =
       [@printer pp_input_schema])
     (** Authoritative wire form emitted to providers verbatim when [Some]; when
         [None] the wire form is derived from [parameters] by
-        {!params_to_input_schema}. [parameters] stays the derived view used for
-        validation and introspection, so [Some schema] must always satisfy
-        [parameters = Mcp_schema.json_schema_to_params schema]. Build both
-        through {!Mcp_schema.tool_of_input_schema_result} or
-        {!Tool_middleware.tool_schema_of_json_result} rather than filling the
-        two fields independently. *)
+        {!params_to_input_schema}. [parameters] is the derived view used for
+        validation and introspection. The pair is only ever built by
+        {!tool_schema_of_params} and {!tool_schema_of_input_schema}, so
+        [Some schema] always satisfies
+        [parameters = json_schema_to_params_result schema]. *)
   }
 [@@deriving yojson, show]
+
+(* ── Authoritative constructors ───────────────────────────────────
+   [tool_schema] is [private] in the signature, so these two functions are the
+   only way to obtain one. Each takes exactly one of the two views and derives
+   the other, which is what makes the pair unable to disagree. *)
+
+let tool_schema_of_params ?strict ~name ~description ~parameters () =
+  { name; description; parameters; strict; input_schema = None }
+;;
+
+let tool_schema_of_input_schema ?strict ~name ~description ~input_schema ()
+  : (tool_schema, string) result
+  =
+  match input_schema_of_json input_schema with
+  | Error error -> Error (input_schema_error_to_string error)
+  | Ok schema ->
+    (match json_schema_to_params_result schema with
+     | Error detail -> Error detail
+     | Ok parameters ->
+       Ok { name; description; parameters; strict; input_schema = Some schema })
+;;
+
+let tool_schema_of_input_schema_with_parameters
+      ?strict
+      ~name
+      ~description
+      ~parameters
+      ~input_schema
+      ()
+  =
+  match tool_schema_of_input_schema ?strict ~name ~description ~input_schema () with
+  | Error _ as error -> error
+  | Ok schema when schema.parameters = parameters -> Ok schema
+  | Ok _ ->
+    Error "tool_schema.parameters must equal the projection of tool_schema.input_schema"
+;;
+
+(* The derived decoder fills [parameters] and [input_schema] from independent
+   JSON fields, which is exactly the divergence the constructors prevent. Route
+   its output back through them and reject a pair the constructors could not
+   have produced. *)
+let tool_schema_of_yojson_fields = tool_schema_of_yojson
+
+let tool_schema_of_yojson json =
+  match tool_schema_of_yojson_fields json with
+  | Error _ as error -> error
+  | Ok { name; description; parameters; strict; input_schema } ->
+    (match input_schema with
+     | None -> Ok (tool_schema_of_params ?strict ~name ~description ~parameters ())
+     | Some input_schema ->
+       tool_schema_of_input_schema_with_parameters
+         ?strict
+         ~name
+         ~description
+         ~parameters
+         ~input_schema
+         ())
+;;
 
 let tool_schema_to_json (s : tool_schema) : Yojson.Safe.t =
   `Assoc
@@ -237,8 +595,10 @@ let tool_schema_to_json (s : tool_schema) : Yojson.Safe.t =
         | Some b -> [ "strict", `Bool b ]
         | None -> [])
      (* Same absence encoding for the authoritative schema: an absent key means
-        the wire form is derived from [parameters]. Absence rather than [null]
-        keeps the round-trip lossless for every [Yojson.Safe.t]. *)
+        the wire form is derived from [parameters]. Encoding absence as a
+        missing key rather than as [null] keeps the two distinct on the way
+        back, so every schema this field can hold — a JSON object with unique
+        keys, and nothing else — round-trips unchanged. *)
      @
      match s.input_schema with
      | Some schema -> [ "input_schema", schema ]
@@ -254,35 +614,50 @@ let result_all items =
   loop [] items
 ;;
 
-(* [Yojson.Safe.Util.member] answers [`Null] for an absent key, so it cannot
-   tell an omitted "input_schema" from a present one holding [null]. The assoc
-   lookup keeps those two distinct and makes the round-trip lossless. *)
-let tool_schema_input_schema_of_json (json : Yojson.Safe.t)
-  : (Yojson.Safe.t option, string) result
-  =
-  match json with
-  | `Assoc fields -> Ok (List.assoc_opt "input_schema" fields)
-  | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
-    Error "tool_schema must be a JSON object"
-;;
+let tool_schema_scope = "tool_schema"
 
+(* Total: every field is read by matching its JSON constructor, so a malformed
+   persisted payload lands in [Error] rather than raising [Type_error] out of
+   the advertised [result]. *)
 let tool_schema_of_json (json : Yojson.Safe.t) : (tool_schema, string) result =
-  let open Yojson.Safe.Util in
-  match tool_schema_input_schema_of_json json with
-  | Error e -> Error e
-  | Ok input_schema ->
-    (match
-       json |> member "parameters" |> to_list |> List.map tool_param_of_json |> result_all
-     with
-     | Error e -> Error e
-     | Ok parameters ->
-       Ok
-         { name = json |> member "name" |> to_string
-         ; description = json |> member "description" |> to_string
-         ; parameters
-         ; strict = json |> member "strict" |> to_bool_option
-         ; input_schema
-         })
+  let ( let* ) = Result.bind in
+  match json with
+  | (`Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _) as other ->
+    Error
+      (Printf.sprintf
+         "%s must be a JSON object, got %s"
+         tool_schema_scope
+         (json_shape_to_string (json_shape_of_json other)))
+  | `Assoc fields ->
+    let scope = tool_schema_scope in
+    let* name = json_string_field ~scope fields "name" in
+    let* description = json_string_field ~scope fields "description" in
+    let* strict = json_optional_bool_field ~scope fields "strict" in
+    let* parameter_items =
+      match List.assoc_opt "parameters" fields with
+      | Some (`List items) -> Ok items
+      | Some other ->
+        Error
+          (Printf.sprintf
+             "%s.parameters must be an array, got %s"
+             scope
+             (json_shape_to_string (json_shape_of_json other)))
+      | None -> Error (Printf.sprintf "%s is missing field parameters" scope)
+    in
+    let* parameters = parameter_items |> List.map tool_param_of_json |> result_all in
+    (* [Yojson.Safe.Util.member] answers [`Null] for an absent key, so it
+       cannot tell an omitted "input_schema" from a present one; the assoc
+       lookup keeps the two distinct. *)
+    (match List.assoc_opt "input_schema" fields with
+     | Some input_schema ->
+       tool_schema_of_input_schema_with_parameters
+         ?strict
+         ~name
+         ~description
+         ~parameters
+         ~input_schema
+         ()
+     | None -> Ok (tool_schema_of_params ?strict ~name ~description ~parameters ()))
 ;;
 
 (** Tool choice mode *)

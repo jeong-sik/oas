@@ -101,10 +101,56 @@ type tool_param =
 
 val param_type_of_string : string -> (param_type, string) result
 val tool_param_to_json : tool_param -> Yojson.Safe.t
+
+(** Total: a payload that is not an object, or whose fields have the wrong JSON
+    shape, is reported as [Error] rather than raising [Yojson.Safe.Util.Type_error]. *)
 val tool_param_of_json : Yojson.Safe.t -> (tool_param, string) result
+
 val params_to_input_schema : tool_param list -> Yojson.Safe.t
 
-type tool_schema =
+(** Exact JSON shape of a value, used to name what arrived when a decode is
+    refused. *)
+type json_shape =
+  | Json_null
+  | Json_bool
+  | Json_int
+  | Json_intlit
+  | Json_float
+  | Json_string
+  | Json_list
+  | Json_object
+[@@deriving show, eq]
+
+val json_shape_of_json : Yojson.Safe.t -> json_shape
+val json_shape_to_string : json_shape -> string
+val json_schema_type_to_param_type_result : string -> (param_type, string) result
+
+(** Derive the parameter view of a JSON Schema. Keeps only the parts a
+    {!tool_param} can carry — name, type, description, required — which is why
+    it is a projection of the schema and not a substitute for it. *)
+val json_schema_to_params_result : Yojson.Safe.t -> (tool_param list, string) result
+
+(** Why a JSON value was refused as a tool argument schema. *)
+type input_schema_error =
+  | Input_schema_not_an_object of json_shape
+  | Input_schema_duplicate_keys of
+      { path : string (** Path of the offending object, rooted at ["input_schema"]. *)
+      ; keys : string list (** The repeated keys, sorted and deduplicated. *)
+      }
+[@@deriving show, eq]
+
+val input_schema_error_to_string : input_schema_error -> string
+
+(** Accept a value as a tool argument schema. A provider tool argument schema
+    is a JSON object with unique keys, so an explicit [`Null], a scalar, an
+    array, or an object Yojson parsed with a repeated key (at any depth) is
+    refused instead of being stored. *)
+val input_schema_of_json : Yojson.Safe.t -> (Yojson.Safe.t, input_schema_error) result
+
+(** A tool definition. [private]: the two views of the arguments must agree, and
+    the only values that satisfy that are the ones {!tool_schema_of_params} and
+    {!tool_schema_of_input_schema} build. *)
+type tool_schema = private
   { name : string
   ; description : string
   ; parameters : tool_param list
@@ -115,12 +161,9 @@ type tool_schema =
   ; input_schema : Yojson.Safe.t option
     (** Authoritative wire form emitted to providers verbatim when [Some]; when
         [None] the wire form is derived from [parameters] by
-        {!params_to_input_schema}. [parameters] stays the derived view used for
-        validation and introspection, so [Some schema] must always satisfy
-        [parameters = Mcp_schema.json_schema_to_params schema]. Build both
-        through [Mcp_schema.tool_of_input_schema_result] or
-        [Tool_middleware.tool_schema_of_json_result] rather than filling the
-        two fields independently.
+        {!params_to_input_schema}. [parameters] is the derived view used for
+        validation and introspection, so [Some schema] always satisfies
+        [parameters = json_schema_to_params_result schema].
 
         {!params_to_input_schema} keeps only type, description and required,
         so a caller-supplied schema carrying [minimum], [maximum], [default],
@@ -129,11 +172,39 @@ type tool_schema =
   }
 [@@deriving yojson, show]
 
+(** Build a schema from the parameter view. [input_schema] is [None], so the
+    wire form is derived by {!params_to_input_schema}. *)
+val tool_schema_of_params
+  :  ?strict:bool
+  -> name:string
+  -> description:string
+  -> parameters:tool_param list
+  -> unit
+  -> tool_schema
+
+(** Build a schema from one authoritative JSON Schema — the only way
+    [input_schema] is ever [Some]. [parameters] is derived from [~input_schema]
+    here, so the two cannot disagree. Fails when the value is not a tool
+    argument schema ({!input_schema_of_json}) or when a property cannot be
+    projected onto a {!tool_param}. *)
+val tool_schema_of_input_schema
+  :  ?strict:bool
+  -> name:string
+  -> description:string
+  -> input_schema:Yojson.Safe.t
+  -> unit
+  -> (tool_schema, string) result
+
 val tool_schema_to_json : tool_schema -> Yojson.Safe.t
 
-(** Inverse of {!tool_schema_to_json}. [input_schema] is read by direct assoc
-    lookup, so an omitted key decodes to [None] and a present [null] decodes to
-    [Some `Null] — the round-trip is lossless for every [Yojson.Safe.t]. *)
+(** Inverse of {!tool_schema_to_json}, and total: malformed input is reported
+    as [Error] rather than raising. Absence of an authoritative schema is
+    encoded by omitting the ["input_schema"] key, so an omitted key decodes to
+    [None] and a present one must be a tool argument schema
+    ({!input_schema_of_json}). A payload whose ["parameters"] array disagrees
+    with the projection of its ["input_schema"] is refused, because no value of
+    this type could have carried that pair. A schema written by
+    {!tool_schema_to_json} therefore round-trips unchanged. *)
 val tool_schema_of_json : Yojson.Safe.t -> (tool_schema, string) result
 
 val result_all : ('a, 'e) result list -> ('a list, 'e) result

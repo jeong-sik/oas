@@ -1,43 +1,41 @@
 open Agent_sdk
 
 let sample_tool_schema : Types.tool_schema =
-  { name = "get_weather"
-  ; description = "Get weather for a city"
-  ; parameters =
-      [ { name = "city"
+  Types.tool_schema_of_params
+    ~name:"get_weather"
+    ~description:"Get weather for a city"
+    ~parameters:
+      [ { Types.name = "city"
         ; description = "City name"
         ; param_type = Types.String
         ; required = true
         }
       ]
-  ; strict = None
-  ; input_schema = None
-  }
+    ()
 ;;
 
 let multi_param_tool : Types.tool_schema =
-  { name = "search"
-  ; description = "Search documents"
-  ; parameters =
-      [ { name = "query"
+  Types.tool_schema_of_params
+    ~name:"search"
+    ~description:"Search documents"
+    ~parameters:
+      [ { Types.name = "query"
         ; description = "Search query"
         ; param_type = Types.String
         ; required = true
         }
-      ; { name = "limit"
+      ; { Types.name = "limit"
         ; description = "Max results"
         ; param_type = Types.Integer
         ; required = false
         }
-      ; { name = "filters"
+      ; { Types.name = "filters"
         ; description = "Filter object"
         ; param_type = Types.Object
         ; required = false
         }
       ]
-  ; strict = None
-  ; input_schema = None
-  }
+    ()
 ;;
 
 let make_info
@@ -313,10 +311,11 @@ let () =
               info2.env)
         ; test_case "all param types roundtrip" `Quick (fun () ->
             let all_types_tool : Types.tool_schema =
-              { name = "all_types"
-              ; description = "All param types"
-              ; parameters =
-                  [ { name = "s"
+              Types.tool_schema_of_params
+                ~name:"all_types"
+                ~description:"All param types"
+                ~parameters:
+                  [ { Types.name = "s"
                     ; description = ""
                     ; param_type = Types.String
                     ; required = true
@@ -341,15 +340,13 @@ let () =
                     ; param_type = Types.Array
                     ; required = false
                     }
-                  ; { name = "o"
+                  ; { Types.name = "o"
                     ; description = ""
                     ; param_type = Types.Object
                     ; required = false
                     }
                   ]
-              ; strict = None
-              ; input_schema = None
-              }
+                ()
             in
             let info = make_info ~tool_schemas:[ all_types_tool ] () in
             let json = Mcp_session.info_to_json info in

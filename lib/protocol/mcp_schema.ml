@@ -3,125 +3,17 @@ module Sdk_types = Mcp_protocol.Mcp_types
 
 (* ── JSON Schema -> SDK tool_param (oas-specific bridge) ─────────── *)
 
-let json_schema_type_to_param_type_result = function
-  | "string" -> Ok String
-  | "integer" -> Ok Integer
-  | "number" -> Ok Number
-  | "boolean" -> Ok Boolean
-  | "array" -> Ok Array
-  | "object" -> Ok Object
-  | value -> Error (Printf.sprintf "unsupported JSON Schema type %S" value)
-;;
+(* The conversion itself lives in {!Types}, next to the constructor that has to
+   apply it to keep [tool_schema.parameters] in agreement with
+   [tool_schema.input_schema]. These are re-exports for existing callers. *)
+
+let json_schema_type_to_param_type_result = Types.json_schema_type_to_param_type_result
+let json_schema_to_params_result = Types.json_schema_to_params_result
 
 let json_schema_type_to_param_type value =
   match json_schema_type_to_param_type_result value with
   | Ok param_type -> param_type
   | Error detail -> invalid_arg detail
-;;
-
-let json_schema_type_member_to_param_type_option type_name =
-  match type_name with
-  | "null" -> Ok None
-  | value ->
-    (match json_schema_type_to_param_type_result value with
-     | Ok param_type -> Ok (Some param_type)
-     | Error _ as error -> error)
-;;
-
-let required_list_of_schema schema =
-  match schema with
-  | `Assoc fields ->
-    (match List.assoc_opt "required" fields with
-     | None | Some `Null -> Ok []
-     | Some (`List items) ->
-       List.fold_right
-         (fun item acc ->
-            match item, acc with
-            | `String value, Ok values -> Ok (value :: values)
-            | _, Ok _ -> Error "required must contain only strings"
-            | _, (Error _ as error) -> error)
-         items
-         (Ok [])
-     | Some _ -> Error "required must be an array of strings")
-  | _ -> Error "schema must be a JSON object"
-;;
-
-let property_type_from_union name values =
-  let result =
-    List.fold_left
-      (fun acc item ->
-         match acc, item with
-         | Error _, _ -> acc
-         | Ok selected, `String type_name ->
-           (match json_schema_type_member_to_param_type_option type_name with
-            | Ok (Some param_type) ->
-              (match selected with
-               | None -> Ok (Some param_type)
-               | Some selected_param_type when selected_param_type = param_type ->
-                 Ok selected
-               | Some _ ->
-                 Error
-                   (Printf.sprintf
-                      "property %S type array must contain exactly one non-null type"
-                      name))
-            | Ok None -> Ok selected
-            | Error _ as error -> error)
-         | Ok _, _ ->
-           Error (Printf.sprintf "property %S type array must contain only strings" name))
-      (Ok None)
-      values
-  in
-  match result with
-  | Ok (Some param_type) -> Ok param_type
-  | Ok None ->
-    Error
-      (Printf.sprintf
-         "property %S type array must include a supported non-null type"
-         name)
-  | Error _ as error -> error
-;;
-
-let property_type name prop =
-  match prop with
-  | `Assoc fields ->
-    (match List.assoc_opt "type" fields with
-     | Some (`String type_name) -> json_schema_type_to_param_type_result type_name
-     | Some (`List values) -> property_type_from_union name values
-     | Some _ -> Error (Printf.sprintf "property %S type must be a string" name)
-     | None -> Error (Printf.sprintf "property %S is missing type" name))
-  | _ -> Error (Printf.sprintf "property %S must be a JSON object" name)
-;;
-
-let property_description prop =
-  match prop with
-  | `Assoc fields ->
-    (match List.assoc_opt "description" fields with
-     | Some (`String value) -> Ok value
-     | None | Some `Null -> Ok ""
-     | Some _ -> Error "description must be a string")
-  | _ -> Error "property must be a JSON object"
-;;
-
-let json_schema_to_params_result schema =
-  let ( let* ) = Result.bind in
-  let required_list = required_list_of_schema schema in
-  let* required_list = required_list in
-  match schema with
-  | `Assoc fields ->
-    (match List.assoc_opt "properties" fields with
-     | None | Some `Null -> Ok []
-     | Some (`Assoc pairs) ->
-       List.fold_right
-         (fun (name, prop) acc ->
-            let* params = acc in
-            let* param_type = property_type name prop in
-            let* description = property_description prop in
-            let required = List.mem name required_list in
-            Ok ({ name; description; param_type; required } :: params))
-         pairs
-         (Ok [])
-     | Some _ -> Error "properties must be a JSON object")
-  | _ -> Error "schema must be a JSON object"
 ;;
 
 let json_schema_to_params schema =
@@ -164,18 +56,17 @@ let tool_of_input_schema_result
       ~input_schema
       call_fn
   =
-  match json_schema_to_params_result input_schema with
+  match
+    Tool.of_input_schema_result
+      ?descriptor
+      ?strict
+      ~name
+      ~description
+      ~input_schema
+      call_fn
+  with
+  | Ok tool_ -> Ok tool_
   | Error detail -> Error (Printf.sprintf "tool %S schema invalid: %s" name detail)
-  | Ok params ->
-    Ok
-      (Tool.create
-         ?descriptor
-         ?strict
-         ~input_schema
-         ~name
-         ~description
-         ~parameters:params
-         call_fn)
 ;;
 
 (** Convert {!mcp_tool} to SDK {!Tool.t} with the given call handler. *)
