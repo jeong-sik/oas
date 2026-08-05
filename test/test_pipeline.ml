@@ -438,10 +438,12 @@ let test_provider_turn_identity_is_shared_across_multiturn_tool_loop () =
     }
   in
   let tool =
-    Tool.create_with_execution_env
-      ~name:"identity_tool"
-      ~description:"observe the canonical provider turn"
-      ~parameters:[]
+    Tool.of_schema
+      (Types.tool_schema_of_params
+         ~name:"identity_tool"
+         ~description:"observe the canonical provider turn"
+         ~parameters:[]
+         ())
       (fun execution_env _input ->
          (match Tool.Execution_env.invocation execution_env with
           | None -> Alcotest.fail "tool handler received no invocation"

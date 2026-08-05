@@ -39,16 +39,18 @@ let test_simple_handler_error () =
 
 let test_context_handler_receives_context () =
   let tool =
-    Tool.create_with_context
-      ~name:"stateful"
-      ~description:"Read from context"
-      ~parameters:[]
-      (fun ctx _input ->
+    Tool.of_schema
+      (Types.tool_schema_of_params
+         ~name:"stateful"
+         ~description:"Read from context"
+         ~parameters:[]
+         ())
+      (Tool.requiring_context (fun ctx _input ->
          match Context.get ctx "key" with
          | Some (`String v) -> Ok { Types.content = v; _meta = None }
          | _ ->
            Error
-             { Types.message = "key not found"; recoverable = true; error_class = None })
+             { Types.message = "key not found"; recoverable = true; error_class = None }))
   in
   let ctx = Context.create_sync () in
   Context.set ctx "key" (`String "ctx_value");
@@ -60,13 +62,15 @@ let test_context_handler_receives_context () =
 
 let test_context_handler_writes_context () =
   let tool =
-    Tool.create_with_context
-      ~name:"writer"
-      ~description:"Write to context"
-      ~parameters:[]
-      (fun ctx _input ->
+    Tool.of_schema
+      (Types.tool_schema_of_params
+         ~name:"writer"
+         ~description:"Write to context"
+         ~parameters:[]
+         ())
+      (Tool.requiring_context (fun ctx _input ->
          Context.set ctx "written" (`Int 42);
-         Ok { Types.content = "done"; _meta = None })
+         Ok { Types.content = "done"; _meta = None }))
   in
   let ctx = Context.create_sync () in
   let _result = Tool.execute ~context:ctx tool `Null in
@@ -75,11 +79,14 @@ let test_context_handler_writes_context () =
 
 let test_context_handler_requires_context () =
   let tool =
-    Tool.create_with_context
-      ~name:"noctx"
-      ~description:"No explicit context"
-      ~parameters:[]
-      (fun _ctx _input -> Ok { Types.content = "works"; _meta = None })
+    Tool.of_schema
+      (Types.tool_schema_of_params
+         ~name:"noctx"
+         ~description:"No explicit context"
+         ~parameters:[]
+         ())
+      (Tool.requiring_context (fun _ctx _input ->
+         Ok { Types.content = "works"; _meta = None }))
   in
   let actual = Tool.execute tool `Null in
   match actual with
@@ -106,10 +113,12 @@ let missing_invocation_error () =
 
 let test_execution_env_handler_receives_context_and_invocation () =
   let tool =
-    Tool.create_with_execution_env
-      ~name:"execution_env"
-      ~description:"Read context and invocation"
-      ~parameters:[]
+    Tool.of_schema
+      (Types.tool_schema_of_params
+         ~name:"execution_env"
+         ~description:"Read context and invocation"
+         ~parameters:[]
+         ())
       (fun execution_env _input ->
          match
            ( Tool.Execution_env.context execution_env
@@ -161,10 +170,12 @@ let test_execution_env_handler_receives_context_and_invocation () =
 
 let test_execution_env_handler_observes_missing_invocation () =
   let tool =
-    Tool.create_with_execution_env
-      ~name:"execution_env"
-      ~description:"Read invocation"
-      ~parameters:[]
+    Tool.of_schema
+      (Types.tool_schema_of_params
+         ~name:"execution_env"
+         ~description:"Read invocation"
+         ~parameters:[]
+         ())
       (fun execution_env _input ->
          match Tool.Execution_env.invocation execution_env with
          | Some _ -> Ok { Types.content = "unexpected"; _meta = None }
@@ -449,16 +460,18 @@ let () =
             | Error _ -> fail "expected Ok")
         ; test_case "works with context handler" `Quick (fun () ->
             let tool =
-              Tool.create_with_context
-                ~name:"ctx_greet"
-                ~description:"Greet with context"
-                ~parameters:[]
-                (fun _ctx input ->
+              Tool.of_schema
+                (Types.tool_schema_of_params
+                   ~name:"ctx_greet"
+                   ~description:"Greet with context"
+                   ~parameters:[]
+                   ())
+                (Tool.requiring_context (fun _ctx input ->
                    let open Yojson.Safe.Util in
                    Ok
                      { Types.content = input |> member "agent" |> to_string
                      ; _meta = None
-                     })
+                     }))
             in
             let wrapped = Tool.with_defaults [ "agent", `String "worker-1" ] tool in
             let ctx = Context.create_sync () in
@@ -468,10 +481,12 @@ let () =
             | Error _ -> fail "expected Ok")
         ; test_case "works with execution environment handler" `Quick (fun () ->
             let tool =
-              Tool.create_with_execution_env
-                ~name:"execution_env_greet"
-                ~description:"Greet from execution environment"
-                ~parameters:[]
+              Tool.of_schema
+                (Types.tool_schema_of_params
+                   ~name:"execution_env_greet"
+                   ~description:"Greet from execution environment"
+                   ~parameters:[]
+                   ())
                 (fun execution_env input ->
                    let open Yojson.Safe.Util in
                    match Tool.Execution_env.invocation execution_env with

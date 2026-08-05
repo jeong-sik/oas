@@ -56,16 +56,9 @@ let tool_of_input_schema_result
       ~input_schema
       call_fn
   =
-  match
-    Tool.of_input_schema_result
-      ?descriptor
-      ?strict
-      ~name
-      ~description
-      ~input_schema
-      call_fn
-  with
-  | Ok tool_ -> Ok tool_
+  match Types.tool_schema_of_input_schema ?strict ~name ~description ~input_schema () with
+  | Ok schema ->
+    Ok (Tool.of_schema ?descriptor schema (Tool.ignoring_execution_env call_fn))
   | Error detail -> Error (Printf.sprintf "tool %S schema invalid: %s" name detail)
 ;;
 

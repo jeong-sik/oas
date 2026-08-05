@@ -36,11 +36,53 @@ type t =
   ; handler : execution_env_tool_handler
   }
 
-(** Build a tool from the parameter view. {!schema_to_json} then derives the
+(** Adapt a handler that does not read the execution environment. *)
+val ignoring_execution_env : tool_handler -> execution_env_tool_handler
+
+(** Adapt a context-aware handler. Executing it without a context returns a
+    non-recoverable [Deterministic] error rather than substituting one. *)
+val requiring_context : context_tool_handler -> execution_env_tool_handler
+
+(** Pair a schema with a handler.
+
+    Where the schema comes from and what the handler reads are independent
+    axes, and this is the only function that joins them. A [Types.tool_schema]
+    can only come from [Types.tool_schema_of_params] or
+    [Types.tool_schema_of_input_schema] — the type is [private] and each
+    constructor derives one argument view from the other — so the two views
+    cannot disagree here.
+
+    Combinations are expressed by composition, not by new constructors:
+
+    {[
+      (* authoritative schema, execution-environment handler *)
+      Result.map
+        (fun schema -> Tool.of_schema schema handler)
+        (Types.tool_schema_of_input_schema ~name ~description ~input_schema ())
+
+      (* parameter view, context handler *)
+      Tool.of_schema
+        (Types.tool_schema_of_params ~name ~description ~parameters ())
+        (Tool.requiring_context handler)
+    ]}
+
+    Do not add a [create_with_*] variant for a new combination: one function
+    per (source, kind) pair makes this surface their product, and that product
+    is how the authoritative source came to be reachable from only one of the
+    three handler kinds.
+
+    @since 0.232.0 *)
+val of_schema
+  :  ?descriptor:descriptor
+  -> Types.tool_schema
+  -> execution_env_tool_handler
+  -> t
+
+(** The (parameter view, plain handler) corner. {!schema_to_json} derives the
     wire form with [Types.params_to_input_schema], which keeps only type,
-    description and required. Use {!of_input_schema_result} when the caller has
-    a JSON Schema — that is the only path an authoritative schema can take, and
-    it cannot be combined with [~parameters]. *)
+    description and required; when the caller holds a JSON Schema, compose
+    {!of_schema} with [Types.tool_schema_of_input_schema] instead so it reaches
+    providers verbatim. *)
 val create
   :  ?descriptor:descriptor
   -> ?strict:bool
@@ -48,43 +90,6 @@ val create
   -> description:string
   -> parameters:Types.tool_param list
   -> tool_handler
-  -> t
-
-(** Build a tool from one authoritative JSON Schema, sent to providers verbatim
-    by {!schema_to_json}. The parameter view used for validation is derived
-    from that same schema by [Types.tool_schema_of_input_schema], so the two
-    cannot disagree. Fails when the value is not a tool argument schema or when
-    a property cannot be projected onto a [Types.tool_param]. *)
-val of_input_schema_result
-  :  ?descriptor:descriptor
-  -> ?strict:bool
-  -> name:string
-  -> description:string
-  -> input_schema:Yojson.Safe.t
-  -> tool_handler
-  -> (t, string) result
-
-val create_with_context
-  :  ?descriptor:descriptor
-  -> ?strict:bool
-  -> name:string
-  -> description:string
-  -> parameters:Types.tool_param list
-  -> context_tool_handler
-  -> t
-
-(** Creates a raw JSON tool whose handler receives the explicit execution
-    environment. The environment can contain both shared {!Context.t} and exact
-    {!Invocation.t} occurrence metadata.
-
-    @since 0.215.0 *)
-val create_with_execution_env
-  :  ?descriptor:descriptor
-  -> ?strict:bool
-  -> name:string
-  -> description:string
-  -> parameters:Types.tool_param list
-  -> execution_env_tool_handler
   -> t
 
 val execute

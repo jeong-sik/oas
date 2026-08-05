@@ -641,17 +641,20 @@ let test_context_tool () =
     in
     let url = start_multi ~sw ~net:env#net ~port:21020 responses in
     let tool =
-      Tool.create_with_context
-        ~name:"ctx_tool"
-        ~description:"Context tool"
-        ~parameters:
-          [ { name = "key"
-            ; param_type = Types.String
-            ; description = "k"
-            ; required = true
-            }
-          ]
-        (fun _ctx _input -> Ok { Types.content = "ctx_result"; _meta = None })
+      Tool.of_schema
+        (Types.tool_schema_of_params
+           ~name:"ctx_tool"
+           ~description:"Context tool"
+           ~parameters:
+             [ { name = "key"
+               ; param_type = Types.String
+               ; description = "k"
+               ; required = true
+               }
+             ]
+           ())
+        (Tool.requiring_context (fun _ctx _input ->
+           Ok { Types.content = "ctx_result"; _meta = None }))
     in
     let agent = make_agent ~net:env#net ~tools:[ tool ] url in
     match Agent.run ~sw agent "ctx" with

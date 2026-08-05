@@ -556,6 +556,7 @@ type tool_schema =
         field so providers apply their default. *)
   ; input_schema :
       (Yojson.Safe.t option
+      [@default None]
       [@to_yojson input_schema_to_yojson]
       [@of_yojson input_schema_of_yojson]
       [@printer pp_input_schema])
@@ -632,7 +633,13 @@ let tool_schema_of_yojson json =
     (match
        exact_object_fields
          ~scope:"tool_schema"
-         ~required:[ "name"; "description"; "parameters"; "strict"; "input_schema" ]
+         ~required:[ "name"; "description"; "parameters"; "strict" ]
+           (* Optional, not required: a payload written by a released version
+              carries no "input_schema" key at all, and [@default None] makes
+              this encoder omit it too. Requiring it would reject both. [strict]
+              stays required because every released encoder emits it, as
+              "strict": null when unset. *)
+         ~optional:[ "input_schema" ]
          fields
      with
      | Error _ as error -> error

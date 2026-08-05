@@ -34,11 +34,9 @@ let create_with_context
       ?strict
       ()
   =
-  Tool.create_with_context
+  Tool.of_schema
     ?descriptor
-    ?strict
-    ~name
-    ~description
-    ~parameters:params
-    (fun context -> execute_typed ~parse ~handler:(handler context) ~encode)
+    (Types.tool_schema_of_params ?strict ~name ~description ~parameters:params ())
+    (Tool.requiring_context (fun context ->
+       execute_typed ~parse ~handler:(handler context) ~encode))
 ;;

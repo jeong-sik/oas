@@ -160,20 +160,43 @@ let test_derived_schema_unchanged_without_input_schema () =
 
 (* ── parameters / input_schema invariant ──────────────────── *)
 
+let tool_param = testable Types.pp_tool_param ( = )
+
+(* Written out rather than computed as [Mcp.json_schema_to_params
+   rich_input_schema]. That projection is what the constructors run, so calling
+   it here would put it on both sides and cancel out any regression inside it —
+   a defect that drops every property description passes that way. These
+   literals are the projection of [rich_input_schema] read off by hand. *)
+let rich_schema_parameters =
+  [ { Types.name = "max_bytes"
+    ; description = "Maximum bytes to read"
+    ; param_type = Types.Integer
+    ; required = true
+    }
+  ; { Types.name = "cursor"
+    ; description = "Where to read from"
+    ; param_type = Types.String
+    ; required = false
+    }
+  ; { Types.name = "window"
+    ; description = "Nested window bounds"
+    ; param_type = Types.Object
+    ; required = false
+    }
+  ]
+;;
+
 let check_parameters_derived_from_schema label (schema : Types.tool_schema) =
   check
     (option json)
     (label ^ ": authoritative schema kept")
     (Some rich_input_schema)
     schema.input_schema;
-  match schema.input_schema with
-  | None -> failf "%s: expected an authoritative schema" label
-  | Some source ->
-    check
-      bool
-      (label ^ ": parameters equal json_schema_to_params input_schema")
-      true
-      (schema.parameters = Mcp.json_schema_to_params source)
+  check
+    (list tool_param)
+    (label ^ ": parameters are the projection of the schema")
+    rich_schema_parameters
+    schema.parameters
 ;;
 
 let test_tool_parameters_are_derived_from_the_schema () =
@@ -315,6 +338,123 @@ let test_tool_schema_json_roundtrip () =
   check_derived_roundtrip "derived with input_schema" with_schema
 ;;
 
+(* ── schema source × handler kind ─────────────────────────── *)
+
+(* The tool that produced the incident is built with an execution-environment
+   handler, and until [of_schema] existed the authoritative source was only
+   reachable from the plain-handler constructor. This pins the combination
+   itself: the schema must arrive verbatim AND the handler must still receive
+   its execution environment. *)
+let test_authoritative_schema_rides_an_execution_env_handler () =
+  let seen_invocation = ref None in
+  let handler execution_env _input =
+    seen_invocation := Tool.Execution_env.invocation execution_env;
+    Ok { Types.content = "ok"; _meta = None }
+  in
+  let tool =
+    match
+      Types.tool_schema_of_input_schema
+        ~name:"read_file"
+        ~description:"Read a file"
+        ~input_schema:rich_input_schema
+        ()
+    with
+    | Error detail -> failf "tool_schema_of_input_schema: %s" detail
+    | Ok schema -> Tool.of_schema schema handler
+  in
+  check
+    json
+    "authoritative schema survives the execution-env handler"
+    rich_input_schema
+    (Tool.schema_to_json tool |> member "input_schema");
+  check
+    (list tool_param)
+    "parameters still the projection"
+    rich_schema_parameters
+    tool.schema.parameters;
+  let invocation =
+    Tool_contract.Invocation.create
+      ~tool_use_id:"call-1"
+      ~turn:0
+      ~schedule:
+        { planned_index = 0
+        ; batch_index = 0
+        ; batch_size = 1
+        ; execution_mode = Tool_contract.Serial
+        }
+      ~completion:Tool_contract.Continue_after_success
+  in
+  let (_ : Types.tool_result) = Tool.execute ~invocation tool `Null in
+  check
+    (option string)
+    "handler received its execution environment"
+    (Some "call-1")
+    (Option.map Tool_contract.Invocation.tool_use_id !seen_invocation)
+;;
+
+let test_context_handler_still_refuses_a_missing_context () =
+  let tool =
+    Tool.of_schema
+      (Types.tool_schema_of_params
+         ~name:"ctx"
+         ~description:"Needs context"
+         ~parameters:[]
+         ())
+      (Tool.requiring_context (fun _context _input ->
+         Ok { Types.content = "unexpected"; _meta = None }))
+  in
+  match Tool.execute tool `Null with
+  | Ok _ -> fail "expected the missing context to be refused"
+  | Error { message; recoverable; _ } ->
+    check
+      string
+      "names the missing context"
+      "context-aware tool requires explicit context"
+      message;
+    check bool "not recoverable" false recoverable
+;;
+
+(* A tool_schema written by a released version carries no "input_schema" key at
+   all. ppx_deriving_yojson does not default an option field on its own, so
+   without [@default None] the derived decoder rejects every such payload and
+   Agent_card.of_json fails on any peer card that contains a tool. *)
+let test_released_payload_without_the_key_decodes () =
+  let legacy : Yojson.Safe.t =
+    `Assoc
+      [ "name", `String "read_file"
+      ; "description", `String "Read a file"
+      ; ( "parameters"
+        , `List
+            [ `Assoc
+                [ "name", `String "path"
+                ; "description", `String "Path"
+                ; "param_type", `List [ `String "String" ]
+                ; "required", `Bool true
+                ]
+            ] )
+      ; "strict", `Null
+      ]
+  in
+  match Types.tool_schema_of_yojson legacy with
+  | Error detail -> failf "released payload rejected: %s" detail
+  | Ok schema ->
+    check
+      (option json)
+      "absent key means no authoritative schema"
+      None
+      schema.input_schema;
+    check
+      (list tool_param)
+      "parameters decoded"
+      [ { Types.name = "path"
+        ; description = "Path"
+        ; param_type = Types.String
+        ; required = true
+        }
+      ]
+      schema.parameters
+;;
+
 let () =
   run
     "tool_input_schema_fidelity"
@@ -323,6 +463,18 @@ let () =
             "authoritative schema reaches the wire"
             `Quick
             test_authoritative_schema_reaches_the_wire
+        ; test_case
+            "authoritative schema rides an execution-env handler"
+            `Quick
+            test_authoritative_schema_rides_an_execution_env_handler
+        ; test_case
+            "context handler still refuses a missing context"
+            `Quick
+            test_context_handler_still_refuses_a_missing_context
+        ; test_case
+            "released payload without the input_schema key decodes"
+            `Quick
+            test_released_payload_without_the_key_decodes
         ; test_case
             "derived schema unchanged without input_schema"
             `Quick

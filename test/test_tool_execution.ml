@@ -1000,11 +1000,13 @@ let test_serial_barrier_splits_concurrent_batches () =
 
 let test_dispatch_passes_exact_tool_invocation () =
   let tool =
-    Tool.create_with_execution_env
+    Tool.of_schema
       ~descriptor:(descriptor_with Tool_contract.Concurrent)
-      ~name:"observe_invocation"
-      ~description:"Return exact invocation identity"
-      ~parameters:[]
+      (Types.tool_schema_of_params
+         ~name:"observe_invocation"
+         ~description:"Return exact invocation identity"
+         ~parameters:[]
+         ())
       (fun execution_env _ ->
          match Tool.Execution_env.invocation execution_env with
          | Some invocation ->
@@ -1108,10 +1110,8 @@ let test_lifecycle_surfaces_share_exact_tool_invocation () =
   in
   let subscription = Event_bus.subscribe ~config event_bus in
   let tool name result =
-    Tool.create_with_execution_env
-      ~name
-      ~description:""
-      ~parameters:[]
+    Tool.of_schema
+      (Types.tool_schema_of_params ~name ~description:"" ~parameters:[] ())
       (fun execution_env _ ->
          Option.iter
            (capture handler_invocations)
