@@ -317,10 +317,6 @@ let test_decode_rejects_parameters_that_disagree_with_input_schema () =
       |> Types.tool_schema_to_yojson
     with
     | `Assoc fields ->
-      (* The derived encoder already writes ["input_schema": null] for the
-         absent case. Prepending a second entry would leave the key duplicated,
-         and the derived decoder reads only one of them — which is how a
-         divergent pair slipped through as accepted. Replace it instead. *)
       `Assoc
         (("input_schema", input_schema)
          :: List.filter (fun (key, _) -> not (String.equal key "input_schema")) fields)
@@ -341,6 +337,29 @@ let test_decode_rejects_parameters_that_disagree_with_input_schema () =
       (Types.show_tool_schema accepted)
   | Error detail ->
     check string "derived decoder rejects the divergent pair" expected detail
+;;
+
+let test_derived_decoder_rejects_explicit_null_input_schema () =
+  let schema =
+    Types.tool_schema_of_params
+      ~name:"read_file"
+      ~description:"Read a file"
+      ~parameters:[]
+      ()
+  in
+  let payload =
+    match Types.tool_schema_to_yojson schema with
+    | `Assoc fields -> `Assoc (("input_schema", `Null) :: fields)
+    | _ -> fail "derived tool_schema encoding must be an object"
+  in
+  match Types.tool_schema_of_yojson payload with
+  | Ok _ -> fail "derived schema decoder accepted explicit null input_schema"
+  | Error detail ->
+    check
+      string
+      "present input_schema must be an object"
+      "input_schema must be a JSON object, got null"
+      detail
 ;;
 
 let test_decode_validates_parameters_even_with_input_schema () =
@@ -547,6 +566,10 @@ let () =
         ] )
     ; ( "derived decoder exact fields"
       , [ test_case
+            "explicit null input_schema"
+            `Quick
+            test_derived_decoder_rejects_explicit_null_input_schema
+        ; test_case
             "duplicate and unknown fields"
             `Quick
             test_derived_decoders_reject_duplicate_and_unknown_fields

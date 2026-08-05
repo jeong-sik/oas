@@ -523,21 +523,18 @@ let input_schema_of_json (json : Yojson.Safe.t)
 ;;
 
 (* [Yojson.Safe.t] carries no derived converters, so the deriving attributes on
-   [tool_schema.input_schema] name these three explicitly. The encoding is the
-   identity on the carried schema; [`Null] stands for absence, which is
-   unambiguous because {!input_schema_of_json} refuses to store [`Null]. *)
+   [tool_schema.input_schema] name these three explicitly. [@default None]
+   represents absence by omitting the field; a present field is decoded here
+   and must contain an admissible schema object. *)
 let input_schema_to_yojson : Yojson.Safe.t option -> Yojson.Safe.t = function
   | None -> `Null
   | Some schema -> schema
 ;;
 
-let input_schema_of_yojson : Yojson.Safe.t -> (Yojson.Safe.t option, string) result =
-  function
-  | `Null -> Ok None
-  | json ->
-    (match input_schema_of_json json with
-     | Ok schema -> Ok (Some schema)
-     | Error error -> Error (input_schema_error_to_string error))
+let input_schema_of_yojson json =
+  match input_schema_of_json json with
+  | Ok schema -> Ok (Some schema)
+  | Error error -> Error (input_schema_error_to_string error)
 ;;
 
 let pp_input_schema fmt = function

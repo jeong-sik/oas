@@ -414,12 +414,10 @@ let test_context_handler_still_refuses_a_missing_context () =
     check bool "not recoverable" false recoverable
 ;;
 
-(* A tool_schema written by a released version carries no "input_schema" key at
-   all. ppx_deriving_yojson does not default an option field on its own, so
-   without [@default None] the derived decoder rejects every such payload and
-   Agent_card.of_json fails on any peer card that contains a tool. *)
-let test_released_payload_without_the_key_decodes () =
-  let legacy : Yojson.Safe.t =
+(* [input_schema = None] is encoded by omitting the key. The derived decoder
+   must preserve that current parameter-derived schema representation. *)
+let test_payload_without_the_key_decodes () =
+  let payload : Yojson.Safe.t =
     `Assoc
       [ "name", `String "read_file"
       ; "description", `String "Read a file"
@@ -435,8 +433,8 @@ let test_released_payload_without_the_key_decodes () =
       ; "strict", `Null
       ]
   in
-  match Types.tool_schema_of_yojson legacy with
-  | Error detail -> failf "released payload rejected: %s" detail
+  match Types.tool_schema_of_yojson payload with
+  | Error detail -> failf "payload without input_schema rejected: %s" detail
   | Ok schema ->
     check
       (option json)
@@ -472,9 +470,9 @@ let () =
             `Quick
             test_context_handler_still_refuses_a_missing_context
         ; test_case
-            "released payload without the input_schema key decodes"
+            "payload without the input_schema key decodes"
             `Quick
-            test_released_payload_without_the_key_decodes
+            test_payload_without_the_key_decodes
         ; test_case
             "derived schema unchanged without input_schema"
             `Quick
