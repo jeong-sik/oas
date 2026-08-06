@@ -215,6 +215,47 @@ let test_json_schema_integer_number_union_uses_number () =
     Alcotest.failf "expected one projected parameter, got %d" (List.length params)
 ;;
 
+(* The [enum] route reaches the same decision as the [type] array above. It once
+   carried its own copy of the rule without the numeric pair, so a mixed numeric
+   enum dropped the property and took its description and required flag with
+   it — the parameter view lost a parameter the schema declares. *)
+let test_json_schema_mixed_numeric_enum_uses_number () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "ratio": {"enum": [1, 2.5], "description": "Sampling ratio"}
+    },
+    "required": ["ratio"]
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error detail -> Alcotest.failf "representable numeric enum rejected: %s" detail
+  | Ok [ param ] ->
+    Alcotest.check check_param_type "integer plus number" Types.Number param.param_type;
+    Alcotest.(check string) "name kept" "ratio" param.name;
+    Alcotest.(check string) "description kept" "Sampling ratio" param.description;
+    Alcotest.(check bool) "required kept" true param.required
+  | Ok params ->
+    Alcotest.failf "expected one projected parameter, got %d" (List.length params)
+;;
+
+(* Boundary for the rule above: narrowing applies to the numeric pair only, so
+   an enum spanning unrelated JSON types stays unrepresentable. *)
+let test_json_schema_heterogeneous_enum_omits_property () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {"mixed": {"enum": [1, "a"]}}
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error detail -> Alcotest.failf "heterogeneous enum rejected: %s" detail
+  | Ok params -> Alcotest.(check int) "heterogeneous enum omitted" 0 (List.length params)
+;;
+
 (* ── Tool bridge ────────────────────────────────────────────────── *)
 
 let test_mcp_tool_to_sdk_tool () =
@@ -462,6 +503,14 @@ let () =
             "integer-number union uses number"
             `Quick
             test_json_schema_integer_number_union_uses_number
+        ; test_case
+            "mixed numeric enum uses number"
+            `Quick
+            test_json_schema_mixed_numeric_enum_uses_number
+        ; test_case
+            "heterogeneous enum omits property"
+            `Quick
+            test_json_schema_heterogeneous_enum_omits_property
         ] )
     ; ( "tool_bridge"
       , [ test_case "mcp_tool_to_sdk_tool" `Quick test_mcp_tool_to_sdk_tool

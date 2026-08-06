@@ -370,6 +370,24 @@ let required_list_of_schema schema =
   | _ -> Error "schema must be a JSON object"
 ;;
 
+(* A property whose accepted values span several JSON types has no single
+   [param_type]. JSON Schema counts every integer as a number, so that one pair
+   narrows to [Number] instead of dropping the property — and with it the
+   property's name, description, and required flag — from the parameter view.
+   Every other combination stays unrepresentable. Both orderings of the pair are
+   listed because which one [List.sort_uniq] produces follows the constructor
+   order of {!param_type}, which this rule does not depend on.
+
+   Declared once and shared: a [type] array and an [enum] reach this decision by
+   different routes, and when only the array route carried the rule, mixed
+   numeric enums such as ["enum": [1, 2.5]] lost their property. *)
+let narrow_param_types types =
+  match List.sort_uniq compare types with
+  | [ param_type ] -> Some param_type
+  | [ Integer; Number ] | [ Number; Integer ] -> Some Number
+  | [] | _ :: _ :: _ -> None
+;;
+
 let property_type_from_union name values =
   let result =
     List.fold_left
@@ -387,11 +405,7 @@ let property_type_from_union name values =
       values
   in
   match result with
-  | Ok values ->
-    (match List.sort_uniq compare values with
-     | [ param_type ] -> Ok (Some param_type)
-     | [ Integer; Number ] | [ Number; Integer ] -> Ok (Some Number)
-     | [] | _ :: _ :: _ -> Ok None)
+  | Ok values -> Ok (narrow_param_types values)
   | Error _ as error -> error
 ;;
 
@@ -406,12 +420,7 @@ let param_type_of_json_value = function
 ;;
 
 let infer_uniform_param_type values =
-  values
-  |> List.filter_map param_type_of_json_value
-  |> List.sort_uniq compare
-  |> function
-  | [ param_type ] -> Some param_type
-  | [] | _ :: _ :: _ -> None
+  values |> List.filter_map param_type_of_json_value |> narrow_param_types
 ;;
 
 let property_type name prop =
