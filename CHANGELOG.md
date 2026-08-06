@@ -94,6 +94,44 @@ been removed. Binding identities are constructed only from canonical
 
 * **tool:** send the caller's JSON Schema to providers verbatim ([#2938](https://github.com/jeong-sik/oas/issues/2938)) ([8e3b616](https://github.com/jeong-sik/oas/commit/8e3b61669774e42edc5040e90887b5914c971d33))
 
+### Breaking Changes in a patch release
+
+The version number understates this release. The commit landed under a
+`fix(...)` subject, so the version was computed as a patch, but the change
+removes released public API and replaces the checkpoint contract. Upgrading
+from `0.231.13` is not source-compatible.
+
+`Tool.create_with_context` and `Tool.create_with_execution_env` are removed.
+Where a schema comes from and what a handler reads are independent, so one
+constructor per pair left combinations that no name covered — including an
+authoritative JSON Schema on an execution-environment handler. Callers now pair
+the two explicitly:
+
+```ocaml
+(* was: Tool.create_with_execution_env ~name ~description ~parameters handler *)
+Tool.of_schema (Types.tool_schema_of_params ~name ~description ~parameters ()) handler
+
+(* was: Tool.create_with_context ~name ~description ~parameters handler *)
+Tool.of_schema
+  (Types.tool_schema_of_params ~name ~description ~parameters ())
+  (Tool.requiring_context handler)
+```
+
+`Tool.ignoring_execution_env` adapts a handler that takes only the input, and
+`Types.tool_schema_of_input_schema` supplies the authoritative-schema half.
+`Tool.create` is unchanged.
+
+The checkpoint contract moved from v9 to v10 with no migration path. A stored
+v9 artifact decodes to
+`Error (Serialization (VersionMismatch { expected = 10; got = 9 }))`, so
+existing checkpoints must be reset rather than upgraded.
+
+Why the number was not corrected: `0.231.14` was already tagged and published
+when this was noticed. Releasing an otherwise empty `0.232.0` would have added
+a version boundary that no code change sits behind, so the release is recorded
+here as it is. See #2946 for the signal path that let a breaking change be
+numbered as a patch.
+
 ## [0.231.13](https://github.com/jeong-sik/oas/compare/v0.231.12...v0.231.13) (2026-08-04)
 
 
