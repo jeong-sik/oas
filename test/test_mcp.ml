@@ -198,6 +198,23 @@ let test_json_schema_union_multiple_concrete_types_is_not_projected () =
   | Ok params -> Alcotest.(check int) "multi-type property omitted" 0 (List.length params)
 ;;
 
+let test_json_schema_integer_number_union_uses_number () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {"value": {"type": ["integer", "number"]}},
+    "required": ["value"]
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error detail -> Alcotest.failf "representable numeric union rejected: %s" detail
+  | Ok [ param ] ->
+    Alcotest.check check_param_type "integer plus number" Types.Number param.param_type
+  | Ok params ->
+    Alcotest.failf "expected one projected parameter, got %d" (List.length params)
+;;
+
 (* ── Tool bridge ────────────────────────────────────────────────── *)
 
 let test_mcp_tool_to_sdk_tool () =
@@ -441,6 +458,10 @@ let () =
             "union multiple concrete types is not projected"
             `Quick
             test_json_schema_union_multiple_concrete_types_is_not_projected
+        ; test_case
+            "integer-number union uses number"
+            `Quick
+            test_json_schema_integer_number_union_uses_number
         ] )
     ; ( "tool_bridge"
       , [ test_case "mcp_tool_to_sdk_tool" `Quick test_mcp_tool_to_sdk_tool

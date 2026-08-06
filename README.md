@@ -205,14 +205,17 @@ let calc_tool =
 
 (* Context-aware handler *)
 let counter_tool =
-  Tool.create_with_context ~name:"counter"
-    ~description:"Increment and return counter"
-    ~parameters:[]
-    (fun ctx _input ->
+  Tool.of_schema
+    (Types.tool_schema_of_params
+      ~name:"counter"
+      ~description:"Increment and return counter"
+      ~parameters:[]
+      ())
+    (Tool.requiring_context (fun ctx _input ->
       let n = match Context.get ctx "count" with
         | Some (`Int n) -> n + 1 | _ -> 1 in
       Context.set ctx "count" (`Int n);
-      Ok { Types.content = string_of_int n; _meta = None })
+      Ok { Types.content = string_of_int n; _meta = None }))
 ```
 
 ## Hooks and HITL

@@ -336,6 +336,46 @@ let test_nullable_property_validation_uses_authoritative_schema () =
   | Tool_input_validation.Valid _ -> fail "nullable string accepted an integer"
 ;;
 
+let test_integer_validation_accepts_integral_floats () =
+  let schema =
+    authoritative_schema_exn
+      (`Assoc
+          [ "type", `String "object"
+          ; "properties", `Assoc [ "count", `Assoc [ "type", `String "integer" ] ]
+          ; "required", `List [ `String "count" ]
+          ])
+  in
+  (match Tool_input_validation.validate schema (`Assoc [ "count", `Float 1.0 ]) with
+   | Tool_input_validation.Valid _ -> ()
+   | Tool_input_validation.Invalid _ -> fail "JSON Schema integer rejected 1.0");
+  match Tool_input_validation.validate schema (`Assoc [ "count", `Float 1.5 ]) with
+  | Tool_input_validation.Invalid _ -> ()
+  | Tool_input_validation.Valid _ -> fail "JSON Schema integer accepted 1.5"
+;;
+
+let test_boolean_property_schemas_are_preserved_and_enforced () =
+  let input_schema : Yojson.Safe.t =
+    `Assoc
+      [ "type", `String "object"
+      ; "properties", `Assoc [ "open_value", `Bool true; "closed_value", `Bool false ]
+      ; "required", `List [ `String "open_value" ]
+      ]
+  in
+  let schema = authoritative_schema_exn input_schema in
+  check (option json) "boolean schemas preserved" (Some input_schema) schema.input_schema;
+  check int "boolean schemas omitted from projection" 0 (List.length schema.parameters);
+  (match Tool_input_validation.validate schema (`Assoc [ "open_value", `List [] ]) with
+   | Tool_input_validation.Valid _ -> ()
+   | Tool_input_validation.Invalid _ -> fail "true property schema rejected a value");
+  match
+    Tool_input_validation.validate
+      schema
+      (`Assoc [ "open_value", `Null; "closed_value", `String "forbidden" ])
+  with
+  | Tool_input_validation.Invalid _ -> ()
+  | Tool_input_validation.Valid _ -> fail "false property schema accepted a value"
+;;
+
 let test_const_and_enum_validation_use_json_semantics () =
   let schema =
     authoritative_schema_exn
@@ -402,6 +442,40 @@ let test_explicit_non_object_root_schema_is_rejected () =
       true
       (Util.contains_substring_ci ~haystack:detail ~needle:"object")
   | Ok _ -> fail "an explicitly array-valued tool input schema was accepted"
+;;
+
+let test_non_object_only_root_constraints_are_rejected () =
+  let expect_rejected label input_schema =
+    match
+      Types.tool_schema_of_input_schema
+        ~name:"non_object_arguments"
+        ~description:label
+        ~input_schema
+        ()
+    with
+    | Error _ -> ()
+    | Ok _ -> failf "%s: non-object-only schema was accepted" label
+  in
+  expect_rejected "array const" (`Assoc [ "const", `List [] ]);
+  expect_rejected
+    "array-only anyOf"
+    (`Assoc [ "anyOf", `List [ `Assoc [ "type", `String "array" ] ] ]);
+  match
+    Types.tool_schema_of_input_schema
+      ~name:"object_or_array_arguments"
+      ~description:"Object remains possible"
+      ~input_schema:
+        (`Assoc
+            [ ( "anyOf"
+              , `List
+                  [ `Assoc [ "type", `String "array" ]
+                  ; `Assoc [ "type", `String "object" ]
+                  ] )
+            ])
+      ()
+  with
+  | Ok _ -> ()
+  | Error detail -> failf "mixed anyOf incorrectly excluded objects: %s" detail
 ;;
 
 (* [Types.tool_schema] is [private], so there is no expression that pairs a
@@ -662,6 +736,14 @@ let () =
             `Quick
             test_nullable_property_validation_uses_authoritative_schema
         ; test_case
+            "integer validation accepts integral floats"
+            `Quick
+            test_integer_validation_accepts_integral_floats
+        ; test_case
+            "boolean property schemas are preserved and enforced"
+            `Quick
+            test_boolean_property_schemas_are_preserved_and_enforced
+        ; test_case
             "const and enum use JSON semantic equality"
             `Quick
             test_const_and_enum_validation_use_json_semantics
@@ -669,6 +751,10 @@ let () =
             "explicit non-object root schema is rejected"
             `Quick
             test_explicit_non_object_root_schema_is_rejected
+        ; test_case
+            "non-object-only root constraints are rejected"
+            `Quick
+            test_non_object_only_root_constraints_are_rejected
         ; test_case
             "input_schema constructor derives its parameters"
             `Quick

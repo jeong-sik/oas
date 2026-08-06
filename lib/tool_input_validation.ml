@@ -55,7 +55,11 @@ let matches_json_schema_type type_name = function
   | `String _ -> String.equal type_name "string"
   | `Int _ | `Intlit _ ->
     String.equal type_name "integer" || String.equal type_name "number"
-  | `Float _ -> String.equal type_name "number"
+  | `Float value ->
+    String.equal type_name "number"
+    || (String.equal type_name "integer"
+        && Float.is_finite value
+        && Float.is_integer value)
   | `Bool _ -> String.equal type_name "boolean"
   | `List _ -> String.equal type_name "array"
   | `Assoc _ -> String.equal type_name "object"
@@ -204,6 +208,7 @@ let rec json_semantic_equal left right =
 
 let property_matches property value =
   match property with
+  | `Bool allowed -> allowed
   | `Assoc fields ->
     let type_matches =
       match property_type_names property with
@@ -223,7 +228,7 @@ let property_matches property value =
       | Some _ -> false
     in
     type_matches && const_matches && enum_matches
-  | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> true
+  | `Null | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> true
 ;;
 
 let expected_property_type property =

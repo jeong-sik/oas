@@ -390,6 +390,7 @@ let property_type_from_union name values =
   | Ok values ->
     (match List.sort_uniq compare values with
      | [ param_type ] -> Ok (Some param_type)
+     | [ Integer; Number ] | [ Number; Integer ] -> Ok (Some Number)
      | [] | _ :: _ :: _ -> Ok None)
   | Error _ as error -> error
 ;;
@@ -415,6 +416,7 @@ let infer_uniform_param_type values =
 
 let property_type name prop =
   match prop with
+  | `Bool _ -> Ok None
   | `Assoc fields ->
     (match List.assoc_opt "type" fields with
      | Some (`String type_name) ->
@@ -430,7 +432,8 @@ let property_type name prop =
         | None, Some (`List values) -> Ok (infer_uniform_param_type values)
         | None, Some _ -> Error (Printf.sprintf "property %S enum must be an array" name)
         | None, None -> Ok None))
-  | _ -> Error (Printf.sprintf "property %S must be a JSON object" name)
+  | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
+    Error (Printf.sprintf "property %S must be a JSON object or boolean schema" name)
 ;;
 
 let property_description prop =
@@ -542,29 +545,94 @@ let input_schema_of_json (json : Yojson.Safe.t)
     Error (Input_schema_not_an_object (json_shape_of_json other))
 ;;
 
+let rec schema_definitely_excludes_objects = function
+  | `Bool false -> true
+  | `Bool true -> false
+  | `Assoc fields ->
+    let type_excludes =
+      match List.assoc_opt "type" fields with
+      | Some (`String type_name) -> not (String.equal type_name "object")
+      | Some (`List values) ->
+        List.for_all
+          (function
+            | `String type_name -> not (String.equal type_name "object")
+            | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _ | `List _ ->
+              false)
+          values
+      | None | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `Assoc _) -> false
+    in
+    let const_excludes =
+      match List.assoc_opt "const" fields with
+      | Some (`Assoc _) | None -> false
+      | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _) ->
+        true
+    in
+    let enum_excludes =
+      match List.assoc_opt "enum" fields with
+      | Some (`List values) ->
+        List.for_all
+          (function
+            | `Assoc _ -> false
+            | `Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ ->
+              true)
+          values
+      | None
+      | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _) ->
+        false
+    in
+    let all_of_excludes =
+      match List.assoc_opt "allOf" fields with
+      | Some (`List schemas) -> List.exists schema_definitely_excludes_objects schemas
+      | None
+      | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _) ->
+        false
+    in
+    let alternatives_exclude keyword =
+      match List.assoc_opt keyword fields with
+      | Some (`List schemas) -> List.for_all schema_definitely_excludes_objects schemas
+      | None
+      | Some (`Null | `Bool _ | `Int _ | `Intlit _ | `Float _ | `String _ | `Assoc _) ->
+        false
+    in
+    type_excludes
+    || const_excludes
+    || enum_excludes
+    || all_of_excludes
+    || alternatives_exclude "anyOf"
+    || alternatives_exclude "oneOf"
+  | `Null | `Int _ | `Intlit _ | `Float _ | `String _ | `List _ -> false
+;;
+
 let validate_tool_argument_root_schema schema =
   match schema with
   | `Assoc fields ->
-    (match List.assoc_opt "type" fields with
-     | None | Some (`String "object") -> Ok ()
-     | Some (`List values) ->
-       let type_names =
-         List.fold_right
-           (fun value acc ->
-              match value, acc with
-              | `String type_name, Ok names -> Ok (type_name :: names)
-              | _, Ok _ -> Error "tool input schema root type must contain only strings"
-              | _, (Error _ as error) -> error)
-           values
-           (Ok [])
-       in
-       (match type_names with
-        | Ok names when List.sort_uniq String.compare names = [ "object" ] -> Ok ()
-        | Ok _ -> Error "tool input schema root type must describe object arguments"
-        | Error _ as error -> error)
-     | Some (`String _) ->
-       Error "tool input schema root type must describe object arguments"
-     | Some _ -> Error "tool input schema root type must be a string or string array")
+    let declared_type =
+      match List.assoc_opt "type" fields with
+      | None | Some (`String "object") -> Ok ()
+      | Some (`List values) ->
+        let type_names =
+          List.fold_right
+            (fun value acc ->
+               match value, acc with
+               | `String type_name, Ok names -> Ok (type_name :: names)
+               | _, Ok _ -> Error "tool input schema root type must contain only strings"
+               | _, (Error _ as error) -> error)
+            values
+            (Ok [])
+        in
+        (match type_names with
+         | Ok names when List.sort_uniq String.compare names = [ "object" ] -> Ok ()
+         | Ok _ -> Error "tool input schema root type must describe object arguments"
+         | Error _ as error -> error)
+      | Some (`String _) ->
+        Error "tool input schema root type must describe object arguments"
+      | Some _ -> Error "tool input schema root type must be a string or string array"
+    in
+    (match declared_type with
+     | Error _ as error -> error
+     | Ok () when schema_definitely_excludes_objects schema ->
+       Error "tool input schema constraints cannot describe object arguments"
+     | Ok () -> Ok ())
   | `Bool _ | `Float _ | `Int _ | `Intlit _ | `List _ | `Null | `String _ ->
     Error "tool input schema must be a JSON object"
 ;;
