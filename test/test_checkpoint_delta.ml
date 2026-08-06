@@ -75,7 +75,8 @@ let tool_param_gen =
 let tool_schema_gen =
   let open QCheck.Gen in
   map3
-    (fun name description parameters -> { name; description; parameters; strict = None })
+    (fun name description parameters ->
+       Types.tool_schema_of_params ~name ~description ~parameters ())
     small_string_gen
     small_string_gen
     (list_size (int_range 0 2) tool_param_gen)
@@ -224,12 +225,13 @@ let make_unit_checkpoint
 ;;
 
 let sample_tool_schema =
-  { name = "lookup"
-  ; description = "Lookup a value"
-  ; parameters =
-      [ { name = "key"; description = "Key"; param_type = String; required = true } ]
-  ; strict = None
-  }
+  Types.tool_schema_of_params
+    ~name:"lookup"
+    ~description:"Lookup a value"
+    ~parameters:
+      [ { Types.name = "key"; description = "Key"; param_type = String; required = true }
+      ]
+    ()
 ;;
 
 let sample_mcp_session =

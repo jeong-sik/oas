@@ -35,17 +35,17 @@ let base_info : Agent_card.agent_info =
       ; enable_thinking = Some true
       }
   ; tool_schemas =
-      [ { Types.name = "get_weather"
-        ; description = "Get weather"
-        ; parameters =
-            [ { name = "city"
+      [ Types.tool_schema_of_params
+          ~name:"get_weather"
+          ~description:"Get weather"
+          ~parameters:
+            [ { Types.name = "city"
               ; description = "City"
               ; param_type = String
               ; required = true
               }
             ]
-        ; strict = None
-        }
+          ()
       ]
   ; supported_providers = []
   ; mcp_clients_count = 0

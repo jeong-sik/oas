@@ -144,8 +144,10 @@
   test_structured_stream
   test_swiss_verdict_json
   test_tool
+  test_tool_input_schema_fidelity
   test_tool_input_validation
   test_tool_middleware
+  test_tool_schema_decode_boundary
   test_tracing
   test_trajectory
   test_trajectory_unit
@@ -282,8 +284,10 @@
   test_structured_stream
   test_swiss_verdict_json
   test_tool
+  test_tool_input_schema_fidelity
   test_tool_input_validation
   test_tool_middleware
+  test_tool_schema_decode_boundary
   test_tracing
   test_trajectory
   test_trajectory_unit

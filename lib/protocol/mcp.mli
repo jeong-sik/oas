@@ -28,6 +28,18 @@ val json_schema_to_params : Yojson.Safe.t -> Types.tool_param list
 val json_schema_to_params_result : Yojson.Safe.t -> (Types.tool_param list, string) result
 val mcp_tool_of_sdk_tool : Mcp_schema.Sdk_types.tool -> mcp_tool
 
+(** Re-export of {!Mcp_schema.tool_of_input_schema_result}: derives the
+    parameter view from [~input_schema] and keeps that schema as the
+    authoritative wire form, so the two can never disagree. *)
+val tool_of_input_schema_result
+  :  ?descriptor:Tool.descriptor
+  -> ?strict:bool
+  -> name:string
+  -> description:string
+  -> input_schema:Yojson.Safe.t
+  -> (Yojson.Safe.t -> Types.tool_result)
+  -> (Tool.t, string) result
+
 val mcp_tool_to_sdk_tool
   :  call_fn:(Yojson.Safe.t -> Types.tool_result)
   -> mcp_tool

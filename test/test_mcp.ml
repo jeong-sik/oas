@@ -121,7 +121,7 @@ let test_json_schema_no_description () =
   Alcotest.check check_param_type "bool type" Types.Boolean (List.hd params).param_type
 ;;
 
-let test_json_schema_missing_property_type_fails () =
+let test_json_schema_missing_property_type_is_not_projected () =
   let schema =
     Yojson.Safe.from_string
       {|{
@@ -132,8 +132,9 @@ let test_json_schema_missing_property_type_fails () =
   }|}
   in
   match Mcp.json_schema_to_params_result schema with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "expected missing property type to fail"
+  | Error detail -> Alcotest.failf "valid untyped property rejected: %s" detail
+  | Ok params ->
+    Alcotest.(check int) "unprojectable property omitted" 0 (List.length params)
 ;;
 
 let test_json_schema_nullable_union_uses_concrete_type () =
@@ -167,7 +168,7 @@ let test_json_schema_union_unknown_type_fails () =
   | Ok _ -> Alcotest.fail "expected unknown union type to fail"
 ;;
 
-let test_json_schema_union_null_only_fails () =
+let test_json_schema_union_null_only_is_not_projected () =
   let schema =
     Yojson.Safe.from_string
       {|{
@@ -178,11 +179,11 @@ let test_json_schema_union_null_only_fails () =
   }|}
   in
   match Mcp.json_schema_to_params_result schema with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "expected null-only union type to fail"
+  | Error detail -> Alcotest.failf "valid null-only property rejected: %s" detail
+  | Ok params -> Alcotest.(check int) "null-only property omitted" 0 (List.length params)
 ;;
 
-let test_json_schema_union_multiple_concrete_types_fails () =
+let test_json_schema_union_multiple_concrete_types_is_not_projected () =
   let schema =
     Yojson.Safe.from_string
       {|{
@@ -193,8 +194,66 @@ let test_json_schema_union_multiple_concrete_types_fails () =
   }|}
   in
   match Mcp.json_schema_to_params_result schema with
-  | Error _ -> ()
-  | Ok _ -> Alcotest.fail "expected multi-concrete union type to fail"
+  | Error detail -> Alcotest.failf "valid multi-type property rejected: %s" detail
+  | Ok params -> Alcotest.(check int) "multi-type property omitted" 0 (List.length params)
+;;
+
+let test_json_schema_integer_number_union_uses_number () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {"value": {"type": ["integer", "number"]}},
+    "required": ["value"]
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error detail -> Alcotest.failf "representable numeric union rejected: %s" detail
+  | Ok [ param ] ->
+    Alcotest.check check_param_type "integer plus number" Types.Number param.param_type
+  | Ok params ->
+    Alcotest.failf "expected one projected parameter, got %d" (List.length params)
+;;
+
+(* The [enum] route reaches the same decision as the [type] array above. It once
+   carried its own copy of the rule without the numeric pair, so a mixed numeric
+   enum dropped the property and took its description and required flag with
+   it — the parameter view lost a parameter the schema declares. *)
+let test_json_schema_mixed_numeric_enum_uses_number () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {
+      "ratio": {"enum": [1, 2.5], "description": "Sampling ratio"}
+    },
+    "required": ["ratio"]
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error detail -> Alcotest.failf "representable numeric enum rejected: %s" detail
+  | Ok [ param ] ->
+    Alcotest.check check_param_type "integer plus number" Types.Number param.param_type;
+    Alcotest.(check string) "name kept" "ratio" param.name;
+    Alcotest.(check string) "description kept" "Sampling ratio" param.description;
+    Alcotest.(check bool) "required kept" true param.required
+  | Ok params ->
+    Alcotest.failf "expected one projected parameter, got %d" (List.length params)
+;;
+
+(* Boundary for the rule above: narrowing applies to the numeric pair only, so
+   an enum spanning unrelated JSON types stays unrepresentable. *)
+let test_json_schema_heterogeneous_enum_omits_property () =
+  let schema =
+    Yojson.Safe.from_string
+      {|{
+    "type": "object",
+    "properties": {"mixed": {"enum": [1, "a"]}}
+  }|}
+  in
+  match Mcp.json_schema_to_params_result schema with
+  | Error detail -> Alcotest.failf "heterogeneous enum rejected: %s" detail
+  | Ok params -> Alcotest.(check int) "heterogeneous enum omitted" 0 (List.length params)
 ;;
 
 (* ── Tool bridge ────────────────────────────────────────────────── *)
@@ -421,9 +480,9 @@ let () =
         ; test_case "no required" `Quick test_json_schema_no_required
         ; test_case "no description" `Quick test_json_schema_no_description
         ; test_case
-            "missing property type fails"
+            "missing property type is not projected"
             `Quick
-            test_json_schema_missing_property_type_fails
+            test_json_schema_missing_property_type_is_not_projected
         ; test_case
             "nullable union uses concrete type"
             `Quick
@@ -432,11 +491,26 @@ let () =
             "union unknown type fails"
             `Quick
             test_json_schema_union_unknown_type_fails
-        ; test_case "union null-only fails" `Quick test_json_schema_union_null_only_fails
         ; test_case
-            "union multiple concrete types fails"
+            "union null-only is not projected"
             `Quick
-            test_json_schema_union_multiple_concrete_types_fails
+            test_json_schema_union_null_only_is_not_projected
+        ; test_case
+            "union multiple concrete types is not projected"
+            `Quick
+            test_json_schema_union_multiple_concrete_types_is_not_projected
+        ; test_case
+            "integer-number union uses number"
+            `Quick
+            test_json_schema_integer_number_union_uses_number
+        ; test_case
+            "mixed numeric enum uses number"
+            `Quick
+            test_json_schema_mixed_numeric_enum_uses_number
+        ; test_case
+            "heterogeneous enum omits property"
+            `Quick
+            test_json_schema_heterogeneous_enum_omits_property
         ] )
     ; ( "tool_bridge"
       , [ test_case "mcp_tool_to_sdk_tool" `Quick test_mcp_tool_to_sdk_tool

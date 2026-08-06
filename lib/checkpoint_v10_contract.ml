@@ -1,4 +1,4 @@
-(** Exact validator for the current checkpoint-v9 persistence schema. *)
+(** Exact validator for the current checkpoint-v10 persistence schema. *)
 
 open Result_syntax
 
@@ -148,7 +148,7 @@ let validate_tool_schema ~scope json =
     validate_object_shape
       ~scope
       ~required:[ "name"; "description"; "parameters" ]
-      ~optional:[ "strict" ]
+      ~optional:[ "strict"; "input_schema" ]
       json
   in
   let* name = required_field ~scope "name" fields in
@@ -157,9 +157,17 @@ let validate_tool_schema ~scope json =
   let* () = validate_string ~scope:(scope ^ ".name") name in
   let* () = validate_string ~scope:(scope ^ ".description") description in
   let* () = validate_list ~scope:(scope ^ ".parameters") validate_tool_param parameters in
-  match List.assoc_opt "strict" fields with
+  let* () =
+    match List.assoc_opt "strict" fields with
+    | None -> Ok ()
+    | Some strict -> validate_bool ~scope:(scope ^ ".strict") strict
+  in
+  (* The authoritative tool argument schema is carried verbatim; only its
+     outer shape is contracted here, since its body is provider JSON Schema. *)
+  match List.assoc_opt "input_schema" fields with
   | None -> Ok ()
-  | Some strict -> validate_bool ~scope:(scope ^ ".strict") strict
+  | Some input_schema ->
+    validate_unique_object ~scope:(scope ^ ".input_schema") input_schema
 ;;
 
 let validate_tool_choice ~scope = function
@@ -676,7 +684,7 @@ let validate_common_checkpoint_fields ~scope fields =
   validate_unique_object ~scope:(scope ^ ".context") context
 ;;
 
-let validate_v9_json json =
+let validate_v10_json json =
   let scope = checkpoint_scope in
   let* fields =
     validate_object_shape ~scope ~required:current_checkpoint_fields ~optional:[] json

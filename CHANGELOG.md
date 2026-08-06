@@ -59,8 +59,8 @@ constructors return canonical `Tool.t` values directly, and the secondary
 typed runtime representation, erasure bridge, and unused agent-tool raw input
 field have been removed.
 
-* **checkpoint persistence:** accept only the exact current v9 checkpoint
-  schema. All earlier artifacts, including released v8, must be reset rather
+* **checkpoint persistence:** accept only the exact current v10 checkpoint
+  schema. All earlier artifacts, including released v9, must be reset rather
   than migrated at runtime.
 * **provider tools:** reject historical OpenAI `parameters` lists; current
   callers must supply `input_schema` or an already-provider-shaped JSON Schema

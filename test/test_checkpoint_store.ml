@@ -41,17 +41,17 @@ let make_checkpoint ?(session_id = "test-session") ?(created_at = 1000.0) ()
 ;;
 
 let sample_tool_schema : Types.tool_schema =
-  { name = "get_weather"
-  ; description = "Get weather"
-  ; parameters =
-      [ { name = "city"
+  Types.tool_schema_of_params
+    ~name:"get_weather"
+    ~description:"Get weather"
+    ~parameters:
+      [ { Types.name = "city"
         ; description = "City name"
         ; param_type = Types.String
         ; required = true
         }
       ]
-  ; strict = None
-  }
+    ()
 ;;
 
 let create_ok dir =

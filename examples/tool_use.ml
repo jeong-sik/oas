@@ -73,19 +73,21 @@ let weather_api_tool =
 (** A stateful tool whose context updates must retain call order. *)
 let counter_tool =
   let descriptor = Tool.ordinary_descriptor Serial in
-  Tool.create_with_context
+  Tool.of_schema
     ~descriptor
-    ~name:"counter"
-    ~description:"Increment and return a counter"
-    ~parameters:[]
-    (fun ctx _input ->
+    (Types.tool_schema_of_params
+       ~name:"counter"
+       ~description:"Increment and return a counter"
+       ~parameters:[]
+       ())
+    (Tool.requiring_context (fun ctx _input ->
        let n =
          match Context.get ctx "count" with
          | Some (`Int n) -> n + 1
          | _ -> 1
        in
        Context.set ctx "count" (`Int n);
-       Ok { Types.content = string_of_int n; _meta = None })
+       Ok { Types.content = string_of_int n; _meta = None }))
 ;;
 
 let () =
