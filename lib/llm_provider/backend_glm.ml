@@ -23,6 +23,7 @@ type glm_error_class =
   | Glm_auth_error
   | Glm_server_error
   | Glm_invalid_request
+  | Glm_context_overflow
 
 type glm_error_origin =
   | Provider_response
@@ -39,7 +40,8 @@ type glm_error =
 (** Classify Glm errors only by the provider's documented code field.
     Code mapping from docs.z.ai/api-reference/api-code:
     - 1000-1004,1100-1120: auth/account
-    - 1200-1261: parameter/request (terminal)
+    - 1200-1231: parameter/request (terminal)
+    - 1261: prompt exceeds max length (context overflow, oas#2947)
     - 1113: account arrears (quota)
     - 1300: policy block (terminal)
     - 1301: unsafe content (terminal)
@@ -73,8 +75,10 @@ let classify_glm_error ~code : glm_error_class * bool =
   | "1213"
   | "1214"
   | "1215"
-  | "1231"
-  | "1261" -> Glm_invalid_request, false
+  | "1231" -> Glm_invalid_request, false
+  (* oas#2947: 1261 is "Prompt exceeds max length" — a context-window
+     overflow, not a malformed request. Typed so consumers can shrink. *)
+  | "1261" -> Glm_context_overflow, false
   | _unknown_code -> Glm_invalid_request, false
 ;;
 
@@ -84,6 +88,7 @@ let http_code_of_glm_error_class = function
   | Glm_auth_error -> 401
   | Glm_server_error -> 500
   | Glm_invalid_request -> 400
+  | Glm_context_overflow -> 400
 ;;
 
 exception Glm_api_error of glm_error

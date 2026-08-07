@@ -185,6 +185,16 @@ type provider_failure_kind =
   (** oas#2483: a 200 with no deliverable content (no thinking/text/tool_calls).
       The typed stop reason is preserved so downstream policy can distinguish,
       for example, [MaxTokens] from [EndTurn] without parsing diagnostics. *)
+  | Context_overflow of { limit : int option }
+  (** oas#2947: the provider reported in its error envelope that the request
+      exceeded the model context window (e.g. glm code 1261 "Prompt exceeds
+      max length"). Distinct from [Request_body_too_large] (a pre-dispatch
+      transport byte boundary) and from an empty completion whose
+      [stop_reason] is [ContextWindowExceeded] (the same condition reported
+      through a 200). Retrying or rotating replays the same oversized prompt;
+      only the consumer's context recovery (compaction/shrink) can make
+      progress. [limit] is the provider-reported token limit when the
+      envelope carries one. *)
   | Unknown_provider_failure of { reason : string option }
 
 (** Transport-level error. *)

@@ -351,6 +351,16 @@ let of_provider_failure ?provider kind message =
                (Types.stop_reason_to_string stop_reason)
                message
          })
+  | Http_client.Context_overflow { limit } ->
+    (* oas#2947: same SDK-boundary flattening as the Empty_overflow arm above —
+       the typed overflow value is rendered via [Retry.error_message] into
+       [InvalidRequest] so the public surface stays source-compatible, while
+       the attribution path ([Provider_failure_attribution]) keeps the typed
+       [Retry.ContextOverflow] for consumers that branch on it. *)
+    InvalidRequest
+      { provider
+      ; reason = Retry.error_message (Retry.ContextOverflow { message; limit })
+      }
   | Http_client.Unknown_provider_failure { reason } ->
     let reason =
       match reason with

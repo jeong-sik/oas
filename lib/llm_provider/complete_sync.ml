@@ -98,14 +98,33 @@ let parse_sync_response ~http_codec ~provider_kind body =
     (match error.origin with
      | Backend_glm.Response_parse -> provider_parse_failure ~parser:"glm" error.message
      | Backend_glm.Provider_response ->
-       let semantic_code = Backend_glm.http_code_of_glm_error_class error.error_class in
-       let body =
-         match error.code with
-         | Some code -> Printf.sprintf "Glm error %s: %s" code error.message
-         | None -> Printf.sprintf "Glm error without code: %s" error.message
-       in
-       Error
-         (Http_client.HttpError { code = semantic_code; body; retry_after_header = None }))
+       (match error.error_class with
+        | Backend_glm.Glm_context_overflow ->
+          (* oas#2947: keep the provider-reported overflow typed instead of
+             flattening it into an HTTP 400 body string — consumers reach
+             their compaction/shrink path only on a typed overflow. glm's
+             envelope does not carry the token limit. *)
+          Error
+            (Http_client.ProviderFailure
+               { kind = Http_client.Context_overflow { limit = None }
+               ; message = error.message
+               })
+        | Backend_glm.Glm_quota_exceeded
+        | Backend_glm.Glm_rate_limited
+        | Backend_glm.Glm_auth_error
+        | Backend_glm.Glm_server_error
+        | Backend_glm.Glm_invalid_request ->
+          let semantic_code =
+            Backend_glm.http_code_of_glm_error_class error.error_class
+          in
+          let body =
+            match error.code with
+            | Some code -> Printf.sprintf "Glm error %s: %s" code error.message
+            | None -> Printf.sprintf "Glm error without code: %s" error.message
+          in
+          Error
+            (Http_client.HttpError
+               { code = semantic_code; body; retry_after_header = None })))
   | exn ->
     Reserved_exn.reraise_if_reserved exn;
     let message = Printexc.to_string exn in

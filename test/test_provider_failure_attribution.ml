@@ -558,6 +558,25 @@ let test_empty_completion_overflow_types_as_context_overflow () =
   | other -> Alcotest.failf "expected Api ContextOverflow, got %s" (Error.to_string other)
 ;;
 
+(* oas#2947: a provider-reported overflow (glm 1261) must reach the same
+   typed [Api ContextOverflow] as the empty-completion overflow above — the
+   consumer's compaction/shrink recovery branches on that constructor. *)
+let test_provider_reported_overflow_types_as_context_overflow () =
+  match
+    Attribution.sdk_error_of_http_error
+      (Http.ProviderFailure
+         { kind = Http.Context_overflow { limit = None }
+         ; message = "Prompt exceeds max length"
+         })
+  with
+  | Error.Api (Llm_provider.Retry.ContextOverflow { limit = None; _ } as api) ->
+    check_bool
+      "overflow is not transport-retryable"
+      false
+      (Llm_provider.Retry.is_retryable api)
+  | other -> Alcotest.failf "expected Api ContextOverflow, got %s" (Error.to_string other)
+;;
+
 let test_request_body_limit_preserves_typed_capacity_evidence () =
   match
     Attribution.sdk_error_of_http_error
@@ -750,6 +769,10 @@ let () =
             "ContextWindowExceeded types as Api ContextOverflow"
             `Quick
             test_empty_completion_overflow_types_as_context_overflow
+        ; Alcotest.test_case
+            "provider-reported overflow types as context overflow (oas#2947)"
+            `Quick
+            test_provider_reported_overflow_types_as_context_overflow
         ; Alcotest.test_case
             "EndTurn stays provider unavailable"
             `Quick

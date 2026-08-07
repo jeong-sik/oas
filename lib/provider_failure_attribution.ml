@@ -63,6 +63,13 @@ let sdk_error_of_http_error ?(accept_rejected = Api_invalid_request) err =
     Error.Api
       (Retry.InvalidRequest
          { message; reason = Retry.Request_body_too_large { actual_bytes; limit_bytes } })
+  | Http.ProviderFailure { kind = Http.Context_overflow { limit }; message } ->
+    (* oas#2947: a provider-reported context overflow (e.g. glm 1261) is the
+       same consumer contract as a ContextWindowExceeded empty turn — only the
+       consumer's context recovery (compaction/shrink) can make progress, so
+       it must surface as the typed [Api ContextOverflow] and never as a
+       generic invalid-request. *)
+    Error.Api (Retry.ContextOverflow { message; limit })
   | Http.ProviderFailure { kind = Http.Empty_completion { stop_reason }; message } ->
     (* The #2621 empty-completion overflow rule is centralised in
        [Retry.verdict_of_empty_completion]. A ContextWindowExceeded empty turn
@@ -213,7 +220,8 @@ let ownership_of_provider_failure ~binding = function
   | Http.Provider_wire_error _
   | Http.Request_body_too_large _
   | Http.Response_body_too_large _
-  | Http.Empty_completion _ -> Attempt_local
+  | Http.Empty_completion _
+  | Http.Context_overflow _ -> Attempt_local
   | Http.Cli_startup_failed { reason } -> ownership_of_cli_startup ~binding reason
   | Http.Provider_reported_error _ | Http.Unknown_provider_failure _ -> Unclassified
 ;;
@@ -374,6 +382,13 @@ let provider_failure_to_yojson = function
       ; ( "stop_reason"
         , `String (Llm_provider.Types.stop_reason_to_metric_label stop_reason) )
       ]
+  | Http.Context_overflow { limit } ->
+    `Assoc
+      ([ "kind", `String "context_overflow" ]
+       @
+       match limit with
+       | Some limit -> [ "limit", `Int limit ]
+       | None -> [])
   | Http.Unknown_provider_failure _ ->
     `Assoc [ "kind", `String "unknown_provider_failure" ]
 ;;

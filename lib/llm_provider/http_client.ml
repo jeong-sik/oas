@@ -125,6 +125,10 @@ type provider_failure_kind =
      thinking, text, or tool_calls). Distinct from a parse error. Preserve the
      typed stop reason so policy remains outside this transport fact. *)
   | Empty_completion of { stop_reason : Types.stop_reason }
+  (* oas#2947: provider-reported context-window overflow (e.g. glm 1261),
+     kept typed so consumers reach their compaction/shrink path instead of
+     seeing a generic invalid-request. *)
+  | Context_overflow of { limit : int option }
   | Unknown_provider_failure of { reason : string option }
 
 type http_error =
@@ -201,6 +205,9 @@ let provider_failure_kind_to_string = function
     Printf.sprintf "response_body_too_large:%d" limit_bytes
   | Empty_completion { stop_reason } ->
     Printf.sprintf "empty_completion:%s" (Types.stop_reason_to_string stop_reason)
+  | Context_overflow { limit = Some limit } ->
+    Printf.sprintf "context_overflow:limit_%d" limit
+  | Context_overflow { limit = None } -> "context_overflow"
   | Unknown_provider_failure { reason = Some reason } ->
     Printf.sprintf "unknown_provider_failure:%s" reason
   | Unknown_provider_failure { reason = None } -> "unknown_provider_failure"

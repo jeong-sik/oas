@@ -74,7 +74,38 @@ let test_classification_matrix () =
   check_classification "quota" "1308" K.Glm_quota_exceeded false;
   check_classification "server" "1234" K.Glm_server_error true;
   check_classification "invalid" "1210" K.Glm_invalid_request false;
+  check_classification "context overflow (oas#2947)" "1261" K.Glm_context_overflow false;
   check_classification "unknown" "9999" K.Glm_invalid_request false
+;;
+
+(* oas#2947: the streaming path classifies a non-200 rejection by the
+   envelope's documented code field. 1261 must parse to the overflow class;
+   prose alone (no code) must not. *)
+let test_check_glm_error_1261_envelope () =
+  (match
+     K.check_glm_error {|{"error":{"code":"1261","message":"Prompt exceeds max length"}}|}
+   with
+   | Some err ->
+     check_class "envelope 1261 class" K.Glm_context_overflow err.K.error_class;
+     check
+       bool
+       "envelope 1261 message"
+       true
+       (String.equal err.K.message "Prompt exceeds max length")
+   | None -> fail "expected a parsed glm error envelope");
+  (match K.check_glm_error {|{"error":{"message":"Prompt exceeds max length"}}|} with
+   | Some err ->
+     check
+       bool
+       "codeless envelope is not overflow"
+       true
+       (err.K.error_class <> K.Glm_context_overflow)
+   | None -> fail "expected a parsed codeless glm error envelope");
+  check
+    bool
+    "non-json body parses to none"
+    true
+    (Option.is_none (K.check_glm_error "Prompt exceeds max length"))
 ;;
 
 let test_http_status_mapping () =
@@ -244,6 +275,10 @@ let () =
     "backend_glm_coverage"
     [ ( "classification"
       , [ test_case "error classification matrix" `Quick test_classification_matrix
+        ; test_case
+            "1261 envelope parses to context overflow (oas#2947)"
+            `Quick
+            test_check_glm_error_1261_envelope
         ; test_case "http status mapping" `Quick test_http_status_mapping
         ] )
     ; ( "request"

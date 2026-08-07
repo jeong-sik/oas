@@ -24,6 +24,10 @@ type glm_error_class =
   | Glm_auth_error
   | Glm_server_error
   | Glm_invalid_request
+  | Glm_context_overflow
+  (** oas#2947: code 1261 "Prompt exceeds max length" — the request
+        exceeded the model context window. Not retryable at the transport:
+        only the consumer's context recovery can make progress. *)
 
 type glm_error_origin =
   | Provider_response
@@ -52,6 +56,12 @@ val classify_glm_error : code:string -> glm_error_class * bool
     Used by complete.ml to normalize provider-specific codes
     into the shared HTTP error path. *)
 val http_code_of_glm_error_class : glm_error_class -> int
+
+(** Parse glm's structured error envelope from a raw response body.
+    [None] when the body is not JSON or carries no error object. Used by the
+    streaming path to classify a non-200 rejection by its documented [code]
+    field before provider identity is erased (oas#2947). *)
+val check_glm_error : string -> glm_error option
 
 (** Build a Glm chat completion request body.
     Delegates to {!Backend_openai.build_request} and injects

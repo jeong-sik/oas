@@ -917,6 +917,40 @@ let complete_stream_http
         publish_summary ~terminal:(Telemetry_event.Terminal_error "timeout_error") ();
         Error err
       | Ok (Error err) ->
+        (* oas#2947: a glm request rejection arrives as a non-200 whose body is
+           glm's structured error envelope. Promote a code-1261 context
+           overflow to the typed [ProviderFailure Context_overflow] here, while
+           the provider identity is still known — downstream classification
+           ([Retry.classify_error]) is provider-agnostic and would flatten it
+           into [InvalidRequest Unknown_invalid_request], cutting consumers off
+           from their compaction/shrink recovery. The promotion parses the
+           envelope's documented [code] field ([Backend_glm.check_glm_error]),
+           never message prose. *)
+        let err =
+          match http_codec with
+          | Provider_http_codec.Glm_chat ->
+            (match err with
+             | Http_client.HttpError { body; _ } ->
+               (match Backend_glm.check_glm_error body with
+                | Some
+                    { Backend_glm.error_class = Backend_glm.Glm_context_overflow
+                    ; message
+                    ; _
+                    } ->
+                  Http_client.ProviderFailure
+                    { kind = Http_client.Context_overflow { limit = None }; message }
+                | Some _ | None -> err)
+             | Http_client.NetworkError _
+             | Http_client.TimeoutError _
+             | Http_client.AcceptRejected _
+             | Http_client.ProviderTerminal _
+             | Http_client.ProviderFailure _ -> err)
+          | Provider_http_codec.Anthropic_messages
+          | Provider_http_codec.Openai_chat
+          | Provider_http_codec.Openai_responses
+          | Provider_http_codec.Gemini_generate_content
+          | Provider_http_codec.Ollama_chat -> err
+        in
         let terminal =
           match !terminal_state with
           | (Telemetry_event.Terminal_error _ | Telemetry_event.Terminal_cancelled) as
