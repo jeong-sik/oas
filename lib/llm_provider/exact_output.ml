@@ -1572,6 +1572,74 @@ let execution_error_cause = function
   | Exec.Output_normalization_failed (Exec.Invalid_json _) -> Invalid_json_output
 ;;
 
+(* A model asked for JSON without [response_format] answers in prose format
+   whenever it feels like it, and the most common deviation is a markdown
+   fence around an otherwise correct object. Measured 2026-08-08 against
+   glm-coding.glm-5-turbo on a 39,127-token structured-output prompt whose
+   instructions end with "Respond with ONLY the JSON object, no markdown":
+   two of five replies opened with ```json and the other three did not. The
+   run therefore failed at random on a body that parses once the fence is
+   removed, and the same prompt on kimi-for-coding fenced zero times out of
+   five — so this is per-model behaviour that no prompt wording has closed.
+
+   Only the fence is removed, and only when it wraps the whole body. Anything
+   else stays exactly as the provider sent it: this is not a repair pass over
+   malformed JSON, and [raw_response] keeps the original bytes either way so
+   the wire record still shows what arrived. *)
+let strip_enclosing_markdown_fence text =
+  let trimmed = String.trim text in
+  let starts_with prefix =
+    String.length trimmed >= String.length prefix
+    && String.equal (String.sub trimmed 0 (String.length prefix)) prefix
+  in
+  if not (starts_with "```")
+  then text
+  else (
+    match String.index_opt trimmed '\n' with
+    | None -> text
+    | Some first_newline ->
+      let opening = String.sub trimmed 0 first_newline in
+      (* The opening line is the fence plus at most a language tag, so a line
+         carrying anything else is not a fence this may touch. *)
+      let tag = String.trim (String.sub opening 3 (String.length opening - 3)) in
+      let tag_is_language =
+        String.for_all
+          (fun c ->
+             (c >= 'a' && c <= 'z')
+             || (c >= 'A' && c <= 'Z')
+             || (c >= '0' && c <= '9')
+             || Char.equal c '-'
+             || Char.equal c '_')
+          tag
+      in
+      if not tag_is_language
+      then text
+      else (
+        let body_start = first_newline + 1 in
+        let rest = String.sub trimmed body_start (String.length trimmed - body_start) in
+        let rest_trimmed = String.trim rest in
+        let closing = "```" in
+        let ends_with_fence =
+          String.length rest_trimmed >= String.length closing
+          && String.equal
+               (String.sub
+                  rest_trimmed
+                  (String.length rest_trimmed - String.length closing)
+                  (String.length closing))
+               closing
+        in
+        if not ends_with_fence
+        then text
+        else
+          (* The newline that separated the body from the closing fence is
+             part of the fence, not of the body. *)
+          String.trim
+            (String.sub
+               rest_trimmed
+               0
+               (String.length rest_trimmed - String.length closing))))
+;;
+
 let execute_once_with_publication ~publish ~net ?clock (attempt : attempt) =
   let ready = attempt.ready in
   let receipt = attempt.receipt in
@@ -1633,7 +1701,9 @@ let execute_once_with_publication ~publish ~net ?clock (attempt : attempt) =
          (match ready.provenance.actual_assurance, Plan.response_format ready.plan with
           | Json_syntax_only, Types.Off ->
             (try
-               let value = Yojson.Safe.from_string text in
+               let value =
+                 Yojson.Safe.from_string (strip_enclosing_markdown_fence text)
+               in
                Ok
                  { call_id = receipt_call_id receipt
                  ; receipt

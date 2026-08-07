@@ -774,6 +774,16 @@ val flow_attempt_evidence : flow_attempt -> flow_evidence
     Every candidate performs at most one generation POST. A final semantic
     rejection returns a typed nonempty exhaustion trace. OAS performs no domain
     durable commit, recovery, retirement, or preference update. *)
+val strip_enclosing_markdown_fence : string -> string
+(** Remove a markdown code fence that wraps an entire response body, leaving
+    every other byte untouched. A model asked for JSON without
+    [response_format] fences the object at its own discretion — measured
+    2026-08-08 on glm-coding.glm-5-turbo, two of five replies to one
+    39,127-token structured-output prompt opened with a fence and three did
+    not — so the same request failed at random on a body that parses once the
+    fence is gone. Exposed for tests; the parse path applies it before
+    [Yojson.Safe.from_string] and the raw response keeps the original bytes. *)
+
 val execute_flow_once
   :  net:[ `Generic | `Unix ] Eio.Net.ty Eio.Resource.t
   -> ?clock:_ Eio.Time.clock

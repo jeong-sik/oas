@@ -428,6 +428,11 @@
  (libraries agent_sdk llm_provider alcotest eio_main))
 
 (test
+ (name test_exact_output_markdown_fence)
+ (modules test_exact_output_markdown_fence)
+ (libraries agent_sdk alcotest))
+
+(test
  (name test_exact_output_validated_flow_evidence)
  (modules test_exact_output_validated_flow_evidence)
  (libraries agent_sdk llm_provider alcotest digestif eio_main))
