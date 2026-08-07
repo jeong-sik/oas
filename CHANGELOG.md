@@ -87,6 +87,13 @@ The unused `Binding_identity.of_resolved_provider` compatibility bridge has
 been removed. Binding identities are constructed only from canonical
 `Llm_provider.Provider_config.t` values.
 
+## [0.231.15](https://github.com/jeong-sik/oas/compare/v0.231.14...v0.231.15) (2026-08-07)
+
+
+### Bug Fixes
+
+* **glm:** type code-1261 prompt overflow as ContextOverflow ([#2947](https://github.com/jeong-sik/oas/issues/2947)) ([#2948](https://github.com/jeong-sik/oas/issues/2948)) ([7d916a2](https://github.com/jeong-sik/oas/commit/7d916a23b8a936e32d31f4a58f91aabfe0cc066b))
+
 ## [0.231.14](https://github.com/jeong-sik/oas/compare/v0.231.13...v0.231.14) (2026-08-06)
 
 
